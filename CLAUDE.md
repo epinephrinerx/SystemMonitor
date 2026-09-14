@@ -117,3 +117,9 @@ worker results now emit `sampler ready cores=... disks=... worker_pid=...`.
 This directory initially had no Git repository or remote. A local `main` repo
 was initialized. The user specified `https://github.com/epinephrinerx/SystemMonitor`
 as the `origin` remote; its initial remote-ref check returned no existing refs.
+
+Standalone build completed from source commit `7b8d91d` (pushed to origin/main):
+`dist/SysMonitor.exe` is 13,648,217 bytes. Its isolated startup test logged
+`frozen=True`, `sampler=process`, then `sampler ready cores=16 disks=7` with no
+exception during the brief check. The installer hash stayed unchanged and the
+installed copy was not replaced. See CHANGELOG.md for hashes and test limits.

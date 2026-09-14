@@ -1,6 +1,6 @@
 # Change log
 
-## 2026-09-14 — Source review fixes (not yet packaged)
+## 2026-09-14 — Source review fixes
 
 The review identified six defects. This revision addresses them without adding
 third-party dependencies. Runtime performance and crash stability have not been
@@ -77,3 +77,21 @@ not covered by these checks. The README's old benchmarks are explicitly historic
 - Initialized local Git on `main`. The user supplied
   `https://github.com/epinephrinerx/SystemMonitor` as `origin`; the initial remote
   check found no existing refs to preserve or merge.
+
+### Standalone artifact verification
+
+- Source commit `7b8d91d` was pushed to `origin/main` before packaging.
+- `build.cmd --app-only` succeeded with Python 3.14.7 and the existing
+  PyInstaller 6.22.2. No packages were installed.
+- Output: `dist/SysMonitor.exe`, 13,648,217 bytes, file version 2.0.0.
+- SHA-256: `38CAE229A721642CCB6DA0EFEA19D737D843BBD4A683B3A809944A04A2A6B1CB`.
+- The executable was launched with config/logs isolated under `build/exe-smoke`.
+  At 20:29:05 local time it logged `frozen=True` and `sampler=process`; at
+  20:29:06 it logged `sampler ready cores=16 disks=7 worker_pid=11888`.
+  No exception was recorded during the brief startup check. Test processes were
+  then stopped. This verifies frozen startup/IPC, not long-run crash stability.
+- `dist/SysMonitor-Setup.exe` was not rebuilt. Its SHA-256 before and after was
+  `3F11C304B2CB42C9677DDEE8694A4AC10D14B3D11B1D8BE6E6AF9AA6BBACF2F1`.
+- The installed application and user configuration were not replaced. The
+  earlier statements about unbuilt artifacts above describe the initial review;
+  this subsection records the subsequent standalone build.
