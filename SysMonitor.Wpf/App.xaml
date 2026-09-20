@@ -68,6 +68,21 @@
             </Setter>
         </Style>
 
+        <!-- The widget's own close button. Faint rather than hidden: a
+             control nobody can see is a control nobody finds, and the mini
+             view is small enough that a hover-only button would be a guess. -->
+        <Style x:Key="HoverIconButton" TargetType="Button"
+               BasedOn="{StaticResource IconButton}">
+            <Setter Property="Opacity" Value="0.35"/>
+            <Style.Triggers>
+                <DataTrigger Value="True"
+                             Binding="{Binding IsMouseOver,
+                                       RelativeSource={RelativeSource AncestorType=Window}}">
+                    <Setter Property="Opacity" Value="1"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
         <!-- A scrollbar in the shape the rest of Windows uses now: no arrow
              buttons, no track chrome, a thin rounded thumb that thickens when
              the pointer is near it. -->

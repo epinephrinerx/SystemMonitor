@@ -196,8 +196,8 @@
     <!-- The margin is the drop shadow's room.  Unlike the Tk build, these
          pixels are genuinely transparent rather than a colour key, so nothing
          here is accidentally click-through. -->
-    <Grid Margin="12">
-        <Border x:Name="Panel"
+    <Grid Background="Transparent">
+        <Border x:Name="Panel" Margin="12"
                 CornerRadius="14"
                 Background="{Binding PanelBrush}"
                 BorderBrush="{Binding EdgeBrush}"
@@ -206,6 +206,14 @@
             <Grid>
                 <!-- Mini view: the rotating one-metric summary. -->
                 <Grid x:Name="MiniView" Margin="12">
+                    <Button x:Name="MiniCloseButton" Content="&#xE8BB;"
+                            FontFamily="Segoe MDL2 Assets"
+                            FontSize="{DynamicResource FontTiny}"
+                            Width="18" Height="18" Panel.ZIndex="2"
+                            HorizontalAlignment="Right" VerticalAlignment="Top"
+                            Margin="0,-4,-4,0"
+                            Style="{StaticResource HoverIconButton}"/>
+
                     <TextBlock Style="{StaticResource Body}"
                                Text="{Binding Message}"
                                Foreground="{Binding LabelBrush}"
@@ -387,7 +395,8 @@
         <Path x:Name="Grip"
               Data="M 0,14 L 14,0 M 5,14 L 14,5 M 10,14 L 14,10"
               Stroke="{Binding LabelBrush}" StrokeThickness="1.4"
-              Width="14" Height="14" Margin="0,0,3,3"
+              Width="14" Height="14" Margin="0,0,15,15"
+              IsHitTestVisible="False"
               HorizontalAlignment="Right" VerticalAlignment="Bottom"
               Opacity="0.65"/>
     </Grid>

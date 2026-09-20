@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -46,8 +47,15 @@ public partial class MainWindow : Window
     private Point _dragOrigin;
     private Point _windowOrigin;
     private bool _dragging;
-    private bool _resizing;
-    private Size _resizeOrigin;
+    private Edge _resizing = Edge.None;
+
+    /// <summary>
+    /// Where the window was when the drag began. Every frame is computed from
+    /// this rather than from the last one: dragging a left or top edge moves
+    /// the window as well as sizing it, and an incremental version drifts --
+    /// worse once the size clamps and the pointer keeps going.
+    /// </summary>
+    private Rect _resizeOrigin;
 
     public MainWindow(AppConfig config, Sampler sampler, string[]? args = null)
     {
@@ -67,6 +75,7 @@ public partial class MainWindow : Window
         CloseButton.Click += (_, _) => Close();
         CollapseButton.Click += (_, _) => SetMode(Mode.Mini);
         FullScreenButton.Click += (_, _) => SetMode(Mode.Full);
+        MiniCloseButton.Click += (_, _) => Close();
         FullCloseButton.Click += (_, _) => Close();
         FullCollapseButton.Click += (_, _) => SetMode(Mode.Expanded);
         KeyDown += OnKeyDown;
@@ -361,14 +370,23 @@ public partial class MainWindow : Window
         {
             return;
         }
+        // The title-bar buttons and the close button on the widget both sit in
+        // a corner, which is now a resize zone. Claiming the click there would
+        // make them dead.
+        if (OverControl(e.OriginalSource))
+        {
+            return;
+        }
+
         Point point = e.GetPosition(this);
-        if (!InGrip(point))
+        Edge edge = WindowGeometry.HitTest(point, Width, Height);
+        if (edge == Edge.None)
         {
             return;
         }
         _dragOrigin = PointToScreen(point);
-        _resizeOrigin = new Size(Width, Height);
-        _resizing = true;
+        _resizeOrigin = new Rect(Left, Top, Width, Height);
+        _resizing = edge;
         CaptureMouse();
         e.Handled = true;
     }
@@ -389,7 +407,7 @@ public partial class MainWindow : Window
             return;     // nothing to drag or resize when it fills the screen
         }
 
-        // The grip was already handled in the preview pass.
+        // An edge was already claimed in the preview pass.
         _dragOrigin = PointToScreen(e.GetPosition(this));
         _windowOrigin = new Point(Left, Top);
         _dragging = true;
@@ -401,10 +419,11 @@ public partial class MainWindow : Window
         base.OnMouseMove(e);
         Point point = e.GetPosition(this);
 
-        if (!_dragging && !_resizing)
+        if (!_dragging && _resizing == Edge.None)
         {
-            Cursor = _mode != Mode.Full && InGrip(point)
-                ? Cursors.SizeNWSE : Cursors.Arrow;
+            Cursor = _mode == Mode.Full || OverControl(e.OriginalSource)
+                ? Cursors.Arrow
+                : CursorFor(WindowGeometry.HitTest(point, Width, Height));
             return;
         }
 
@@ -412,11 +431,10 @@ public partial class MainWindow : Window
         double dx = now.X - _dragOrigin.X;
         double dy = now.Y - _dragOrigin.Y;
 
-        if (_resizing)
+        if (_resizing != Edge.None)
         {
-            DpiScale dpi = VisualTreeHelper.GetDpi(this);
-            Resize(_resizeOrigin.Width + dx / dpi.DpiScaleX,
-                   _resizeOrigin.Height + dy / dpi.DpiScaleY);
+            DpiScale resizeDpi = VisualTreeHelper.GetDpi(this);
+            Resize(new Vector(dx / resizeDpi.DpiScaleX, dy / resizeDpi.DpiScaleY));
             return;
         }
 
@@ -434,22 +452,53 @@ public partial class MainWindow : Window
     protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
     {
         base.OnMouseLeftButtonUp(e);
-        if (!_dragging && !_resizing)
+        if (!_dragging && _resizing == Edge.None)
         {
             return;
         }
         _dragging = false;
-        _resizing = false;
+        _resizing = Edge.None;
         ReleaseMouseCapture();
+        // Position as well as size: dragging a left or top edge moves the
+        // window, and the two have to be remembered together or it jumps back
+        // on the next start.
         SavePlacement();
     }
 
-    private bool InGrip(Point point) => WindowGeometry.InGrip(point, Width, Height);
+    /// <summary>
+    /// Is the pointer on something that wants the click itself? Walks up from
+    /// whatever was hit, because the source is usually a piece of a control's
+    /// template rather than the control.
+    /// </summary>
+    private static bool OverControl(object? source)
+    {
+        for (DependencyObject? node = source as DependencyObject;
+             node is not null;
+             node = VisualTreeHelper.GetParent(node))
+        {
+            if (node is ButtonBase or Slider or ScrollBar or Thumb)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
 
-    private void Resize(double width, double height)
+    private static Cursor CursorFor(Edge edge) => edge switch
+    {
+        Edge.Left or Edge.Right => Cursors.SizeWE,
+        Edge.Top or Edge.Bottom => Cursors.SizeNS,
+        Edge.Left | Edge.Top or Edge.Right | Edge.Bottom => Cursors.SizeNWSE,
+        Edge.Right | Edge.Top or Edge.Left | Edge.Bottom => Cursors.SizeNESW,
+        _ => Cursors.Arrow,
+    };
+
+    private void Resize(Vector delta)
     {
         (var min, var max) = WindowGeometry.Limits(_expanded);
-        Size window = WindowGeometry.Clamp(width, height, min, max);
+        Rect window = WindowGeometry.Resize(_resizeOrigin, _resizing, delta, min, max);
+        Left = window.Left;
+        Top = window.Top;
         Width = window.Width;
         Height = window.Height;
 

@@ -224,25 +224,53 @@ are the parts most worth testing.
 - **The scrollbar** has no arrow buttons and no track chrome: a thin rounded
   thumb that thickens under the pointer.
 
-### Resizing the expanded view
+### Resizing
 
-This was broken, and the reason is worth keeping. `ScrollViewer` marks
-`MouseLeftButtonDown` handled in order to take focus, so the window's own
-bubbling handler never saw the click -- which meant the one view that most
-needed resizing was the one place the corner did nothing. The grip now claims
-the click in `OnPreviewMouseLeftButtonDown`, before any child can take it, and
-only when the pointer is actually on the corner so the checkboxes still work.
+**Every edge and every corner**, not one grip. `WindowGeometry.HitTest` reads
+the pointer against the window rectangle and returns which sides it is on;
+corners are tested first so the overlap resizes both ways rather than whichever
+side happened to be checked first. The cursor follows -- SizeWE, SizeNS,
+SizeNWSE, SizeNESW.
 
-The grip's hit zone also runs out to the window edge rather than stopping at
-the panel, since the shadow margin is part of the corner as far as anyone
-aiming at it is concerned. And the expanded view's size cap went from
-2000x1400 -- smaller than the monitor this runs on -- to 4000x3000.
+**Every frame is computed from the rectangle the drag started on**, never from
+the last frame. Dragging a left or top edge moves the window as well as sizing
+it, and an incremental version drifts -- worse once the size hits its limit and
+the pointer keeps going, at which point the far edge slides away. Pinning to
+the origin means the opposite side stays exactly where it was, clamped or not,
+and two tests say so. Position and size are then saved together on release,
+because half of one is a window that jumps on next start.
 
-`WindowGeometry` holds that arithmetic apart from the event plumbing so it can
-be checked without a window; `WindowGeometryTests` pins the hit zone, both
-limits, and that what gets saved is the panel size rather than the window's.
+Three things had to be got out of the way for it to work at all:
+
+- `ScrollViewer` marks `MouseLeftButtonDown` handled to take focus, so the
+  window's bubbling handler never saw a click over the expanded content. The
+  resize claims the click in `OnPreviewMouseLeftButtonDown` instead, before any
+  child can take it.
+- A transparent region in a WPF window is not hit-testable, so the shadow
+  margin -- exactly where the pointer goes when someone aims at the edge of
+  what they can see -- passed clicks straight through. The outer grid now has
+  an explicit `Transparent` background, which does take input. The cost is that
+  the twelve-pixel margin no longer clicks through to the desktop.
+- The title-bar buttons and the widget's close button sit in corners, which are
+  now resize zones, so claiming the click there would have made them dead.
+  `OverControl` walks up from whatever was hit and leaves the click alone if it
+  belongs to a button, slider, scrollbar or thumb.
+
+And the expanded view's size cap went from 2000x1400 -- smaller than the
+monitor this runs on -- to 4000x3000.
+
+`WindowGeometry` holds the arithmetic apart from the event plumbing so it can
+be checked without a window. `WindowGeometryTests` pins every edge and corner
+of the hit test, that each edge pins its opposite, that clamping does not move
+the far side, both size limits, and that what gets saved is the panel size
+rather than the window's.
 
 ## The close button
+
+The widget carries its own, top right, at 35% opacity until the pointer is on
+the window. Faint rather than hidden: a control nobody can see is a control
+nobody finds, and the mini view is too small for a hover-only button to be
+anything but a guess.
 
 It does whichever of two things the user picked, set in the sidebar:
 
