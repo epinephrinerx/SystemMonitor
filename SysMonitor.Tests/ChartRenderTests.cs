@@ -14,11 +14,15 @@ namespace SysMonitor.Tests;
 /// WPF renders perfectly well without a window, so checking that the graph
 /// actually draws needs no full-screen window over somebody's desktop.
 /// </summary>
-[TestClass]
-public class ChartRenderTests
+/// <summary>
+/// Rendering a <see cref="Chart"/> offscreen and reading the pixels back. WPF
+/// draws perfectly well without a window, so checking what the graph looks
+/// like needs no full-screen window over anybody's desktop.
+/// </summary>
+internal static class ChartPixels
 {
     /// <summary>Render a chart and return its pixels, BGRA, row by row.</summary>
-    private static byte[] Render(Action<Chart> setup, int width = 200, int height = 80)
+    public static byte[] Render(Action<Chart> setup, int width = 200, int height = 80)
     {
         byte[] pixels = Array.Empty<byte>();
         var thread = new Thread(() =>
@@ -48,8 +52,22 @@ public class ChartRenderTests
         return pixels;
     }
 
+    /// <summary>How many pixels satisfy a colour test.</summary>
+    public static int CountOf(byte[] pixels, Func<(byte R, byte G, byte B), bool> match)
+    {
+        int count = 0;
+        for (int i = 0; i + 3 < pixels.Length; i += 4)
+        {
+            if (pixels[i + 3] > 0 && match((pixels[i + 2], pixels[i + 1], pixels[i])))
+            {
+                count++;
+            }
+        }
+        return count;
+    }
+
     /// <summary>How many pixels carry the accent's blue, roughly.</summary>
-    private static int BluePixels(byte[] pixels)
+    public static int BluePixels(byte[] pixels)
     {
         int count = 0;
         for (int i = 0; i + 3 < pixels.Length; i += 4)
@@ -65,11 +83,15 @@ public class ChartRenderTests
         }
         return count;
     }
+}
 
+[TestClass]
+public class ChartRenderTests
+{
     [TestMethod]
     public void A_series_draws_something()
     {
-        byte[] pixels = Render(chart =>
+        byte[] pixels = ChartPixels.Render(chart =>
         {
             for (int i = 0; i < 40; i++)
             {
@@ -79,14 +101,14 @@ public class ChartRenderTests
             chart.Revision = chart.Series!.Revision;
         });
 
-        Assert.IsTrue(BluePixels(pixels) > 100,
+        Assert.IsTrue(ChartPixels.BluePixels(pixels) > 100,
             "a rising series should paint a visible area in the accent colour");
     }
 
     [TestMethod]
     public void A_busier_series_paints_more_than_a_quiet_one()
     {
-        byte[] quiet = Render(chart =>
+        byte[] quiet = ChartPixels.Render(chart =>
         {
             chart.Series = new History(ChartCardPoints);
             for (int i = 0; i < 40; i++)
@@ -96,7 +118,7 @@ public class ChartRenderTests
             chart.Revision = chart.Series.Revision;
         });
 
-        byte[] busy = Render(chart =>
+        byte[] busy = ChartPixels.Render(chart =>
         {
             chart.Series = new History(ChartCardPoints);
             for (int i = 0; i < 40; i++)
@@ -106,7 +128,7 @@ public class ChartRenderTests
             chart.Revision = chart.Series.Revision;
         });
 
-        Assert.IsTrue(BluePixels(busy) > BluePixels(quiet) * 3,
+        Assert.IsTrue(ChartPixels.BluePixels(busy) > ChartPixels.BluePixels(quiet) * 3,
             "a series near 100% should fill far more of the box than one near zero");
     }
 
@@ -114,20 +136,20 @@ public class ChartRenderTests
     public void One_reading_is_not_enough_to_draw_a_line()
     {
         // A single point has no line to it; the grid is all that shows.
-        byte[] pixels = Render(chart =>
+        byte[] pixels = ChartPixels.Render(chart =>
         {
             chart.Series = new History(ChartCardPoints);
             chart.Series.Add(50);
             chart.Revision = chart.Series.Revision;
         });
 
-        Assert.AreEqual(0, BluePixels(pixels));
+        Assert.AreEqual(0, ChartPixels.BluePixels(pixels));
     }
 
     [TestMethod]
     public void An_empty_chart_still_draws_its_grid_without_failing()
     {
-        byte[] pixels = Render(chart => chart.Series = null);
+        byte[] pixels = ChartPixels.Render(chart => chart.Series = null);
 
         Assert.AreEqual(200 * 80 * 4, pixels.Length);
         Assert.IsTrue(pixels.Any(b => b != 0), "the grid lines should be visible");
@@ -138,7 +160,7 @@ public class ChartRenderTests
     {
         // Maximum 0 means "no ceiling": a series topping out at 3 MB/s should
         // still fill the box rather than hugging the floor of a 0-100 scale.
-        byte[] scaled = Render(chart =>
+        byte[] scaled = ChartPixels.Render(chart =>
         {
             chart.Maximum = 0;
             chart.Series = new History(ChartCardPoints);
@@ -149,7 +171,7 @@ public class ChartRenderTests
             chart.Revision = chart.Series.Revision;
         });
 
-        byte[] fixedScale = Render(chart =>
+        byte[] fixedScale = ChartPixels.Render(chart =>
         {
             chart.Maximum = 100;
             chart.Series = new History(ChartCardPoints);
@@ -160,7 +182,7 @@ public class ChartRenderTests
             chart.Revision = chart.Series.Revision;
         });
 
-        Assert.IsTrue(BluePixels(scaled) > BluePixels(fixedScale) * 3,
+        Assert.IsTrue(ChartPixels.BluePixels(scaled) > ChartPixels.BluePixels(fixedScale) * 3,
             "an unbounded series should use the height available to it");
     }
 
@@ -178,7 +200,7 @@ public class ChartAppearanceTests
     [DataTestMethod]
     [DataRow("dark")]
     [DataRow("light")]
-    public void The_graph_renders_at_card_size_for_inspection(string theme)
+    public void The_graph_draws_a_framed_plot_and_saves_a_preview(string theme)
     {
         string path = Path.Combine(Path.GetTempPath(),
                                    $"sysmonitor-chart-{theme}.png");
@@ -239,5 +261,20 @@ public class ChartAppearanceTests
 
         Assert.IsTrue(File.Exists(path), path);
         Assert.IsTrue(new FileInfo(path).Length > 1000, "the preview should not be blank");
+
+        // The file existing said almost nothing. These are the two things the
+        // Task Manager styling is actually made of.
+        byte[] pixels = ChartPixels.Render(chart =>
+        {
+            chart.PlotBrush = new SolidColorBrush(Colors.Black);
+            chart.FrameBrush = new SolidColorBrush(Colors.Red);
+            chart.GridBrush = new SolidColorBrush(Colors.Lime);
+            chart.Series = null;
+        }, 120, 60);
+
+        Assert.IsTrue(ChartPixels.CountOf(pixels, c => c.R > 200 && c.G < 60) > 100,
+            "the plot should be framed on all four sides");
+        Assert.IsTrue(ChartPixels.CountOf(pixels, c => c.G > 200 && c.R < 60) > 60,
+            "the grid should be drawn inside the frame");
     }
 }

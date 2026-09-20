@@ -329,11 +329,25 @@ public class WindowGeometryTests
     }
 
     [TestMethod]
-    public void The_size_saved_is_the_panel_not_the_window()
+    public void The_panel_size_excludes_the_shadow_margin()
     {
-        // The shadow margin is not part of what the user sized.
+        // Named for what it checks. Whether MainWindow then writes this to the
+        // config is not something this can reach; it takes a window.
         Size panel = WindowGeometry.Panel(654, 504);
         Assert.AreEqual(654 - Pad, panel.Width);
         Assert.AreEqual(504 - Pad, panel.Height);
+    }
+
+    [TestMethod]
+    public void A_resize_round_trips_through_the_panel_size()
+    {
+        // What the config stores has to be what restores the same window.
+        (var min, var max) = WindowGeometry.Limits(expanded: true);
+        Rect window = WindowGeometry.Resize(Origin, Edge.Right | Edge.Bottom,
+                                            new Vector(120, 80), min, max);
+        Size panel = WindowGeometry.Panel(window.Width, window.Height);
+
+        Assert.AreEqual(window.Width, panel.Width + Pad);
+        Assert.AreEqual(window.Height, panel.Height + Pad);
     }
 }

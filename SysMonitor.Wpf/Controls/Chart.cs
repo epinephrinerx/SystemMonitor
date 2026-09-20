@@ -117,14 +117,50 @@ public sealed class Chart : FrameworkElement
     /// </summary>
     internal static Pen PenFor(Brush brush, double thickness)
     {
-        Brush safe = brush is SolidColorBrush solid ? Palette.Brush(solid.Color) : brush;
+        Brush safe = Safe(brush);
+        if (Pens.TryGetValue((safe, thickness), out Pen? cached))
+        {
+            return cached;
+        }
         var pen = new Pen(safe, thickness);
         if (pen.CanFreeze)
         {
             pen.Freeze();
         }
+        Pens[(safe, thickness)] = pen;
         return pen;
     }
+
+    /// <summary>
+    /// A brush that is safe to hand to something that will freeze it.
+    ///
+    /// Solid brushes come from the shared cache, keyed by colour. Anything
+    /// else -- a gradient, an image brush -- is cloned, because the first
+    /// version of this only handled the solid case and a gradient would have
+    /// walked straight back into the bug it was written to prevent.
+    /// </summary>
+    private static Brush Safe(Brush brush)
+    {
+        if (brush is SolidColorBrush solid)
+        {
+            return Palette.Brush(solid.Color);
+        }
+        if (brush.IsFrozen)
+        {
+            return brush;
+        }
+        Brush copy = brush.Clone();
+        copy.Freeze();
+        return copy;
+    }
+
+    /// <summary>
+    /// Pens by the brush and width they draw with. A repaint used to build
+    /// three of them every time, which is not the "allocates almost nothing
+    /// per frame" this class claims; the geometry alone is rebuilt, because
+    /// that is the part that actually changes.
+    /// </summary>
+    private static readonly Dictionary<(Brush, double), Pen> Pens = new();
 
     /// <summary>
     /// A solid tint of the line colour for the area under it. Task Manager
@@ -135,7 +171,7 @@ public sealed class Chart : FrameworkElement
     {
         if (accent is not SolidColorBrush solid)
         {
-            return accent;
+            return Safe(accent);
         }
         Color line = solid.Color;
         // Toward the panel rather than to transparency, so overlapping grid

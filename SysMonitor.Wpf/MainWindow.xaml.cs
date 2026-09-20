@@ -57,6 +57,14 @@ public partial class MainWindow : Window
     /// </summary>
     private Rect _resizeOrigin;
 
+    /// <summary>
+    /// The scale in force when the drag began. Every delta is converted with
+    /// this rather than with whatever the window's DPI is at the moment: drag
+    /// across a boundary between monitors of different scaling and the two
+    /// disagree, which makes the window jump mid-gesture.
+    /// </summary>
+    private DpiScale _dragDpi;
+
     public MainWindow(AppConfig config, Sampler sampler, string[]? args = null)
     {
         _config = config;
@@ -121,6 +129,11 @@ public partial class MainWindow : Window
         {
             Loaded += (_, _) => SetMode(start);
         }
+        // Checked once the window has a handle, so the monitor layout and the
+        // DPI are real. A position saved against a monitor that has since been
+        // unplugged would otherwise put the widget somewhere unreachable, with
+        // no way back short of editing the config by hand.
+        Loaded += (_, _) => KeepOnScreen();
         Diag.Write($"window ready mode={start.ToString().ToLowerInvariant()}");
     }
 
@@ -181,7 +194,9 @@ public partial class MainWindow : Window
             Top = y;
             return;
         }
-        // First run: bottom-right of the monitor holding the cursor.
+        // First run: bottom-right of the primary monitor. Not the monitor
+        // under the cursor -- there is no window yet to ask the DPI of, so
+        // this is the one screen whose coordinates are known to be right.
         Rect area = WorkArea(0, 0);
         Left = area.Right - Width - 24;
         Top = area.Bottom - Height - 24;
@@ -386,6 +401,7 @@ public partial class MainWindow : Window
         }
         _dragOrigin = PointToScreen(point);
         _resizeOrigin = new Rect(Left, Top, Width, Height);
+        _dragDpi = VisualTreeHelper.GetDpi(this);
         _resizing = edge;
         CaptureMouse();
         e.Handled = true;
@@ -410,6 +426,7 @@ public partial class MainWindow : Window
         // An edge was already claimed in the preview pass.
         _dragOrigin = PointToScreen(e.GetPosition(this));
         _windowOrigin = new Point(Left, Top);
+        _dragDpi = VisualTreeHelper.GetDpi(this);
         _dragging = true;
         CaptureMouse();
     }
@@ -433,14 +450,12 @@ public partial class MainWindow : Window
 
         if (_resizing != Edge.None)
         {
-            DpiScale resizeDpi = VisualTreeHelper.GetDpi(this);
-            Resize(new Vector(dx / resizeDpi.DpiScaleX, dy / resizeDpi.DpiScaleY));
+            Resize(new Vector(dx / _dragDpi.DpiScaleX, dy / _dragDpi.DpiScaleY));
             return;
         }
 
-        DpiScale scale = VisualTreeHelper.GetDpi(this);
-        double left = _windowOrigin.X + dx / scale.DpiScaleX;
-        double top = _windowOrigin.Y + dy / scale.DpiScaleY;
+        double left = _windowOrigin.X + dx / _dragDpi.DpiScaleX;
+        double top = _windowOrigin.Y + dy / _dragDpi.DpiScaleY;
         if (_config.Snap)
         {
             (left, top) = SnapToEdges(left, top);

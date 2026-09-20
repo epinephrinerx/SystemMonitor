@@ -30,7 +30,7 @@ public static class Installer
     public const string Key = "SysMonitor.NET";
 
     public const string DisplayName = "SysMonitor (.NET)";
-    public const string Version = "3.0.0";
+    public const string Version = "3.0.1";
     public const string Publisher = "SysMonitor";
     public const string ExeName = "SysMonitor.exe";
     public const string UninstallName = "uninstall.exe";
@@ -92,7 +92,13 @@ public static class Installer
     /// <summary>
     /// A target is deletable only if it resolves to a file directly inside one
     /// of the directories we own. Relative paths, roots and anything that
-    /// escapes via "..'" are rejected rather than trusted.
+    /// escapes via ".." are rejected rather than trusted.
+    ///
+    /// The lexical check is not enough on its own. If the install directory is
+    /// a junction, "InstallDir\SysMonitor.exe" is a perfectly well-formed path
+    /// inside a directory we appear to own, and deleting it deletes a file
+    /// somewhere else entirely. So the parent chain is walked for reparse
+    /// points as well, and a link anywhere along it disqualifies the target.
     /// </summary>
     public static bool IsSafeTarget(string path, params string[] allowedParents)
     {
@@ -105,11 +111,57 @@ public static class Installer
         {
             return false;
         }
+
         string? parent = Path.GetDirectoryName(full);
-        return parent is not null
-            && allowedParents.Any(allowed =>
-                string.Equals(Path.GetFullPath(allowed), parent,
-                              StringComparison.OrdinalIgnoreCase));
+        if (parent is null
+            || !allowedParents.Any(allowed =>
+                   string.Equals(Path.GetFullPath(allowed), parent,
+                                 StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+        return !PassesThroughLink(parent);
+    }
+
+    /// <summary>
+    /// Does any directory from <paramref name="directory"/> up to its root
+    /// redirect somewhere else? A junction or symbolic link on the way means
+    /// the path we resolved lexically is not the path Windows will open.
+    /// </summary>
+    private static bool PassesThroughLink(string directory)
+    {
+        try
+        {
+            for (var node = new DirectoryInfo(directory);
+                 node is not null;
+                 node = node.Parent)
+            {
+                if (node.Exists && node.LinkTarget is not null)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+        catch (Exception)
+        {
+            // Unreadable is indistinguishable from redirected, and the safe
+            // answer to "might this go somewhere else" is yes.
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Refuse to write into a directory that redirects elsewhere. Installing
+    /// through a junction would overwrite whatever it points at.
+    /// </summary>
+    private static void RequireOwnDirectory(string directory)
+    {
+        if (Directory.Exists(directory) && PassesThroughLink(directory))
+        {
+            throw new InvalidOperationException(
+                $"{directory} is a link to somewhere else and will not be written to.");
+        }
     }
 
     // ------------------------------------------------------------- install
@@ -153,7 +205,9 @@ public static class Installer
 
     public static void Install(bool desktopShortcut, bool startMenu, bool autostart)
     {
+        RequireOwnDirectory(InstallDir);
         Directory.CreateDirectory(InstallDir);
+        RequireOwnDirectory(InstallDir);
 
         StopRunningApp();
         WritePayload(ExePath);

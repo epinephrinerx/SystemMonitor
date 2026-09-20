@@ -85,6 +85,13 @@ public partial class App : Application
         }
         Installer.Uninstall(removeSettings);
         Installer.DeleteSelfAtReboot(Environment.ProcessPath!);
+        // The directory holding it goes at the same time; it is ours and it
+        // holds nothing else.
+        string? own = Path.GetDirectoryName(Environment.ProcessPath!);
+        if (own is not null)
+        {
+            Installer.DeleteSelfAtReboot(own);
+        }
     }
 }
 
@@ -96,19 +103,43 @@ internal static class Relaunch
 {
     public static void ToFinishUninstall(bool removeSettings)
     {
-        string temp = Path.Combine(Path.GetTempPath(),
-            $"SysMonitor-uninstall-{Guid.NewGuid():N}.exe");
-        File.Copy(Environment.ProcessPath!, temp, overwrite: true);
+        // A fresh directory nobody can have pre-created, rather than a
+        // predictable name in a shared temp root.
+        string directory = Path.Combine(Path.GetTempPath(),
+            $"SysMonitor-uninstall-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string temp = Path.Combine(directory, "uninstall.exe");
 
-        var start = new ProcessStartInfo(temp) { UseShellExecute = false };
-        // ArgumentList, never a command line we built by hand: no quoting to
-        // get wrong and no shell to reinterpret a path.
-        start.ArgumentList.Add("--finish");
-        start.ArgumentList.Add(Environment.ProcessId.ToString());
-        if (removeSettings)
+        using (var destination = new FileStream(temp, FileMode.CreateNew,
+                                                FileAccess.Write, FileShare.None))
         {
-            start.ArgumentList.Add("--settings");
+            using var source = new FileStream(Environment.ProcessPath!, FileMode.Open,
+                                              FileAccess.Read, FileShare.Read);
+            source.CopyTo(destination);
+            destination.Flush(flushToDisk: true);
         }
-        Process.Start(start);
+
+        // Held open for reading, which denies writing and deleting, until the
+        // child has started. Copying and then launching by path leaves a window
+        // in which the file can be swapped for another, and what runs is
+        // whatever is there at the moment of launch -- ArgumentList protects
+        // the command line, not the image.
+        //
+        // The handle has to be read-only: an image cannot be mapped for
+        // execution while anyone holds it open for writing, so guarding it
+        // with a write handle stops the uninstaller from running at all.
+        using (new FileStream(temp, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            var start = new ProcessStartInfo(temp) { UseShellExecute = false };
+            // ArgumentList, never a command line we built by hand: no quoting
+            // to get wrong and no shell to reinterpret a path.
+            start.ArgumentList.Add("--finish");
+            start.ArgumentList.Add(Environment.ProcessId.ToString());
+            if (removeSettings)
+            {
+                start.ArgumentList.Add("--settings");
+            }
+            Process.Start(start);
+        }
     }
 }

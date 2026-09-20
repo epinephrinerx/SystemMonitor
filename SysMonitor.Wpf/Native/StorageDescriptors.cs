@@ -51,7 +51,7 @@ internal static class StorageDescriptors
     /// at 8.  A drive that has to seek is spinning rust.
     /// </summary>
     public static string? MediaType(ReadOnlySpan<byte> raw) =>
-        raw.Length >= 9 ? (raw[8] != 0 ? "HDD" : "SSD") : null;
+        Holds(raw, 9) ? (raw[8] != 0 ? "HDD" : "SSD") : null;
 
     /// <summary>
     /// STORAGE_ADAPTER_DESCRIPTOR: BusType sits at 24, after the transfer
@@ -59,12 +59,33 @@ internal static class StorageDescriptors
     /// </summary>
     public static string? BusType(ReadOnlySpan<byte> raw)
     {
-        if (raw.Length < 25)
+        if (!Holds(raw, 25))
         {
             return null;
         }
         int bus = raw[24];
         return bus < BusTypes.Length ? BusTypes[bus] : "Unknown";
+    }
+
+    /// <summary>
+    /// Does the descriptor really carry <paramref name="needed"/> bytes?
+    ///
+    /// Every one of these structures opens with Version at 0 and Size at 4,
+    /// and the device states there how much of itself it filled in. A driver
+    /// can return a buffer longer than the data it wrote, so the length that
+    /// came back is only half the question; the temperature parser checked
+    /// both from the start and these two did not.
+    /// </summary>
+    private static bool Holds(ReadOnlySpan<byte> raw, int needed)
+    {
+        if (raw.Length < needed || raw.Length < 8)
+        {
+            return false;
+        }
+        uint declared = BitConverter.ToUInt32(raw[4..8]);
+        // A device that reports nothing at all is taken at the returned
+        // length; one that reports a size has to cover the field we want.
+        return declared == 0 || declared >= needed;
     }
 
     /// <summary>

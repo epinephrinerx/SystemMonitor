@@ -273,3 +273,89 @@ public class TrayTooltipTests
         Assert.IsTrue(trimmed.EndsWith('…'));
     }
 }
+
+[TestClass]
+public class ChartBrushTests
+{
+    [TestMethod]
+    public void A_gradient_brush_is_not_frozen_by_building_a_pen()
+    {
+        // The first fix only cloned SolidColorBrush. Anything else went
+        // straight into the frozen Pen, taking the caller's brush with it --
+        // the very bug it was written to prevent.
+        var gradient = new LinearGradientBrush(Colors.SteelBlue, Colors.White, 90);
+
+        Pen pen = SysMonitor.Controls.Chart.PenFor(gradient, 1.0);
+
+        Assert.IsTrue(pen.IsFrozen);
+        Assert.IsFalse(gradient.IsFrozen, "the caller's gradient must stay writable");
+        gradient.Opacity = 0.5;                      // would throw before the fix
+        Assert.AreEqual(0.5, gradient.Opacity);
+    }
+
+    [TestMethod]
+    public void An_already_frozen_brush_is_used_as_it_is()
+    {
+        var frozen = new SolidColorBrush(Colors.SteelBlue);
+        frozen.Freeze();
+        Pen pen = SysMonitor.Controls.Chart.PenFor(frozen, 1.0);
+        Assert.AreEqual(Colors.SteelBlue, ((SolidColorBrush)pen.Brush).Color);
+    }
+
+    [TestMethod]
+    public void The_same_brush_and_width_hand_back_the_same_pen()
+    {
+        // A repaint built three pens every frame, which is not the "allocates
+        // almost nothing per frame" the class claims.
+        var brush = new SolidColorBrush(Colors.Goldenrod);
+        Assert.AreSame(SysMonitor.Controls.Chart.PenFor(brush, 1.2),
+                       SysMonitor.Controls.Chart.PenFor(brush, 1.2));
+    }
+
+    [TestMethod]
+    public void A_different_width_is_a_different_pen()
+    {
+        var brush = new SolidColorBrush(Colors.Goldenrod);
+        Assert.AreNotSame(SysMonitor.Controls.Chart.PenFor(brush, 1.0),
+                          SysMonitor.Controls.Chart.PenFor(brush, 2.0));
+    }
+}
+
+[TestClass]
+public class SnapshotSealingTests
+{
+    [TestMethod]
+    public void A_published_snapshot_cannot_be_written_to_through_its_lists()
+    {
+        // IReadOnlyList<T> said read-only; a List<T> behind it cast straight
+        // back. The snapshot crosses a thread boundary, so the claim has to
+        // hold rather than merely be stated.
+        var cores = new List<Core> { new() { Usage = 10 } };
+        var snap = new Snapshot { Ready = true, Cores = cores };
+
+        Assert.AreEqual(1, snap.Cores.Count);
+        Assert.IsFalse(snap.Cores is List<Core>, "the list must not be handed out as itself");
+        Assert.ThrowsException<NotSupportedException>(
+            () => ((IList<Core>)snap.Cores).Add(new Core()));
+    }
+
+    [TestMethod]
+    public void The_sampler_can_still_keep_filling_its_own_list()
+    {
+        // Sealing must copy nothing: the caller's list stays usable, it is
+        // only the published view that is closed.
+        var disks = new List<Disk> { new() { Letter = "C" } };
+        var snap = new Snapshot { Ready = true, Disks = disks };
+        disks.Add(new Disk { Letter = "D" });
+
+        Assert.AreEqual(2, snap.Disks.Count, "the wrapper is a view, not a copy");
+    }
+
+    [TestMethod]
+    public void An_array_is_sealed_too()
+    {
+        var snap = new Snapshot { Adapters = new[] { new Adapter { Id = "nic" } } };
+        Assert.ThrowsException<NotSupportedException>(
+            () => ((IList<Adapter>)snap.Adapters).Add(new Adapter { Id = "x" }));
+    }
+}

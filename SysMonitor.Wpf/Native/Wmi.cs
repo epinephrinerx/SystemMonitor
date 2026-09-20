@@ -50,30 +50,31 @@ internal static class Wmi
                 return rows;
             }
 
-            foreach (object? item in enumerable)
+            // The enumerator is a COM object of its own, and foreach will not
+            // release it; taken by hand so it can go in a finally like the rest.
+            IEnumerator iterator = enumerable.GetEnumerator();
+            try
             {
-                if (item is null)
+                while (iterator.MoveNext())
                 {
-                    continue;
-                }
-                try
-                {
-                    var row = new Dictionary<string, object?>();
-                    object? properties = Get(item, "Properties_");
-                    foreach (string field in fields)
+                    object? item = iterator.Current;
+                    if (item is null)
                     {
-                        object? property = properties is null
-                            ? null : Invoke(properties, "Item", field);
-                        row[field] = property is null ? null : Get(property, "Value");
-                        Release(property);
+                        continue;
                     }
-                    Release(properties);
-                    rows.Add(row);
+                    try
+                    {
+                        rows.Add(ReadRow(item, fields));
+                    }
+                    finally
+                    {
+                        Release(item);
+                    }
                 }
-                finally
-                {
-                    Release(item);
-                }
+            }
+            finally
+            {
+                Release(iterator);
             }
         }
         catch (Exception)
@@ -89,6 +90,48 @@ internal static class Wmi
             Release(locator);
         }
         return rows;
+    }
+
+    /// <summary>
+    /// Read the wanted fields off one instance.
+    ///
+    /// Each wrapper is released in its own finally: a reflection call that
+    /// throws part-way through -- a property this class does not have, a value
+    /// that will not marshal -- used to skip the release of everything already
+    /// taken and abandon the whole query besides.
+    /// </summary>
+    private static Dictionary<string, object?> ReadRow(object item, string[] fields)
+    {
+        var row = new Dictionary<string, object?>();
+        object? properties = null;
+        try
+        {
+            properties = Get(item, "Properties_");
+            foreach (string field in fields)
+            {
+                object? property = null;
+                try
+                {
+                    property = properties is null ? null : Invoke(properties, "Item", field);
+                    row[field] = property is null ? null : Get(property, "Value");
+                }
+                catch (Exception)
+                {
+                    // A field this instance does not carry is a missing value,
+                    // not a reason to lose the rest of the row.
+                    row[field] = null;
+                }
+                finally
+                {
+                    Release(property);
+                }
+            }
+        }
+        finally
+        {
+            Release(properties);
+        }
+        return row;
     }
 
     private static object? Invoke(object target, string method, params object[] args) =>

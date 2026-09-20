@@ -7,11 +7,54 @@ namespace SysMonitor.Model;
 /// </summary>
 public sealed class Snapshot
 {
-    public IReadOnlyList<Core> Cores { get; init; } = Array.Empty<Core>();
+    private readonly IReadOnlyList<Core> _cores = Array.Empty<Core>();
+    private readonly IReadOnlyList<Disk> _disks = Array.Empty<Disk>();
+    private readonly IReadOnlyList<Adapter> _adapters = Array.Empty<Adapter>();
+    private readonly IReadOnlyList<Module> _modules = Array.Empty<Module>();
+
+    public IReadOnlyList<Core> Cores
+    {
+        get => _cores;
+        init => _cores = Seal(value);
+    }
+
     public Ram Ram { get; init; } = new();
-    public IReadOnlyList<Disk> Disks { get; init; } = Array.Empty<Disk>();
-    public IReadOnlyList<Adapter> Adapters { get; init; } = Array.Empty<Adapter>();
-    public IReadOnlyList<Module> Modules { get; init; } = Array.Empty<Module>();
+
+    public IReadOnlyList<Disk> Disks
+    {
+        get => _disks;
+        init => _disks = Seal(value);
+    }
+
+    public IReadOnlyList<Adapter> Adapters
+    {
+        get => _adapters;
+        init => _adapters = Seal(value);
+    }
+
+    public IReadOnlyList<Module> Modules
+    {
+        get => _modules;
+        init => _modules = Seal(value);
+    }
+
+    /// <summary>
+    /// Wrap a list so it cannot be written to through the interface it is
+    /// handed out on.
+    ///
+    /// A snapshot crosses from the sampler's thread to the UI thread and is
+    /// meant to be read-only once published. `IReadOnlyList&lt;T&gt;` says so
+    /// but does not enforce it: a `List&lt;T&gt;` behind that interface can be
+    /// cast straight back and written to. This makes the claim true.
+    /// </summary>
+    private static IReadOnlyList<T> Seal<T>(IReadOnlyList<T> values) => values switch
+    {
+        null => Array.Empty<T>(),
+        System.Collections.ObjectModel.ReadOnlyCollection<T> sealed_ => sealed_,
+        List<T> list => list.AsReadOnly(),
+        T[] array => Array.AsReadOnly(array),
+        _ => values,
+    };
     public int CpuTotal { get; init; }
     public int? CpuTemp { get; init; }
     public bool CpuTempEstimated { get; init; }

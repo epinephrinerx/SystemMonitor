@@ -1,5 +1,63 @@
 # Change log
 
+## v3.0.1 — 2026-09-20 — review fixes
+
+An outside review of the C# code found ten things. All ten are addressed here.
+None of them broke the widget in normal use; several were claims the code made
+about itself that it did not keep.
+
+### Safety
+
+- **The uninstaller could delete through a junction.** `IsSafeTarget` compared
+  path strings and stopped there, so `InstallDir\SysMonitor.exe` passed the
+  check even when `InstallDir` was a link pointing somewhere else entirely. It
+  now walks the parent chain for reparse points and refuses any path that
+  passes through one, and the installer refuses to write into such a directory
+  in the first place. `InstallerJunctionTests` creates a real junction and
+  checks — the previous tests only ever asserted on path *selection*, which is
+  not the same claim.
+- **The uninstall handover could be given a different executable.** It copied
+  itself to a predictable temp path, closed the file, then launched it by
+  name; anything that replaced the file in between would have been run
+  instead. `ArgumentList` protects the command line, not the image. The copy
+  now goes into a freshly created random directory through a handle that
+  denies writing and deleting, held open until the child has started.
+
+### Correctness
+
+- **A restored window position was never checked against the screens that
+  exist now.** Unplug the monitor it was saved on and the widget opened
+  somewhere unreachable. It is clamped once the window has a handle.
+- **Resizing drifted across monitors of different scaling.** The drag origin
+  was captured in physical pixels but each frame divided by whatever the DPI
+  was at that moment. The scale is now captured with the origin and used for
+  the whole gesture.
+- **Two descriptor parsers trusted the returned buffer length alone.** The
+  seek-penalty and adapter parsers now check the size the device declares as
+  well, which the temperature parser did from the start.
+- **WMI wrappers leaked on error paths**, and the COM enumerator was never
+  released at all. Each is released in its own `finally`, and a field a given
+  instance does not carry is now a missing value rather than the end of the
+  query.
+- **`Chart.PenFor` only protected solid brushes.** A gradient went straight
+  into a frozen pen, taking the caller's brush with it — the same bug it was
+  written to prevent. Anything not solid is cloned first.
+
+### Claims the code did not keep
+
+- **`Snapshot` handed out `List<T>` behind `IReadOnlyList<T>`**, which casts
+  straight back. A snapshot crosses a thread boundary and is meant to be
+  read-only once published, so it now is.
+- **`Chart` said it allocated "almost nothing per frame"** while building
+  three pens on every repaint. Pens are cached by brush and width.
+- **Three tests asserted less than their names said.** The appearance test
+  checked only that a PNG existed and was over a kilobyte; it now checks the
+  frame and grid are actually drawn. `The_size_saved_is_the_panel_not_the_window`
+  never touched saving and is renamed for what it does, with a separate test
+  for the round trip.
+
+116 tests, up from 104.
+
 ## v3.0.0 — 2026-09-20 — the C# / WPF build
 
 The widget is now C# on .NET 8 with a WPF front end. No Tcl/Tk in the process
