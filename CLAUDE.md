@@ -1,125 +1,118 @@
-# SysMonitor 2.0 — working notes for Claude
+# SysMonitor — working notes for Claude
 
-Native Windows desktop widget. Python 3.14 stdlib only — tkinter (Tk 9.0) for the UI,
-ctypes for Win32. Replaces two Electron prototypes in `..\Claude\1.0.5` and `..\Gemini\1.0.4`.
+A native Windows desktop widget: CPU, memory, disks, network, temperatures.
 
-`README.md` is the full documentation. This file is the short list of things that are
-easy to get wrong.
+**The C# / WPF build is the product.** It lives in `SysMonitor.Wpf`, with its
+installer in `SysMonitor.Setup` and its tests in `SysMonitor.Tests`. Read
+`SysMonitor.Wpf/README.md` first — it carries the design decisions and the
+measurements.
+
+The Python / Tk build (`sysmonitor/`, `tools/`, `build.cmd`) is **retired**. It
+still runs and is still installed, but it is not developed any further. See
+"The retired Python build" at the end for the parts of it that are still worth
+knowing.
 
 ## Rules for working on this machine
 
-**Never run load-generation tests** — no CPU spinners, memory ballooning, or disk churn.
-I did this once while hunting the fatal error and the user's CPU overheated; they killed
-the task and asked that diagnosis not "torture the machine". Diagnose passively instead:
-read the diagnostics log, instrument a single run, search upstream bug trackers. If a test
-would raise system load, say what it will do and get agreement first.
+**Never run load-generation tests** — no CPU spinners, memory ballooning, or
+disk churn. I did this once and the user's CPU overheated; they killed the task
+and asked that diagnosis not "torture the machine". Diagnose passively: read
+the log, instrument a single run, search upstream bug trackers. If a test would
+raise system load, say what it will do and get agreement first.
 
-**Stdlib only.** No psutil, no PyQt/PySide, no pip installs. Everything goes through
-`ctypes` in `sysmonitor/win32.py`. The old 45 MB / 0.57% CPU figures predate the
-isolated sampling process; do not describe them as measurements of current source.
+**Do not take over the screen.** The widget's full-screen view covers
+everything the user is doing. I opened it three times in one session to take
+screenshots; the user clicked on it twice, once into a crash. Verify rendering
+offscreen instead — `ChartRenderTests` draws into a `RenderTargetBitmap` and
+reads the pixels back, which needs no window at all. If a real full-screen
+check is genuinely needed, ask first.
 
-## Known issue: `alloc: invalid block` fatal error
+**Commit messages carry no tool attribution.** No `Co-Authored-By`, no session
+links, no "written by <tool>" notes — for any tool, not just this one. The user
+is the author.
 
-The reported panic comes from Tcl's allocator. Its cause in this app remains
-unproven. CPython #66999 / bpo-22810 describes a similar message after a file
-dialog; that report does not establish that our crash was caused by a second
-thread or rule out an application bug.
+**No NuGet packages in the shipped apps.** Everything goes through the base
+class library and `ctypes`-style P/Invoke in `Native/Win32.cs`. The test project
+is the exception: MSTest is a test dependency and ships nothing.
 
-Earlier mitigation shipped 2026-09-14: sampling moved to the Tk event loop;
-those installed copies log `sampler=event-loop`.
+## What the app does that is easy to get wrong
 
-Current source, after review: `ProcessSampler` uses one isolated sensor process
-and polls snapshots from `ui.py:_tick`. The worker never creates Tk. Confirm with
-`sampler=process`. A stuck sample is terminated after 20 seconds, with a five-minute
-restart backoff; no blocking join runs on the UI event loop. The default
-`sampler_thread: false` now selects this process mode; true selects the legacy
-thread. Keep `multiprocessing.freeze_support()` before the app import in the
-guarded entry point. Onefile bootloaders may add processes; remeasure total
-resource usage before publishing performance claims.
+**Temperature colours and usage colours are separate.** `WarmAt`/`HotAt` (65/80)
+belong to the thermometer badge; `LoadWarmAt`/`LoadHotAt` (70/90) belong to the
+usage bars. The user asked for the traffic light on the meters and explicitly
+said not to touch anything about temperature colour. A test asserts both sets.
 
-**Long-run stability is unproven.** Earlier notes recorded no reproduction after
-10:48 on 2026-09-14 (0 in ~56 runs). Prior checks found clean buffer canaries and
-no off-thread Tcl calls (0 of 4,725); these observations do not conclusively rule
-out all buffer, threading, UI, or allocator defects. Read the log before diagnosis.
+**The CPU temperature source matters.** `MSAcpi_ThermalZoneTemperature` in
+`root\WMI` returns *access denied* to a normal user — that is why the Python
+build's setting never produced a reading. Use
+`Win32_PerfFormattedData_Counters_ThermalZoneInformation` in `root\cimv2`,
+which needs no elevation. It is a thermal zone, not the CPU die: the die sensor
+is behind an MSR and needs a kernel driver.
 
-If it recurs, read the log first. Unapproved fallbacks previously offered:
-`RegisterApplicationRestart()`, or a Qt port (the sensor layer — `win32.py`, `sensors.py`,
-`config.py`, `i18n.py` — carries over unchanged; only the UI is rewritten).
+**Windows reports no per-module memory usage.** The controller interleaves
+across channels, so the quantity does not exist. `MemoryModules` shows what is
+installed — slot, size, speed, type — and the section says so rather than
+drawing a bar nobody measured.
 
-## Traps that have already cost time
+**Freezing a `Pen` freezes its `Brush`.** The view model recolours its brushes
+on every theme switch, so a chart that froze one turned the next switch into
+"Cannot set a property ... because it is in a read-only state". `Chart.PenFor`
+takes the colour, not the instance. Two tests guard this.
 
-**The installed copy is separate from `dist\`.** Verifying `dist\SysMonitor.exe` proves
-nothing about what the user is running. The installed binary lives in
-`%LOCALAPPDATA%\Programs\SysMonitor`. After a rebuild, install it:
-`dist\SysMonitor-Setup.exe /S`. `build.cmd` warns when the installed copy is stale.
+**`InvariantGlobalization` must stay off.** WPF data binding asks for the
+specific culture behind `en-US`; without ICU data the first `Show()` throws.
 
-**Tk 9.0 leaks ~80 bytes per canvas item create+delete.** Never `canvas.delete("all")` on
-a redraw path. All drawing goes through `sysmonitor/painter.py`, which retains items by key
-and only updates coords/options that changed. Retain one item per key/primitive
-pair, hide unused ones, and restore draw order on reuse. The review fixed deletion
-on automatic mini-view rotation too. Earlier 378.7 -> 0.2 MB/day measurements
-are historical; current long-run memory usage has not been remeasured.
+**Log timestamps use the invariant culture.** Under a Thai locale the default
+formatter writes Buddhist-era years, which made the first log impossible to
+line up with anything else on the machine.
 
-**Temperature descriptor layout.** `TemperatureInfo` starts at byte 24, and the
-first signed temperature is at byte 26. Validate descriptor length, declared
-size and count before reading; reserved bytes at 18 are not a temperature.
+**XAML comments cannot contain `--`.** Divider comments made of dashes are an
+XML parse error, not a warning.
 
-**Disk I/O timing.** Keep counters and successful-read timestamps together per
-drive. Skipped probes must not advance that drive's baseline. Remove stale caches
-when a drive disappears.
+**Uninstall never walks a directory.** The files the installer creates are
+written down; only those are deleted, each checked against `IsSafeTarget`
+first. The directory goes only if it ends up empty.
 
-**Uninstall ownership.** Never walk/delete an install directory recursively.
-Use `owned_paths()` and the explicit program/settings filename lists. Only an
-installed frozen `uninstall.exe` may schedule its own removal; use literal paths,
-never interpolate them into cmd.exe. Preserve unrecognized files/subdirectories.
+**The C# build installs beside the Python one, not over it.** Install directory
+`SysMonitor.NET`, Run value `SysMonitor.NET`, uninstall key `SysMonitor.NET`,
+shortcut "SysMonitor (.NET)". Both are called SysMonitor and both install
+per-user, so sharing any of those names would overwrite a working application.
 
-**Diagnostics.** Tk uses `report_callback_exception`, not `sys.excepthook`.
-`diag.install_tk_handler()` bridges it; caught sampler/probe/IPC errors go through
-rate-limited `diag.report_exception()`. Keep UI timers running after recoverable errors.
-
-**`subprocess` in a `--noconsole` build has invalid std handles** → `WinError 6`. Pass
-explicit `stdin/stdout/stderr=DEVNULL`; `tools/installer.py:run_quiet()` does this.
-
-**Git Bash rewrites a bare `/S` argument into a Windows path.** Run the installer from
-PowerShell, or the wizard opens on the user's screen instead of installing silently.
+**Measure memory before believing it.** A ten-minute run reporting 108 MB
+looked like a leak; the managed heap was 4–9 MB and sawtoothing normally, so
+those were pages the GC had freed and Windows had not reclaimed. The heartbeat
+logs both numbers, and `TrimWorkingSet` on each heartbeat hands them back.
 
 ## Where things are
 
 | | |
 |---|---|
-| Diagnostics log | `%APPDATA%\SysMonitor\sysmonitor.log` (startup banner, 10-min heartbeat, excepthooks, capped 256 KB) |
-| Config | `%APPDATA%\SysMonitor\config.json` — back it up before tests that touch settings, and restore window position afterward |
-| Install dir | `%LOCALAPPDATA%\Programs\SysMonitor`, `HKCU` Run key for autostart |
-| Build | `build.cmd` → `dist\SysMonitor.exe` + `dist\SysMonitor-Setup.exe` |
+| Build everything | `build-wpf.cmd` → `dist-wpf\` (tests, app, installer) |
+| Tests | `dotnet test SysMonitor.Tests` |
+| Try a view | `dotnet run --project SysMonitor.Wpf -- --expanded` / `--full` |
+| Memory question | `-- --heartbeat 60` shortens the diagnostics interval |
+| Log | `%APPDATA%\SysMonitor\sysmonitor-wpf.log` |
+| Config | `%APPDATA%\SysMonitor\config.wpf.json` — the user's real settings; back up before tests that write it |
+| Install dir | `%LOCALAPPDATA%\Programs\SysMonitor.NET` |
+| Backlog | `requirements.md`, written by the user |
+
+`dist-wpf\SysMonitor-Setup.exe /S` installs silently. Run it from PowerShell,
+not Git Bash: Git Bash rewrites a bare `/S` into a Windows path and the wizard
+opens instead.
 
 ## Communication
 
-The user writes in Thai; reply in Thai. Code, comments, and docs stay in English.
+The user writes in Thai; reply in Thai. Code, comments, and docs stay in
+English.
 
-## Review validation — 2026-09-14
+## The retired Python build
 
-`python -B -m unittest discover -s tests -v`: 20 tests passed, including actual
-process spawn/IPC using simulated sensors. No hardware stress, UI windows,
-registry writes, user config changes, install or uninstall was performed.
-Source has been updated; dist and the installed copy have not been rebuilt or
-replaced. Frozen startup, live UI layout and long-run stability remain unverified.
-See `CHANGELOG.md` for the review record.
+Kept installed and working, not developed. Two things from it are still worth
+knowing because the C# port inherited the knowledge:
 
-## Follow-up testing/build request — 2026-09-14
-
-The user requested tests, commit/push and an EXE build, explicitly excluding the
-installer. Use `build.cmd --app-only`; it reuses the icon and leaves setup alone.
-Do not run the installer as part of this request. All 21 tests passed with
-`SYSMONITOR_TK_TEST=1`, including actual Tk rendering with synthetic data and
-mocked settings saves. Native Computer Use could not target the frameless widget;
-the Tk integration check exercises its rendering API instead. First successful
-worker results now emit `sampler ready cores=... disks=... worker_pid=...`.
-This directory initially had no Git repository or remote. A local `main` repo
-was initialized. The user specified `https://github.com/epinephrinerx/SystemMonitor`
-as the `origin` remote; its initial remote-ref check returned no existing refs.
-
-Standalone build completed from source commit `7b8d91d` (pushed to origin/main):
-`dist/SysMonitor.exe` is 13,648,217 bytes. Its isolated startup test logged
-`frozen=True`, `sampler=process`, then `sampler ready cores=16 disks=7` with no
-exception during the brief check. The installer hash stayed unchanged and the
-installed copy was not replaced. See CHANGELOG.md for hashes and test limits.
+- **`alloc: invalid block`** was a Tcl allocator panic with no Python
+  traceback. Its cause was never established. Removing Tcl/Tk from the process
+  entirely is what the C# port is for.
+- **The drive temperature descriptor's first reading is at byte 26**, not 18 —
+  byte 18 is reserved and reads as zero. `Win32.cs` carries the corrected
+  parsing and `StorageDescriptorTests` asserts the exact failure shape.

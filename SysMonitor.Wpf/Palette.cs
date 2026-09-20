@@ -54,13 +54,24 @@ public static class Palette
     public static readonly Color AccentCpu = Hex("#3b82f6");
     public static readonly Color AccentRam = Hex("#a855f7");
     public static readonly Color AccentDisk = Hex("#10b981");
+    public static readonly Color AccentNet = Hex("#06b6d4");
 
+    // Temperature. These and the thresholds below belong to the thermometer
+    // badge alone; the usage meters have their own set so a change to one can
+    // never move the other.
     public static readonly Color TempOk = Hex("#22c55e");
     public static readonly Color TempWarm = Hex("#eab308");
     public static readonly Color TempHot = Hex("#ef4444");
 
     public const int WarmAt = 65;
     public const int HotAt = 80;
+
+    // Usage: CPU, memory and disk bars.
+    public static readonly Color LoadWarm = Hex("#eab308");
+    public static readonly Color LoadHot = Hex("#ef4444");
+
+    public const int LoadWarmAt = 70;
+    public const int LoadHotAt = 90;
 
     public static Colours For(string name) => name == "light" ? Light : Dark;
 
@@ -83,11 +94,16 @@ public static class Palette
         return brush;
     }
 
-    /// <summary>Bar colour by load, matching the original getColor().</summary>
-    public static Color LoadColor(double value) =>
-        value > 80 ? TempHot
-        : value > 50 ? TempWarm
-        : AccentCpu;
+    /// <summary>
+    /// Bar colour by load: the meter's own accent until 70%, amber to 90%,
+    /// then red. Every usage bar goes through this, so a drive at 79% reads
+    /// as a warning rather than as a normal green bar that happens to be long.
+    /// Nothing here is shared with the temperature badge.
+    /// </summary>
+    public static Color LoadColor(double value, Color? accent = null) =>
+        value >= LoadHotAt ? LoadHot
+        : value >= LoadWarmAt ? LoadWarm
+        : accent ?? AccentCpu;
 
     /// <summary>(foreground, background) for a temperature badge.</summary>
     public static (Color Fore, Color Back) TempColors(int? temp, Colours pal)

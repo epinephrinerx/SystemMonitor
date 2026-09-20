@@ -7,10 +7,33 @@ using SysMonitor.Model;
 namespace SysMonitor.ViewModels;
 
 /// <summary>A titled group of meters; the expanded view is a list of these.</summary>
-public sealed class Section
+public sealed class Section : INotifyPropertyChanged
 {
+    private int _columns = 1;
+
     public required string Title { get; init; }
     public ObservableCollection<MeterRow> Rows { get; } = new();
+
+    /// <summary>
+    /// How many meters go on one line. A group with several members reads far
+    /// better as a two-column grid than as one long column -- sixteen cores in
+    /// a single column is most of a screen.
+    /// </summary>
+    public int Columns
+    {
+        get => _columns;
+        set
+        {
+            if (_columns == value)
+            {
+                return;
+            }
+            _columns = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Columns)));
+        }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 }
 
 /// <summary>
@@ -56,6 +79,9 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
     // ---------------------------------------------------------------- state
     public ObservableCollection<MeterRow> MiniRows { get; } = new();
     public ObservableCollection<Section> Sections { get; } = new();
+
+    /// <summary>The full-screen view: one graph per device.</summary>
+    public ObservableCollection<ChartCard> Cards { get; } = new();
 
     public string MiniTitle
     {
@@ -201,6 +227,20 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
                 _views.Add(("disk", null, null));
             }
         }
+        if (_config.ShowNetwork)
+        {
+            if (_config.NetworkMode == "separated")
+            {
+                for (int i = 0; i < snap.Adapters.Count; i++)
+                {
+                    _views.Add(("net", i, null));
+                }
+            }
+            else if (snap.Adapters.Count > 0)
+            {
+                _views.Add(("net", null, null));
+            }
+        }
         if (_views.Count == 0)
         {
             _views.Add(("empty", null, null));
@@ -275,7 +315,7 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
                      snap.Ram.Temp, snap.Ram.Estimated);
                 MiniColumns = 1;
                 Fill(MiniRows, 1);
-                Meter(MiniRows[0], string.Empty, snap.Ram.Usage, Palette.AccentRam,
+                Meter(MiniRows[0], string.Empty, snap.Ram.Usage, Palette.LoadColor(snap.Ram.Usage, Palette.AccentRam),
                       string.Empty, null, false, compact: true);
                 break;
 
@@ -286,7 +326,35 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
                      SpeedText(read, write), temp, false);
                 MiniColumns = 1;
                 Fill(MiniRows, 1);
-                Meter(MiniRows[0], string.Empty, usage, Palette.AccentDisk,
+                Meter(MiniRows[0], string.Empty, usage, Palette.LoadColor(usage, Palette.AccentDisk),
+                      string.Empty, null, false, compact: true);
+                break;
+            }
+
+            case "net" when from is null:
+            {
+                (double down, double up, double link) = NetTotals(snap);
+                Head($"{_lang["network"]} ({_lang["all_adapters"]})",
+                     LinkUsage(down, up, link), NetText(down, up), null, false);
+                MiniColumns = 1;
+                Fill(MiniRows, 1);
+                Meter(MiniRows[0], string.Empty, LinkUsage(down, up, link),
+                      Palette.LoadColor(LinkUsage(down, up, link), Palette.AccentNet), string.Empty, null, false, compact: true);
+                break;
+            }
+
+            case "net":
+            {
+                if (from!.Value >= snap.Adapters.Count)
+                {
+                    return;
+                }
+                Adapter adapter = snap.Adapters[from.Value];
+                Head(adapter.Name, adapter.Usage,
+                     NetText(adapter.DownMb, adapter.UpMb), null, false);
+                MiniColumns = 1;
+                Fill(MiniRows, 1);
+                Meter(MiniRows[0], string.Empty, adapter.Usage, Palette.LoadColor(adapter.Usage, Palette.AccentNet),
                       string.Empty, null, false, compact: true);
                 break;
             }
@@ -302,7 +370,7 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
                      SpeedText(disk.ReadMb, disk.WriteMb), disk.Temp, disk.Estimated);
                 MiniColumns = 1;
                 Fill(MiniRows, 1);
-                Meter(MiniRows[0], string.Empty, disk.Usage, Palette.AccentDisk,
+                Meter(MiniRows[0], string.Empty, disk.Usage, Palette.LoadColor(disk.Usage, Palette.AccentDisk),
                       string.Empty, null, false, compact: true);
                 break;
             }
@@ -340,6 +408,14 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
         if (_config.ShowDisk)
         {
             wanted.Add("disk");
+        }
+        if (_config.ShowNetwork && snap.Adapters.Count > 0)
+        {
+            wanted.Add("net");
+        }
+        if (_config.ShowRam && snap.Modules.Count > 0)
+        {
+            wanted.Add("modules");
         }
 
         // Section identity is the title, so a display-settings change rebuilds
@@ -384,9 +460,54 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
                 case "ram":
                     Fill(section.Rows, 1);
                     Meter(section.Rows[0], _lang["memory"], snap.Ram.Usage,
-                          Palette.AccentRam,
+                          Palette.LoadColor(snap.Ram.Usage, Palette.AccentRam),
                           $"{snap.Ram.UsedGb:F1} / {snap.Ram.TotalGb:F1} GB  {_lang["in_use"]}",
                           snap.Ram.Temp, snap.Ram.Estimated);
+                    break;
+
+                case "net":
+                    if (_config.NetworkMode == "separated")
+                    {
+                        Fill(section.Rows, snap.Adapters.Count);
+                        for (int a = 0; a < snap.Adapters.Count; a++)
+                        {
+                            Adapter adapter = snap.Adapters[a];
+                            string kind = adapter.Wireless ? _lang["wireless"] : _lang["wired"];
+                            string link = adapter.SpeedMbps > 0
+                                ? $"{adapter.SpeedMbps:F0} Mbps" : _lang["no_link"];
+                            Meter(section.Rows[a], adapter.Name, adapter.Usage,
+                                  Palette.LoadColor(adapter.Usage, Palette.AccentNet),
+                                  $"{kind} · {link} · {NetText(adapter.DownMb, adapter.UpMb)}",
+                                  null, false);
+                        }
+                    }
+                    else
+                    {
+                        (double down, double up, double link) = NetTotals(snap);
+                        Fill(section.Rows, 1);
+                        Meter(section.Rows[0], _lang["all_adapters"],
+                              LinkUsage(down, up, link), Palette.LoadColor(LinkUsage(down, up, link), Palette.AccentNet),
+                              NetText(down, up), null, false);
+                    }
+                    break;
+
+                case "modules":
+                    // No bar: Windows reports no per-module usage, so a filled
+                    // meter here would be inventing a number.
+                    Fill(section.Rows, snap.Modules.Count);
+                    for (int m = 0; m < snap.Modules.Count; m++)
+                    {
+                        Module module = snap.Modules[m];
+                        MeterRow row = section.Rows[m];
+                        row.Title = module.Title;
+                        row.Detail = module.Detail;
+                        row.ValueText = string.Empty;
+                        row.Percent = 0;
+                        row.Compact = true;
+                        row.InfoOnly = true;
+                        row.Temp = null;
+                        ApplyTempColours(row);
+                    }
                     break;
 
                 case "disk":
@@ -397,7 +518,7 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
                         {
                             Disk disk = snap.Disks[d];
                             Meter(section.Rows[d], disk.Title, disk.Usage,
-                                  Palette.AccentDisk,
+                                  Palette.LoadColor(disk.Usage, Palette.AccentDisk),
                                   $"{disk.Media} · {disk.Bus} · {disk.UsedGb:F0}/{disk.TotalGb:F0} GB · "
                                   + SpeedText(disk.ReadMb, disk.WriteMb),
                                   disk.Temp, disk.Estimated);
@@ -408,10 +529,118 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
                         (int usage, int? temp, double read, double write) = DiskTotals(snap);
                         Fill(section.Rows, 1);
                         Meter(section.Rows[0], _lang["all_drives"], usage,
-                              Palette.AccentDisk, SpeedText(read, write), temp, false);
+                              Palette.LoadColor(usage, Palette.AccentDisk), SpeedText(read, write), temp, false);
                     }
                     break;
             }
+
+            // One member stays full width; several go two to a line.
+            section.Columns = section.Rows.Count > 1 ? 2 : 1;
+        }
+    }
+
+    // -------------------------------------------------------- full view
+    /// <summary>
+    /// Append this sample to every graph, adding and removing cards as
+    /// hardware appears and disappears.
+    ///
+    /// Called on every snapshot regardless of which view is on screen, so the
+    /// graphs already have history behind them the moment the full view opens
+    /// rather than starting from an empty box.
+    /// </summary>
+    public void PushHistory(Snapshot snap)
+    {
+        if (!snap.Ready)
+        {
+            return;
+        }
+
+        var wanted = new List<(string Key, string Title, double Sample, string Value,
+                               string Detail, Color Accent, double Max)>();
+
+        if (_config.ShowCpu)
+        {
+            wanted.Add(("cpu", _lang["cpu"], snap.CpuTotal, snap.CpuTotal + "%",
+                        $"{snap.Cores.Count} {_lang["cores"]}"
+                        + (snap.CpuTemp is int t
+                           ? "  ·  " + Palette.TempText(t, snap.CpuTempEstimated)
+                           : string.Empty),
+                        Palette.AccentCpu, 100));
+
+            if (_config.CpuMode == "separated")
+            {
+                for (int i = 0; i < snap.Cores.Count; i++)
+                {
+                    Core core = snap.Cores[i];
+                    wanted.Add(($"core{i}", "C" + i, core.Usage, core.Usage + "%",
+                                string.Empty, Palette.AccentCpu, 100));
+                }
+            }
+        }
+
+        if (_config.ShowRam)
+        {
+            wanted.Add(("ram", _lang["memory"], snap.Ram.Usage, snap.Ram.Usage + "%",
+                        $"{snap.Ram.UsedGb:F1} / {snap.Ram.TotalGb:F1} GB",
+                        Palette.LoadColor(snap.Ram.Usage, Palette.AccentRam), 100));
+        }
+
+        if (_config.ShowDisk)
+        {
+            foreach (Disk disk in snap.Disks)
+            {
+                wanted.Add(($"disk{disk.Letter}", disk.Title, disk.Usage, disk.Usage + "%",
+                            $"{disk.UsedGb:F0}/{disk.TotalGb:F0} GB · "
+                            + SpeedText(disk.ReadMb, disk.WriteMb),
+                            Palette.LoadColor(disk.Usage, Palette.AccentDisk), 100));
+
+                // A drive's throughput is the interesting series, and it has no
+                // ceiling to scale against, so the graph scales to its own peak.
+                wanted.Add(($"diskio{disk.Letter}", disk.Letter + ": I/O",
+                            disk.ReadMb + disk.WriteMb,
+                            Speed(disk.ReadMb + disk.WriteMb) + " MB/s",
+                            SpeedText(disk.ReadMb, disk.WriteMb),
+                            Palette.AccentDisk, 0));
+            }
+        }
+
+        if (_config.ShowNetwork)
+        {
+            foreach (Adapter adapter in snap.Adapters)
+            {
+                wanted.Add(($"net{adapter.Id}", adapter.Name,
+                            adapter.DownMb + adapter.UpMb,
+                            Speed(adapter.DownMb + adapter.UpMb) + " MB/s",
+                            (adapter.Wireless ? _lang["wireless"] : _lang["wired"])
+                            + "  ·  " + NetText(adapter.DownMb, adapter.UpMb),
+                            Palette.AccentNet, 0));
+            }
+        }
+
+        // Match by key so a card keeps its history when the list around it
+        // changes; a drive that comes back finds its own graph again.
+        var byKey = Cards.ToDictionary(c => c.Key);
+        foreach (string stale in byKey.Keys.Where(k => wanted.All(w => w.Key != k)).ToList())
+        {
+            Cards.Remove(byKey[stale]);
+            byKey.Remove(stale);
+        }
+
+        for (int i = 0; i < wanted.Count; i++)
+        {
+            var item = wanted[i];
+            if (!byKey.TryGetValue(item.Key, out ChartCard? card))
+            {
+                card = new ChartCard { Key = item.Key };
+                byKey[item.Key] = card;
+                Cards.Insert(Math.Min(i, Cards.Count), card);
+            }
+            card.Title = item.Title;
+            card.Value = item.Value;
+            card.Detail = item.Detail;
+            card.Maximum = item.Max;
+            card.Accent = Palette.Brush(item.Accent);
+            card.Push(item.Sample);
         }
     }
 
@@ -419,6 +648,8 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
     {
         "cpu" => _lang["cpu"],
         "ram" => _lang["memory"],
+        "net" => _lang["network"],
+        "modules" => _lang["modules"] + "  —  " + _lang["no_module_usage"],
         _ => _lang["disk"],
     };
 
@@ -451,8 +682,27 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
         ApplyTempColours(row);
     }
 
+    private static (double Down, double Up, double Link) NetTotals(Snapshot snap)
+    {
+        if (snap.Adapters.Count == 0)
+        {
+            return (0, 0, 0);
+        }
+        return (snap.Adapters.Sum(a => a.DownMb),
+                snap.Adapters.Sum(a => a.UpMb),
+                snap.Adapters.Sum(a => a.SpeedMbps));
+    }
+
+    /// <summary>Combined throughput against combined link rate, as a percent.</summary>
+    private static int LinkUsage(double down, double up, double linkMbps) =>
+        linkMbps <= 0 ? 0
+        : (int)Math.Clamp(Math.Round((down + up) * 8 / linkMbps * 100), 0, 100);
+
     private string SpeedText(double read, double write) =>
         $"{_lang["read"]} {Speed(read)} | {_lang["write"]} {Speed(write)} MB/s";
+
+    private string NetText(double down, double up) =>
+        $"↓ {Speed(down)} | ↑ {Speed(up)} MB/s";
 
     private static string Speed(double value) =>
         value >= 100 ? value.ToString("F0") : value.ToString("F1");

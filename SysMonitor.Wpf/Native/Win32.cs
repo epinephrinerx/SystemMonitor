@@ -184,6 +184,31 @@ internal static class Win32
         }
     }
 
+    /// <summary>
+    /// The monitor's whole rectangle under a point, taskbar included, in
+    /// physical pixels. WorkArea excludes the taskbar; a full-screen view
+    /// wants the screen.
+    /// </summary>
+    public static (int Left, int Top, int Right, int Bottom)? MonitorBounds(int x, int y)
+    {
+        try
+        {
+            IntPtr monitor = MonitorFromPoint(new POINT { X = x, Y = y },
+                                              MONITOR_DEFAULTTONEAREST);
+            var info = new MONITORINFO { cbSize = (uint)Marshal.SizeOf<MONITORINFO>() };
+            if (!GetMonitorInfoW(monitor, ref info))
+            {
+                return null;
+            }
+            RECT r = info.rcMonitor;
+            return (r.Left, r.Top, r.Right, r.Bottom);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     // ------------------------------------------------------------------ cpu
     /// <summary>Per logical core (idle, kernel, user) tick counts, or null.</summary>
     public static (long Idle, long Kernel, long User)[]? CpuTimes()

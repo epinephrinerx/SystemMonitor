@@ -1,0 +1,197 @@
+using System.Windows.Media;
+using SysMonitor.Model;
+
+namespace SysMonitor.Tests;
+
+[TestClass]
+public class HistoryTests
+{
+    [TestMethod]
+    public void An_empty_history_has_nothing_to_draw()
+    {
+        var history = new History(8);
+        Assert.AreEqual(0, history.Count);
+        Assert.AreEqual(0, history.CopyTo(new double[8]));
+        Assert.AreEqual(0, history.Latest);
+    }
+
+    [TestMethod]
+    public void A_partly_filled_history_reads_oldest_first()
+    {
+        var history = new History(8);
+        foreach (int value in new[] { 1, 2, 3 })
+        {
+            history.Add(value);
+        }
+
+        var into = new double[8];
+        Assert.AreEqual(3, history.CopyTo(into));
+        CollectionAssert.AreEqual(new double[] { 1, 2, 3 }, into[..3]);
+        Assert.AreEqual(3, history.Latest);
+    }
+
+    [TestMethod]
+    public void Past_capacity_the_oldest_readings_fall_off()
+    {
+        // The whole point: a widget running for days must not grow a list.
+        var history = new History(4);
+        for (int value = 1; value <= 10; value++)
+        {
+            history.Add(value);
+        }
+
+        var into = new double[4];
+        Assert.AreEqual(4, history.Count);
+        Assert.AreEqual(4, history.CopyTo(into));
+        CollectionAssert.AreEqual(new double[] { 7, 8, 9, 10 }, into);
+        Assert.AreEqual(10, history.Latest);
+    }
+
+    [TestMethod]
+    public void Wrapping_many_times_still_reads_in_order()
+    {
+        var history = new History(3);
+        for (int value = 0; value < 100; value++)
+        {
+            history.Add(value);
+        }
+
+        var into = new double[3];
+        history.CopyTo(into);
+        CollectionAssert.AreEqual(new double[] { 97, 98, 99 }, into);
+    }
+
+    [TestMethod]
+    public void A_smaller_buffer_gets_the_most_recent_readings()
+    {
+        var history = new History(8);
+        for (int value = 1; value <= 8; value++)
+        {
+            history.Add(value);
+        }
+
+        var into = new double[3];
+        Assert.AreEqual(3, history.CopyTo(into));
+        CollectionAssert.AreEqual(new double[] { 6, 7, 8 }, into);
+    }
+
+    [TestMethod]
+    public void The_revision_moves_on_every_push()
+    {
+        var history = new History(4);
+        int before = history.Revision;
+        history.Add(1);
+        history.Add(2);
+        Assert.AreEqual(before + 2, history.Revision);
+    }
+
+    [TestMethod]
+    public void Max_covers_only_what_is_still_in_the_buffer()
+    {
+        var history = new History(3);
+        history.Add(90);            // falls off
+        history.Add(10);
+        history.Add(20);
+        history.Add(30);
+        Assert.AreEqual(30, history.Max);
+    }
+}
+
+[TestClass]
+public class AdapterTests
+{
+    private static Adapter At(double speedMbps, double downMb, double upMb) => new()
+    {
+        Id = "test",
+        SpeedMbps = speedMbps,
+        DownMb = downMb,
+        UpMb = upMb,
+    };
+
+    [TestMethod]
+    public void Throughput_is_measured_against_the_link_rate()
+    {
+        // 1 Gbps link, 12.5 MB/s down = 100 Mbps = 10%.
+        Assert.AreEqual(10, At(1000, 12.5, 0).Usage);
+    }
+
+    [TestMethod]
+    public void Both_directions_count_towards_the_bar()
+    {
+        // A saturated uplink matters as much as a saturated downlink.
+        Assert.AreEqual(20, At(1000, 12.5, 12.5).Usage);
+    }
+
+    [TestMethod]
+    public void An_adapter_reporting_no_link_speed_shows_no_percentage()
+    {
+        // Rather than dividing by zero and drawing a full bar.
+        Assert.AreEqual(0, At(0, 50, 50).Usage);
+    }
+
+    [TestMethod]
+    public void The_bar_cannot_exceed_full()
+    {
+        Assert.AreEqual(100, At(100, 50, 50).Usage);
+    }
+}
+
+[TestClass]
+public class ModuleTests
+{
+    [TestMethod]
+    public void A_module_reads_as_size_type_speed_and_maker()
+    {
+        var module = new Module
+        {
+            Slot = "DIMM 0",
+            Gb = 16,
+            Kind = "DDR5",
+            Mhz = 5600,
+            Manufacturer = "Samsung",
+        };
+        Assert.AreEqual("DIMM 0", module.Title);
+        Assert.AreEqual("16 GB · DDR5 · 5600 MHz · Samsung", module.Detail);
+    }
+
+    [TestMethod]
+    public void Missing_facts_are_left_out_rather_than_shown_empty()
+    {
+        var module = new Module { Slot = "DIMM 1", Gb = 8 };
+        Assert.AreEqual("8 GB", module.Detail);
+    }
+
+    [TestMethod]
+    public void The_bank_label_names_a_module_with_no_slot()
+    {
+        Assert.AreEqual("BANK 2", new Module { Bank = "BANK 2", Gb = 8 }.Title);
+    }
+}
+
+[TestClass]
+public class ChartPenTests
+{
+    [TestMethod]
+    public void Building_a_pen_does_not_freeze_the_brush_it_was_given()
+    {
+        // Freezing a Pen freezes its brush. The view model recolours its
+        // brushes on every theme switch, so a chart that froze one turned the
+        // next switch into a crash.
+        var shared = new SolidColorBrush(Colors.SteelBlue);
+
+        Pen pen = SysMonitor.Controls.Chart.PenFor(shared, 1.4);
+
+        Assert.IsTrue(pen.IsFrozen, "the pen itself should still be frozen");
+        Assert.IsFalse(shared.IsFrozen, "the caller's brush must stay writable");
+        shared.Color = Colors.Firebrick;          // would throw before the fix
+        Assert.AreEqual(Colors.Firebrick, shared.Color);
+    }
+
+    [TestMethod]
+    public void The_pen_still_draws_in_the_colour_it_was_asked_for()
+    {
+        var shared = new SolidColorBrush(Colors.SteelBlue);
+        Pen pen = SysMonitor.Controls.Chart.PenFor(shared, 1.0);
+        Assert.AreEqual(Colors.SteelBlue, ((SolidColorBrush)pen.Brush).Color);
+    }
+}

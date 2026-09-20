@@ -1,5 +1,10 @@
 # SysMonitor 2.0 — native Windows widget (Python)
 
+> **Retired.** This Python / Tk build is no longer developed. The product is
+> the C# / WPF build in `SysMonitor.Wpf` — see `SysMonitor.Wpf/README.md`.
+> What follows is kept because it documents the sensor behaviour the C# port
+> was written against, and because the build still runs.
+
 A rewrite of the two earlier Electron prototypes (`Claude/1.0.5` and
 `Gemini/1.0.4`) as a **native Windows app**, using nothing but
 the Python standard library: `tkinter` for the window, `ctypes` for direct

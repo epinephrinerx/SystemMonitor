@@ -12,10 +12,14 @@ five-second rotation, expanded view with the settings sidebar, Thai/English,
 dark/light, opacity, the full sensor layer (per-core CPU, RAM, per-drive space,
 I/O rates, drive temperature, SSD/HDD and bus detection), diagnostics log.
 
-Also working: real CPU temperature, installer and uninstaller, autostart from
-the sidebar, the exe icon, and 45 tests.
+Also working: real CPU temperature, LAN and Wi-Fi throughput, installed memory
+modules, a full-screen view with a graph per device, two-column card layout,
+installer and uninstaller, autostart from the sidebar, the exe icon, and
+70 tests.
 
-The 1.0.5 feature set is complete.
+Three views, cycled by double-click, or F11 for full screen and Escape to step
+back: **mini** rotates one metric every five seconds, **expanded** lists
+everything with the settings sidebar, **full** graphs every device.
 
 ## Measured, on this machine
 
@@ -182,6 +186,17 @@ rewrites a bare `/S` into a Windows path and the wizard opens instead.
 - **Thermal zones.** Kelvin and tenths-of-Kelvin conversion, readings no room
   ever sees, and zone selection: a CPU-named zone beats a hotter one, TZ00 is
   treated as the CPU, and with no recognisable name the hottest wins.
+- **The graph, drawn offscreen.** `ChartRenderTests` renders a `Chart` into a
+  `RenderTargetBitmap` and counts accent-coloured pixels: a series draws, a
+  busy one fills more than a quiet one, one reading is not a line, an empty
+  chart still draws its grid, and an unbounded series scales to its own peak.
+  Checking this needed no window over anyone's desktop.
+- **The history ring.** Oldest-first ordering, wrapping many times over, a
+  buffer smaller than the ring, and a max that covers only what is still held.
+- **Traffic light.** Every meter keeps its own colour to 70%, then amber, then
+  red at 90% -- and the temperature thresholds are asserted to be untouched.
+- **Pen freezing.** A pen built from a brush must not freeze the caller's
+  brush, or the next theme switch throws.
 
 `StorageDescriptors` and `IoRate` are internal, with `InternalsVisibleTo` for
 the test assembly: nothing outside the sensor layer should call them, but they
@@ -194,3 +209,44 @@ are the parts most worth testing.
   `Cannot find non-neutral culture related to 'en-us'`.
 - **XAML comments cannot contain `--`.** Section-divider comments of dashes are
   an XML parse error, not a warning.
+
+## The three views
+
+**Mini** is unchanged: one metric at a time, rotating every five seconds.
+
+**Expanded** now lays each group out as two columns of cards rather than one
+long list. Sixteen cores in a single column was most of a screen; side by side
+it is four rows.
+
+**Full screen** takes the whole monitor, taskbar included, and gives every
+device its own graph: CPU total and each core, memory, each drive's usage and
+its throughput, and each adapter. History is pushed on every snapshot whatever
+view is on screen, so opening the full view shows the last few minutes rather
+than an empty box. Seventy-two points is three minutes at the balanced cadence.
+
+The graphs are one `FrameworkElement` drawing in `OnRender`, not a chart built
+from elements -- seventy-two points as seventy-two visuals would cost more than
+everything else in the window together. One `StreamGeometry` per repaint, and a
+scratch buffer reused between repaints, so drawing allocates nothing per frame.
+
+## Network
+
+`NetworkInterface` from the base class library, not `GetIfTable2`: the
+counters, the media type and the link state all come from there, so this needs
+neither a P/Invoke nor a package. Rates go through the same `IoRate` helper the
+drives use, so an adapter whose probe was skipped is divided by its own elapsed
+time rather than a shared tick.
+
+The bar is combined throughput against the link rate -- a saturated uplink
+matters as much as a saturated downlink. An adapter that reports no link speed
+shows no percentage rather than dividing by zero.
+
+## Memory modules
+
+Slot, size, speed, type and maker, from `Win32_PhysicalMemory`, queried once
+and cached because a DIMM does not appear while the widget runs.
+
+**There is no per-module usage, and no API exposes one.** The memory controller
+interleaves across channels, so "how much of DIMM 2 is in use" is not a
+quantity the hardware tracks. The section shows what is installed, says so in
+its heading, and draws no bar rather than inventing a number.

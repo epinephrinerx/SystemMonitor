@@ -27,6 +27,7 @@ public sealed class MeterRow : INotifyPropertyChanged
     private Brush _tempBack = Brushes.Transparent;
     private bool _hot;
     private bool _compact;
+    private bool _infoOnly;
 
     public string Title
     {
@@ -119,6 +120,17 @@ public sealed class MeterRow : INotifyPropertyChanged
     {
         get => _hot;
         set => Set(ref _hot, value);
+    }
+
+    /// <summary>
+    /// A fact, not a measurement: the row shows its title and detail and no
+    /// bar at all. Installed memory modules use this, because Windows reports
+    /// no per-module usage and a filled bar would be inventing one.
+    /// </summary>
+    public bool InfoOnly
+    {
+        get => _infoOnly;
+        set => Set(ref _infoOnly, value);
     }
 
     /// <summary>

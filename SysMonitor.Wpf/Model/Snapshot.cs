@@ -10,6 +10,8 @@ public sealed class Snapshot
     public IReadOnlyList<Core> Cores { get; init; } = Array.Empty<Core>();
     public Ram Ram { get; init; } = new();
     public IReadOnlyList<Disk> Disks { get; init; } = Array.Empty<Disk>();
+    public IReadOnlyList<Adapter> Adapters { get; init; } = Array.Empty<Adapter>();
+    public IReadOnlyList<Module> Modules { get; init; } = Array.Empty<Module>();
     public int CpuTotal { get; init; }
     public int? CpuTemp { get; init; }
     public bool CpuTempEstimated { get; init; }
@@ -51,4 +53,67 @@ public sealed class Disk
     public bool Estimated { get; init; }
 
     public string Title => Letter + ":" + (Label.Length > 0 ? $" ({Label})" : string.Empty);
+}
+
+/// <summary>A wired or wireless adapter that is currently up.</summary>
+public sealed class Adapter
+{
+    public required string Id { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public string Description { get; init; } = string.Empty;
+    public bool Wireless { get; init; }
+
+    /// <summary>Link speed, or 0 when the adapter reports none.</summary>
+    public double SpeedMbps { get; init; }
+
+    public double DownMb { get; init; }
+    public double UpMb { get; init; }
+    public long TotalReceived { get; init; }
+    public long TotalSent { get; init; }
+
+    /// <summary>
+    /// Throughput against the link rate, for the bar. Both directions count:
+    /// a saturated uplink matters as much as a saturated downlink.
+    /// </summary>
+    public int Usage => SpeedMbps <= 0 ? 0
+        : (int)Math.Clamp(Math.Round((DownMb + UpMb) * 8 / SpeedMbps * 100), 0, 100);
+}
+
+/// <summary>
+/// An installed memory module. There is no per-module usage here because
+/// Windows does not report one -- the controller interleaves across channels,
+/// so the quantity does not exist to be read.
+/// </summary>
+public sealed class Module
+{
+    public string Slot { get; init; } = string.Empty;
+    public string Bank { get; init; } = string.Empty;
+    public double Gb { get; init; }
+    public int Mhz { get; init; }
+    public string Kind { get; init; } = string.Empty;
+    public string Manufacturer { get; init; } = string.Empty;
+    public string PartNumber { get; init; } = string.Empty;
+
+    public string Title => Slot.Length > 0 ? Slot : Bank;
+
+    public string Detail
+    {
+        get
+        {
+            var parts = new List<string> { $"{Gb:F0} GB" };
+            if (Kind.Length > 0)
+            {
+                parts.Add(Kind);
+            }
+            if (Mhz > 0)
+            {
+                parts.Add($"{Mhz} MHz");
+            }
+            if (Manufacturer.Length > 0)
+            {
+                parts.Add(Manufacturer);
+            }
+            return string.Join(" · ", parts);
+        }
+    }
 }

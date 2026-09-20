@@ -21,6 +21,9 @@ public sealed class AppConfig
     public bool ShowCpu { get; set; } = true;
     public bool ShowRam { get; set; } = true;
     public bool ShowDisk { get; set; } = true;
+    public bool ShowNetwork { get; set; } = true;
+    public bool IncludeWireless { get; set; } = true;
+    public string NetworkMode { get; set; } = "separated";  // separated | total
     public string CpuMode { get; set; } = "separated";   // separated | total
     public string DiskMode { get; set; } = "separated";  // separated | total
     public string Speed { get; set; } = "balanced";      // eco | balanced | fast

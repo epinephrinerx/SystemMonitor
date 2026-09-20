@@ -42,6 +42,8 @@ public sealed class Sampler : IDisposable
     private readonly Dictionary<string, int?> _temps = new();
     private readonly Dictionary<string, long> _slowUntil = new();
     private List<string> _drives = new();
+    private readonly NetworkSensor _network = new();
+    private IReadOnlyList<Module> _modules = Array.Empty<Module>();
 
     private int? _cpuTempReal;
     private int _thermalMisses;
@@ -201,6 +203,8 @@ public sealed class Sampler : IDisposable
             CpuTempEstimated = estimated,
             Ram = CollectRam(),
             Disks = CollectDisks(),
+            Adapters = CollectAdapters(),
+            Modules = _modules,
             Ready = true,
         });
     }
@@ -345,6 +349,27 @@ public sealed class Sampler : IDisposable
             _temps[letter] = seen[number.Value];
         }
         RefreshCpuTemperature();
+
+        // Installed memory does not change while the widget runs, so this
+        // queries WMI once and the cache answers afterwards.
+        if (_modules.Count == 0)
+        {
+            Guard("modules", MemoryModules.Read, out IReadOnlyList<Module>? modules,
+                  slowAfter: TimeSpan.FromSeconds(2));
+            _modules = modules ?? Array.Empty<Module>();
+        }
+    }
+
+    private IReadOnlyList<Adapter> CollectAdapters()
+    {
+        if (!_config.ShowNetwork)
+        {
+            return Array.Empty<Adapter>();
+        }
+        return Guard("net", () => _network.Read(_config.IncludeWireless),
+                     out List<Adapter>? adapters) && adapters is not null
+            ? adapters
+            : Array.Empty<Adapter>();
     }
 
     /// <summary>

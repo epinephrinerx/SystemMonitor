@@ -42,12 +42,29 @@ public class PaletteTests
     }
 
     [TestMethod]
-    public void Load_colour_matches_the_original_thresholds()
+    public void Usage_bars_turn_amber_at_70_and_red_at_90()
     {
-        Assert.AreEqual(Palette.AccentCpu, Palette.LoadColor(50));
-        Assert.AreEqual(Palette.TempWarm, Palette.LoadColor(51));
-        Assert.AreEqual(Palette.TempWarm, Palette.LoadColor(80));
-        Assert.AreEqual(Palette.TempHot, Palette.LoadColor(81));
+        Assert.AreEqual(Palette.AccentCpu, Palette.LoadColor(0));
+        Assert.AreEqual(Palette.AccentCpu, Palette.LoadColor(69));
+        Assert.AreEqual(Palette.LoadWarm, Palette.LoadColor(70));
+        Assert.AreEqual(Palette.LoadWarm, Palette.LoadColor(89));
+        Assert.AreEqual(Palette.LoadHot, Palette.LoadColor(90));
+        Assert.AreEqual(Palette.LoadHot, Palette.LoadColor(100));
+    }
+
+    [TestMethod]
+    public void The_usage_thresholds_are_not_the_temperature_ones()
+    {
+        // Changing where a bar turns amber must never move the thermometer.
+        Assert.AreEqual(65, Palette.WarmAt);
+        Assert.AreEqual(80, Palette.HotAt);
+        Assert.AreEqual(70, Palette.LoadWarmAt);
+        Assert.AreEqual(90, Palette.LoadHotAt);
+
+        // A CPU at 85% is a red bar; a drive at 85 C is a hot badge; the two
+        // decisions are independent.
+        Assert.AreEqual(Palette.LoadWarm, Palette.LoadColor(85));
+        Assert.AreEqual(Palette.TempHot, Palette.TempColors(85, Palette.For("dark")).Fore);
     }
 
     [TestMethod]
@@ -137,5 +154,33 @@ public class StartupTests
     {
         Assert.AreEqual("\"C:\\Program Files\\SysMonitor.exe\"",
             Startup.Command(@"C:\Program Files\SysMonitor.exe"));
+    }
+}
+
+[TestClass]
+public class TrafficLightTests
+{
+    [TestMethod]
+    public void Every_meter_keeps_its_own_colour_until_the_warning_point()
+    {
+        // Memory is purple, disk green, network cyan -- right up to 70%.
+        Assert.AreEqual(Palette.AccentRam, Palette.LoadColor(69, Palette.AccentRam));
+        Assert.AreEqual(Palette.AccentDisk, Palette.LoadColor(69, Palette.AccentDisk));
+        Assert.AreEqual(Palette.AccentNet, Palette.LoadColor(69, Palette.AccentNet));
+    }
+
+    [TestMethod]
+    public void Past_the_warning_point_every_meter_turns_the_same_colour()
+    {
+        // A drive at 79% has to read as a warning, not as a long green bar.
+        Assert.AreEqual(Palette.LoadWarm, Palette.LoadColor(79, Palette.AccentDisk));
+        Assert.AreEqual(Palette.LoadWarm, Palette.LoadColor(79, Palette.AccentRam));
+        Assert.AreEqual(Palette.LoadHot, Palette.LoadColor(95, Palette.AccentNet));
+    }
+
+    [TestMethod]
+    public void With_no_accent_given_the_cpu_colour_is_the_default()
+    {
+        Assert.AreEqual(Palette.AccentCpu, Palette.LoadColor(10));
     }
 }
