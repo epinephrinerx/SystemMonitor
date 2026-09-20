@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>SysMonitor</AssemblyName>
+    <RootNamespace>SysMonitor</RootNamespace>
+    <Version>3.0.0</Version>
+    <FileVersion>3.0.0.0</FileVersion>
+    <Company>SysMonitor</Company>
+    <Product>SysMonitor</Product>
+    <Description>System resource monitor widget</Description>
+    <!-- Per-monitor-v2 DPI, declared before any window exists. -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\SysMonitor.ico</ApplicationIcon>
+    <!-- InvariantGlobalization must stay off: WPF data binding asks for the
+         specific culture behind en-US and throws without ICU data. -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <!-- No package references: the same stdlib-only rule the Python port kept. -->
+
+</Project>
