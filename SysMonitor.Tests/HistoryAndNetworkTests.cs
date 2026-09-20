@@ -1,4 +1,5 @@
 using System.Windows.Media;
+using SysMonitor;
 using SysMonitor.Model;
 
 namespace SysMonitor.Tests;
@@ -242,5 +243,33 @@ public class ModuleSummaryTests
     public void No_modules_reported_means_nothing_to_append()
     {
         Assert.AreEqual(string.Empty, Module.Summarise(Array.Empty<Module>()));
+    }
+}
+
+[TestClass]
+public class TrayTooltipTests
+{
+    [TestMethod]
+    public void A_short_tooltip_is_left_alone()
+    {
+        const string text = "SysMonitor\nCPU 12%  ·  RAM 68%";
+        Assert.AreEqual(text, TrayIcon.Trim(text));
+    }
+
+    [TestMethod]
+    public void A_tooltip_at_the_limit_is_left_alone()
+    {
+        string text = new('x', 63);
+        Assert.AreEqual(63, TrayIcon.Trim(text).Length);
+    }
+
+    [TestMethod]
+    public void A_longer_tooltip_is_cut_rather_than_rejected()
+    {
+        // Windows does not truncate an over-long tooltip, it drops it, and
+        // the icon ends up with none at all.
+        string trimmed = TrayIcon.Trim(new string('x', 200));
+        Assert.AreEqual(63, trimmed.Length);
+        Assert.IsTrue(trimmed.EndsWith('…'));
     }
 }

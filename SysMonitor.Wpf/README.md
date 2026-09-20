@@ -242,6 +242,32 @@ aiming at it is concerned. And the expanded view's size cap went from
 be checked without a window; `WindowGeometryTests` pins the hit zone, both
 limits, and that what gets saved is the panel size rather than the window's.
 
+## The close button
+
+It does whichever of two things the user picked, set in the sidebar:
+
+- **Exits** (default) -- the widget quits.
+- **Hides to tray** -- the window goes away and a notification-area icon takes
+  its place. Left-click or double-click brings it back; the icon's menu offers
+  Show window and Exit.
+
+The icon exists only while the window is hidden. A widget that sits on the
+desktop all day does not also need a permanent icon in the tray. Its tooltip
+carries CPU, memory and temperature, because while the window is away that is
+the only thing still reporting -- trimmed to 63 characters, since Windows does
+not truncate an over-long tooltip, it drops it and leaves the icon with none.
+
+Hiding stops the UI timer but not the sampler: the sampler is the cheap half,
+and its history keeps filling so the graphs are not blank on return.
+
+`NotifyIcon` comes from Windows Forms, which is part of the desktop framework
+rather than a package, and is a hundred and fifty lines of message-window
+plumbing we would otherwise own. Turning it on adds `System.Drawing` and
+`System.Windows.Forms` to the implicit usings, where `Brush`, `Color`, `Point`,
+`Size`, `CheckBox` and half a dozen event args collide with their WPF
+namesakes in every file -- so the csproj removes both from the implicit set and
+`TrayIcon.cs` asks for them itself.
+
 ## The three views
 
 **Mini** is unchanged: one metric at a time, rotating every five seconds.

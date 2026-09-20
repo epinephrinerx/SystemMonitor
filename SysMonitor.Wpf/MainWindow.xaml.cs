@@ -27,7 +27,9 @@ public partial class MainWindow : Window
 
     private DateTime _lastRotate = DateTime.UtcNow;
     private Snapshot? _shown;
+    private readonly TrayIcon _tray = new();
     private Mode _mode = Mode.Mini;
+    private bool _exiting;
     private Rect _beforeFull;
     private bool _closing;
 
@@ -89,6 +91,13 @@ public partial class MainWindow : Window
         _heartbeat.Start();
 
         BuildContextMenu();
+
+        _tray.ShowRequested += RestoreFromTray;
+        _tray.ExitRequested += () =>
+        {
+            _exiting = true;
+            Close();
+        };
 
         // --expanded and --full open straight into a view. Checking those
         // layouts otherwise means driving clicks into the user's desktop.
@@ -216,6 +225,11 @@ public partial class MainWindow : Window
                 return;
             }
             _shown = snap;
+
+            if (_tray.Visible)
+            {
+                _tray.Update(TrayTooltip());
+            }
 
             // Every snapshot feeds the graphs, whichever view is on screen, so
             // the full view opens with history behind it rather than empty.
@@ -602,6 +616,16 @@ public partial class MainWindow : Window
             Refresh();
         }));
 
+        Sidebar.Children.Add(Heading(lang["close_action"]));
+        Sidebar.Children.Add(Choice(
+            new[] { ("exit", lang["close_to_exit"]), ("tray", lang["close_to_tray"]) },
+            _config.CloseAction,
+            value =>
+            {
+                _config.CloseAction = value;
+                _config.Save();
+            }));
+
         Sidebar.Children.Add(Heading(lang["speed"]));
         Sidebar.Children.Add(Choice(
             new[] { ("eco", lang["eco"]), ("balanced", lang["balanced"]), ("fast", lang["fast"]) },
@@ -755,14 +779,64 @@ public partial class MainWindow : Window
         return panel;
     }
 
+    // ----------------------------------------------------------------- tray
+    /// <summary>
+    /// Put the widget behind a tray icon. The sampler keeps running -- it is
+    /// the cheap half -- but the UI timer stops, because nothing it draws is
+    /// on screen.
+    /// </summary>
+    private void HideToTray()
+    {
+        SavePlacement();
+        _timer.Stop();
+        _tray.Show(new Lang(_config.Lang), TrayTooltip());
+        Hide();
+        Diag.Write("hidden to tray");
+    }
+
+    private void RestoreFromTray()
+    {
+        _tray.Hide();
+        Show();
+        Activate();
+        _timer.Start();
+        OnTick(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// What the tray icon says on hover. While the window is away this is the
+    /// only thing still reporting, so it carries the headline figures.
+    /// </summary>
+    private string TrayTooltip()
+    {
+        Snapshot snap = _sampler.Current;
+        if (!snap.Ready)
+        {
+            return "SysMonitor";
+        }
+        string text = $"SysMonitor\nCPU {snap.CpuTotal}%  ·  RAM {snap.Ram.Usage}%";
+        return snap.CpuTemp is int temp
+            ? text + $"  ·  {Palette.TempText(temp, snap.CpuTempEstimated)}"
+            : text;
+    }
+
     // ------------------------------------------------------------ shutdown
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
+        // The close button means whichever of the two the user chose.
+        if (!_exiting && _config.CloseAction == "tray")
+        {
+            e.Cancel = true;
+            HideToTray();
+            return;
+        }
+
         _closing = true;
         _timer.Stop();
         _heartbeat.Stop();
         SavePlacement();
         _sampler.Stop();
+        _tray.Dispose();
         base.OnClosing(e);
     }
 }

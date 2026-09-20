@@ -46,6 +46,12 @@ public sealed class AppConfig
     public bool IncludeRemovable { get; set; } = true;
     public bool Diagnostics { get; set; } = true;
 
+    /// <summary>
+    /// What the close button does: "exit" quits, "tray" hides the widget
+    /// behind a notification-area icon.
+    /// </summary>
+    public string CloseAction { get; set; } = "exit";
+
     public double? PosX { get; set; }
     public double? PosY { get; set; }
 
