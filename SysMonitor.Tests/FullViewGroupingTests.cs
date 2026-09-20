@@ -134,3 +134,79 @@ public class FullViewGroupingTests
         Assert.IsTrue(io.Ceiling.EndsWith("MB/s"), io.Ceiling);
     }
 }
+
+/// <summary>
+/// The expanded view's column count, which is not one rule for every section:
+/// a core is a label and a bar, a drive carries a line of detail under it.
+/// </summary>
+[TestClass]
+public class ExpandedColumnTests
+{
+    private static Snapshot Sample() => new()
+    {
+        Ready = true,
+        CpuTotal = 25,
+        Cores = Enumerable.Range(0, 16).Select(i => new Core { Usage = 10 }).ToList(),
+        Ram = new Ram { Usage = 60, UsedGb = 19.2, TotalGb = 32 },
+        Disks = new[] { "C", "D", "E", "F" }
+            .Select(letter => new Disk
+            {
+                Letter = letter,
+                Usage = 40,
+                Media = "SSD",
+                Bus = "NVMe",
+                UsedGb = 183,
+                TotalGb = 231,
+            }).ToList(),
+        Adapters = new[]
+        {
+            new Adapter { Id = "nic", Name = "Wi-Fi", SpeedMbps = 1000 },
+            new Adapter { Id = "eth", Name = "Ethernet", SpeedMbps = 1000 },
+        },
+        Modules = new[]
+        {
+            new Module { Slot = "DIMM 0", Gb = 16, Kind = "DDR5", Mhz = 5600 },
+            new Module { Slot = "DIMM 1", Gb = 16, Kind = "DDR5", Mhz = 5600 },
+        },
+    };
+
+    private static WidgetViewModel Model(AppConfig? config = null)
+    {
+        config ??= new AppConfig();
+        config.Lang = "en";
+        var model = new WidgetViewModel(config);
+        model.UpdateExpanded(Sample());
+        return model;
+    }
+
+    private static Section Named(WidgetViewModel model, string title) =>
+        model.Sections.First(s => s.Title.StartsWith(title, StringComparison.Ordinal));
+
+    [TestMethod]
+    public void Cores_sit_two_to_a_line()
+    {
+        Assert.AreEqual(2, Named(Model(), "CPU").Columns);
+    }
+
+    [TestMethod]
+    public void Drives_run_down_the_page()
+    {
+        // Media, bus, capacity and both I/O rates do not fit at half width.
+        Assert.AreEqual(1, Named(Model(), "Disk Storage").Columns);
+    }
+
+    [TestMethod]
+    public void Adapters_and_modules_run_down_the_page_too()
+    {
+        WidgetViewModel model = Model();
+        Assert.AreEqual(1, Named(model, "Network").Columns);
+        Assert.AreEqual(1, Named(model, "Memory modules").Columns);
+    }
+
+    [TestMethod]
+    public void Combined_cpu_mode_is_a_single_row_not_a_pair()
+    {
+        WidgetViewModel model = Model(new AppConfig { CpuMode = "total" });
+        Assert.AreEqual(1, Named(model, "CPU").Columns);
+    }
+}

@@ -549,8 +549,11 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
                     break;
             }
 
-            // One member stays full width; several go two to a line.
-            section.Columns = section.Rows.Count > 1 ? 2 : 1;
+            // Only the per-core rows are short enough to share a line: a core
+            // is "C7" and a bar. Everything else carries a line of detail
+            // under the bar -- a drive names its media, bus, capacity and both
+            // I/O rates -- and at half width that line is mostly ellipsis.
+            section.Columns = ColumnsFor(wanted[i]);
         }
     }
 
@@ -706,6 +709,10 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
             }
         }
     }
+
+    /// <summary>How many meters of this kind fit on one line.</summary>
+    private int ColumnsFor(string kind) =>
+        kind == "cpu" && _config.CpuMode == "separated" ? 2 : 1;
 
     private string TitleFor(string kind) => kind switch
     {
