@@ -359,17 +359,8 @@ public sealed class Sampler : IDisposable
                 long stamp = Environment.TickCount64;
                 if (_prevIo.TryGetValue(letter, out var previous))
                 {
-                    // The baseline belongs to this drive's last successful read.
-                    // Dividing by a global tick would report a skipped interval's
-                    // accumulated bytes as a huge instantaneous rate.
-                    double elapsed = (stamp - previous.Stamp) / 1000.0;
-                    if (elapsed > 0)
-                    {
-                        readMb = Math.Max(0, counters.Value.Read - previous.Counters.Read)
-                                 / elapsed / (1024 * 1024);
-                        writeMb = Math.Max(0, counters.Value.Written - previous.Counters.Written)
-                                  / elapsed / (1024 * 1024);
-                    }
+                    (readMb, writeMb) = IoRate.PerSecond(previous.Counters, previous.Stamp,
+                                                         counters.Value, stamp);
                 }
                 _prevIo[letter] = (counters.Value, stamp);
             }

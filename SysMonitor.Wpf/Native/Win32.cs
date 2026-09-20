@@ -39,14 +39,6 @@ internal static class Win32
     private const int SystemProcessorPerformanceInformation = 8;
     private const uint STATUS_INFO_LENGTH_MISMATCH = 0xC0000004;
 
-    /// <summary>STORAGE_BUS_TYPE to the label the sidebar shows.</summary>
-    private static readonly string[] BusTypes =
-    {
-        "Unknown", "SCSI", "ATAPI", "ATA", "1394", "SSA", "Fibre", "USB",
-        "RAID", "iSCSI", "SAS", "SATA", "SD", "MMC", "Virtual", "Virtual",
-        "Spaces", "NVMe", "SCM", "UFS",
-    };
-
     // ------------------------------------------------------------- imports
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern uint SetErrorMode(uint mode);
@@ -344,11 +336,7 @@ internal static class Win32
         {
             CloseHandle(handle);
         }
-        if (raw is null || raw.Length < 16)
-        {
-            return null;
-        }
-        return (BitConverter.ToInt64(raw, 0), BitConverter.ToInt64(raw, 8));
+        return raw is null ? null : StorageDescriptors.IoCounters(raw);
     }
 
     public static int? PhysicalDriveNumber(string letter)
@@ -367,12 +355,7 @@ internal static class Win32
         {
             CloseHandle(handle);
         }
-        if (raw is null || raw.Length < 8)
-        {
-            return null;
-        }
-        int number = BitConverter.ToInt32(raw, 4);
-        return number < 0 ? null : number;
+        return raw is null ? null : StorageDescriptors.DeviceNumber(raw);
     }
 
     private static byte[]? StorageQuery(IntPtr handle, uint propertyId, int outSize)
@@ -400,16 +383,9 @@ internal static class Win32
         try
         {
             byte[]? raw = StorageQuery(handle, StorageDeviceSeekPenaltyProperty, 32);
-            if (raw is not null && raw.Length >= 9)
-            {
-                media = raw[8] != 0 ? "HDD" : "SSD";
-            }
+            media = raw is null ? null : StorageDescriptors.MediaType(raw);
             raw = StorageQuery(handle, StorageAdapterProperty, 128);
-            if (raw is not null && raw.Length >= 25)
-            {
-                int busType = raw[24];
-                bus = busType < BusTypes.Length ? BusTypes[busType] : "Unknown";
-            }
+            bus = raw is null ? null : StorageDescriptors.BusType(raw);
         }
         finally
         {
@@ -446,23 +422,10 @@ internal static class Win32
                 CloseHandle(handle);
             }
 
-            // The descriptor has an eight-byte Reserved1 array at offset 16.
-            // TemperatureInfo starts at 24 and each complete entry is 16 bytes,
-            // so the first signed reading lives at 26 -- not 18, which is
-            // reserved and reads as zero.
-            if (raw is null || raw.Length < 40)
+            int? temp = raw is null ? null : StorageDescriptors.Temperature(raw);
+            if (temp is not null)
             {
-                continue;
-            }
-            int infoCount = BitConverter.ToUInt16(raw, 12);
-            uint size = BitConverter.ToUInt32(raw, 4);
-            if (infoCount > 0 && 24 + infoCount * 16 <= Math.Min(size, (uint)raw.Length))
-            {
-                short temp = BitConverter.ToInt16(raw, 26);
-                if (temp > -50 && temp < 150)
-                {
-                    return temp;
-                }
+                return temp;
             }
         }
         return null;

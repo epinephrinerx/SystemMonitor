@@ -7,3 +7,5 @@ dist/
 # .NET / WPF port
 bin/
 obj/
+dist-wpf/
+SysMonitor.Setup/payload/

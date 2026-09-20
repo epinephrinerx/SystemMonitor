@@ -382,6 +382,9 @@ public partial class MainWindow : Window
             Topmost = value;
         }));
         Sidebar.Children.Add(Check(lang["snap"], _config.Snap, value => _config.Snap = value));
+        string exePath = Environment.ProcessPath ?? string.Empty;
+        Sidebar.Children.Add(Check(lang["autostart"], Startup.IsEnabled(exePath),
+                                   value => Startup.Set(value, exePath)));
         Sidebar.Children.Add(Check(lang["light_mode"], _config.Theme == "light", value =>
         {
             _config.Theme = value ? "light" : "dark";
