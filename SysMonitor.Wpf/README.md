@@ -1,6 +1,6 @@
 # SysMonitor 3.0 — the WPF port
 
-C# / .NET 8 / WPF rewrite of the widget, on the `wpf-port` branch. The goal is
+C# / .NET 8 / WPF rewrite of the widget, on the `C_Sharp` branch. The goal is
 an executable with no Tcl/Tk in the process at all, keeping the 1.0.5 feature
 set. The Python build stays on `main` and is not touched.
 
@@ -12,17 +12,17 @@ five-second rotation, expanded view with the settings sidebar, Thai/English,
 dark/light, opacity, the full sensor layer (per-core CPU, RAM, per-drive space,
 I/O rates, drive temperature, SSD/HDD and bus detection), diagnostics log.
 
-Also working: installer and uninstaller, autostart from the sidebar, the exe
-icon, and 37 tests.
+Also working: real CPU temperature, installer and uninstaller, autostart from
+the sidebar, the exe icon, and 45 tests.
 
-Not done yet: WMI CPU temperature (the opt-in ACPI thermal zone).
+The 1.0.5 feature set is complete.
 
 ## Measured, on this machine
 
 | | Python + Tk (2.0.1) | C# + WPF (3.0.0) |
 |---|---|---|
 | exe | 13.6 MB (onefile) | **0.29 MB** (framework-dependent) |
-| RSS, mini idle | 25–31 MB | 57–63 MB |
+| RSS, mini idle | 25–31 MB | 41–50 MB |
 | CPU, idle | 0.57% | 0.78% |
 
 Release build, framework-dependent, measured over 40 s of idle after a 20 s
@@ -41,8 +41,52 @@ Two things earned most of the CPU back and are worth keeping:
   build never had one. Put it back in `MainWindow.xaml` if the look matters
   more than the cost.
 
-Brushes are cached and frozen rather than reallocated per row per tick, and
-`Palette.LoadColor` no longer parses a colour string on every call.
+Brushes are cached and frozen rather than reallocated per row per tick,
+`Palette.LoadColor` no longer parses a colour string on every call, and the
+cores are built once per sample instead of being built and then rebuilt to
+carry a temperature.
+
+Memory needed measuring before it could be believed. A ten-minute run
+reported 108 MB and looked like a leak; logging the managed heap next to the
+working set showed the heap sitting at 4-9 MB and sawtoothing normally, so
+the 108 MB was pages the GC had already freed and Windows had not reclaimed.
+`SetProcessWorkingSetSize` on each heartbeat hands them back, and idle RSS now
+settles at 41-50 MB and trends down rather than up. The heartbeat logs both
+numbers for exactly this reason: a growing heap is a leak, a growing working
+set on a flat heap is not.
+
+## CPU temperature
+
+There is no driver-free way to read the CPU die sensor on Windows -- that
+lives behind an MSR and needs a kernel driver. The ACPI thermal zone is the
+closest an unprivileged process can get, and on most machines the zone the
+firmware calls TZ00 tracks the package closely enough to be worth showing.
+
+**The source matters more than the parsing.** The obvious class,
+`MSAcpi_ThermalZoneTemperature` in `root\WMI`, returns *access denied* to a
+normal user -- which is why the Python build's opt-in setting never once
+produced a reading on this machine. The performance-counter class
+`Win32_PerfFormattedData_Counters_ThermalZoneInformation` in `root\cimv2`
+exposes the same zones with no elevation at all:
+
+```
+root\WMI   MSAcpi_ThermalZoneTemperature   -> Access denied
+root\cimv2 ...ThermalZoneInformation       -> \_TZ.TZ00 = 325 K = 51.9 C
+```
+
+So this build reads the second one, it is **on by default**, and all sixteen
+cores show a measured figure with no `~`. `HighPrecisionTemperature` is used
+where the firmware provides it, since plain `Temperature` quantises to whole
+Kelvin. Where several zones exist, one named for the CPU wins; failing that,
+the hottest, because that is the one worth warning about.
+
+The query goes through WMI's scripting COM object by late binding: not
+`System.Management`, which is a package, and not a PowerShell subprocess,
+which is what the Python build spawned and waited up to eight seconds for.
+It runs on the slow temperature cadence with a two-second budget rather than
+the 250 ms the device probes use, because a WMI round-trip is inherently
+slower than an IOCTL. A machine with no zone at all gets three tries and is
+then left alone: a class that is not implemented will not become implemented.
 
 ## What carried over unchanged
 
@@ -135,6 +179,9 @@ rewrites a bare `/S` into a Windows path and the wizard opens instead.
   ours to remove.
 - **Coexistence.** The install directory, Run value, uninstall key and
   shortcut names all differ from the Python build's.
+- **Thermal zones.** Kelvin and tenths-of-Kelvin conversion, readings no room
+  ever sees, and zone selection: a CPU-named zone beats a hotter one, TZ00 is
+  treated as the CPU, and with no recognisable name the hottest wins.
 
 `StorageDescriptors` and `IoRate` are internal, with `InternalsVisibleTo` for
 the test assembly: nothing outside the sensor layer should call them, but they

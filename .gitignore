@@ -9,3 +9,6 @@ bin/
 obj/
 dist-wpf/
 SysMonitor.Setup/payload/
+
+# editor backups
+*.bak

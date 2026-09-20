@@ -58,12 +58,18 @@ public partial class MainWindow : Window
         _timer.Tick += OnTick;
         _timer.Start();
 
-        _heartbeat.Interval = Heartbeat;
+        // --heartbeat <seconds> shortens the interval so a memory question can
+        // be answered in minutes instead of hours.
+        _heartbeat.Interval = HeartbeatInterval(args);
         _heartbeat.Tick += (_, _) =>
         {
             Snapshot snap = _sampler.Current;
             Diag.Heartbeat(_expanded ? "expanded" : "mini",
                            $"cores={snap.Cores.Count} disks={snap.Disks.Count}");
+            // Hand back pages the GC has already released. Costs nothing and
+            // keeps a widget that sits idle for days from looking like it is
+            // hoarding memory.
+            Win32.TrimWorkingSet();
         };
         _heartbeat.Start();
 
@@ -75,6 +81,22 @@ public partial class MainWindow : Window
         {
             SetExpanded(true);
         }
+    }
+
+    private static TimeSpan HeartbeatInterval(string[]? args)
+    {
+        if (args is null)
+        {
+            return Heartbeat;
+        }
+        int index = Array.FindIndex(args,
+            a => a.Equals("--heartbeat", StringComparison.OrdinalIgnoreCase));
+        if (index >= 0 && index + 1 < args.Length
+            && int.TryParse(args[index + 1], out int seconds) && seconds > 0)
+        {
+            return TimeSpan.FromSeconds(seconds);
+        }
+        return Heartbeat;
     }
 
     // ------------------------------------------------------------- geometry
@@ -434,6 +456,12 @@ public partial class MainWindow : Window
         Sidebar.Children.Add(Check(lang["per_drive"], _config.DiskMode == "separated", value =>
         {
             _config.DiskMode = value ? "separated" : "total";
+            Refresh();
+        }));
+        Sidebar.Children.Add(Check(lang["cpu_temp"], _config.CpuTemperature, value =>
+        {
+            _config.CpuTemperature = value;
+            _sampler.Nudge();
             Refresh();
         }));
 

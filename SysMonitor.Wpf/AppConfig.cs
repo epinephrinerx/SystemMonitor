@@ -28,8 +28,12 @@ public sealed class AppConfig
     /// <summary>Show '~' modelled temperatures where no sensor exists.</summary>
     public bool TempEstimate { get; set; } = true;
 
-    /// <summary>ACPI thermal zone: needs admin and spawns a process, so opt-in.</summary>
-    public bool WmiCpuTemp { get; set; }
+    /// <summary>
+    /// Read the ACPI thermal zone for a real CPU temperature. On by default:
+    /// unlike the Python build's admin-only WMI class, the source used here
+    /// needs no elevation and costs one query every half minute.
+    /// </summary>
+    public bool CpuTemperature { get; set; } = true;
     public bool IncludeRemovable { get; set; } = true;
     public bool Diagnostics { get; set; } = true;
 

@@ -43,6 +43,8 @@ public sealed class Sampler : IDisposable
     private readonly Dictionary<string, long> _slowUntil = new();
     private List<string> _drives = new();
 
+    private int? _cpuTempReal;
+    private int _thermalMisses;
     private long _nextSpace;
     private long _nextTemp;
     private long _nextDrives;
@@ -123,7 +125,7 @@ public sealed class Sampler : IDisposable
     /// false when the probe was skipped or threw, so callers keep their last
     /// good value instead of publishing a zero.
     /// </summary>
-    private bool Guard<T>(string key, Func<T> probe, out T? result)
+    private bool Guard<T>(string key, Func<T> probe, out T? result, TimeSpan? slowAfter = null)
     {
         result = default;
         long now = Environment.TickCount64;
@@ -144,7 +146,8 @@ public sealed class Sampler : IDisposable
             return false;
         }
 
-        if (Environment.TickCount64 - started > SlowProbe.TotalMilliseconds)
+        double budget = (slowAfter ?? SlowProbe).TotalMilliseconds;
+        if (Environment.TickCount64 - started > budget)
         {
             _slowUntil[key] = Environment.TickCount64 + (long)SlowBackoff.TotalMilliseconds;
             Diag.Write($"Slow probe {key}; backing off for {SlowBackoff.TotalSeconds:F0}s");
@@ -173,19 +176,21 @@ public sealed class Sampler : IDisposable
             RefreshTemperatures();
         }
 
-        (IReadOnlyList<Core> cores, int total) = CollectCpu();
-        int? cpuTemp = null;
+        // Decide the temperature before building the cores, so each one is
+        // allocated once rather than built and then rebuilt with a reading.
+        int? cpuTemp = _cpuTempReal;
         bool estimated = false;
-        if (_config.TempEstimate)
+        if (cpuTemp is null && _config.TempEstimate)
         {
-            cpuTemp = EstimateCpuTemp(total);
             estimated = true;
-            cores = cores.Select(c => new Core
-            {
-                Usage = c.Usage,
-                Temp = EstimateCpuTemp(c.Usage),
-                Estimated = true,
-            }).ToList();
+        }
+
+        (IReadOnlyList<Core> cores, int total) = CollectCpu(cpuTemp, estimated);
+        if (cpuTemp is null && estimated)
+        {
+            // A real reading covers the package; the model is per core, so the
+            // headline figure follows the overall load.
+            cpuTemp = EstimateCpuTemp(total);
         }
 
         Volatile.Write(ref _snapshot, new Snapshot
@@ -207,7 +212,7 @@ public sealed class Sampler : IDisposable
     private static int EstimateCpuTemp(int usage) => (int)(40 + usage * 0.4);
 
     // ------------------------------------------------------------------- cpu
-    private (IReadOnlyList<Core> Cores, int Total) CollectCpu()
+    private (IReadOnlyList<Core> Cores, int Total) CollectCpu(int? measured, bool estimate)
     {
         var times = Win32.CpuTimes();
         if (times is null)
@@ -227,8 +232,14 @@ public sealed class Sampler : IDisposable
             // KernelTime already includes IdleTime, so busy = total - idle.
             long total = (times[i].Kernel - _prevCpu[i].Kernel)
                        + (times[i].User - _prevCpu[i].User);
-            int usage = total <= 0 ? 0 : (int)Math.Round(100.0 * (total - idle) / total);
-            cores.Add(new Core { Usage = Math.Clamp(usage, 0, 100) });
+            int usage = Math.Clamp(
+                total <= 0 ? 0 : (int)Math.Round(100.0 * (total - idle) / total), 0, 100);
+            cores.Add(new Core
+            {
+                Usage = usage,
+                Temp = measured ?? (estimate ? EstimateCpuTemp(usage) : null),
+                Estimated = measured is null && estimate,
+            });
         }
         _prevCpu = times;
 
@@ -333,6 +344,53 @@ public sealed class Sampler : IDisposable
             }
             _temps[letter] = seen[number.Value];
         }
+        RefreshCpuTemperature();
+    }
+
+    /// <summary>
+    /// The thermal zone, on the same slow cadence as the drive sensors.
+    ///
+    /// Plenty of machines expose no zone at all. Rather than pay for a WMI
+    /// query every half hour forever, give it three tries and then stop: a
+    /// class that is not implemented will not become implemented.
+    /// </summary>
+    private void RefreshCpuTemperature()
+    {
+        if (!_config.CpuTemperature || _thermalMisses >= 3)
+        {
+            _cpuTempReal = null;
+            return;
+        }
+        // A WMI round-trip is inherently slower than an IOCTL -- the first one
+        // in a process routinely takes a few hundred milliseconds -- so it gets
+        // its own budget rather than the 250 ms the device probes use.
+        if (!Guard("thermal", ThermalZone.Read, out List<Zone>? zones,
+                   slowAfter: TimeSpan.FromSeconds(2)) || zones is null)
+        {
+            _thermalMisses++;
+            _cpuTempReal = null;
+            return;
+        }
+
+        Zone? pick = ThermalZone.Pick(zones);
+        if (pick is null)
+        {
+            _thermalMisses++;
+            _cpuTempReal = null;
+            if (_thermalMisses == 3)
+            {
+                Diag.Write("No ACPI thermal zone on this machine; "
+                           + "CPU temperature falls back to the load estimate");
+            }
+            return;
+        }
+
+        if (_cpuTempReal is null)
+        {
+            Diag.Write($"CPU temperature from thermal zone {pick.Value.Name}");
+        }
+        _thermalMisses = 0;
+        _cpuTempReal = pick.Value.Celsius;
     }
 
     private IReadOnlyList<Disk> CollectDisks()

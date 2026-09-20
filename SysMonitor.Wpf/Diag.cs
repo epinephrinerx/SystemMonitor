@@ -70,8 +70,14 @@ public static class Diag
 
     public static void Heartbeat(string mode, string detail)
     {
-        double rss = Process.GetCurrentProcess().WorkingSet64 / 1024.0 / 1024.0;
-        Write($"alive  mode={mode,-8} rss={rss,6:F1}MB {detail}");
+        using Process self = Process.GetCurrentProcess();
+        double rss = self.WorkingSet64 / 1024.0 / 1024.0;
+        // Both numbers, because they answer different questions: a managed
+        // heap that keeps growing is a leak, while a working set holding on to
+        // pages the GC already freed is only Windows being unhurried.
+        double heap = GC.GetTotalMemory(forceFullCollection: false) / 1024.0 / 1024.0;
+        Write($"alive  mode={mode,-8} rss={rss,6:F1}MB heap={heap,5:F1}MB "
+              + $"gc={GC.CollectionCount(0)}/{GC.CollectionCount(1)}/{GC.CollectionCount(2)} {detail}");
     }
 
     /// <summary>
