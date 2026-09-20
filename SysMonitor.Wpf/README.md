@@ -210,6 +210,38 @@ are the parts most worth testing.
 - **XAML comments cannot contain `--`.** Section-divider comments of dashes are
   an XML parse error, not a warning.
 
+## Controls
+
+- **Sliders read out their value.** Opacity and font size both show a
+  percentage beside the caption; a bare track leaves you guessing whether you
+  are at 60% or 65%.
+- **Font size** rewrites the type ramp, which lives in application resources
+  and is bound through `DynamicResource`, so everything that draws text
+  follows. Bars keep their height; rows grow taller as the text in them does.
+- **A full-screen button** sits beside collapse and close, because
+  double-click, F11 and the context menu are all invisible to someone who has
+  not been told about them.
+- **The scrollbar** has no arrow buttons and no track chrome: a thin rounded
+  thumb that thickens under the pointer.
+
+### Resizing the expanded view
+
+This was broken, and the reason is worth keeping. `ScrollViewer` marks
+`MouseLeftButtonDown` handled in order to take focus, so the window's own
+bubbling handler never saw the click -- which meant the one view that most
+needed resizing was the one place the corner did nothing. The grip now claims
+the click in `OnPreviewMouseLeftButtonDown`, before any child can take it, and
+only when the pointer is actually on the corner so the checkboxes still work.
+
+The grip's hit zone also runs out to the window edge rather than stopping at
+the panel, since the shadow margin is part of the corner as far as anyone
+aiming at it is concerned. And the expanded view's size cap went from
+2000x1400 -- smaller than the monitor this runs on -- to 4000x3000.
+
+`WindowGeometry` holds that arithmetic apart from the event plumbing so it can
+be checked without a window; `WindowGeometryTests` pins the hit zone, both
+limits, and that what gets saved is the panel size rather than the window's.
+
 ## The three views
 
 **Mini** is unchanged: one metric at a time, rotating every five seconds.

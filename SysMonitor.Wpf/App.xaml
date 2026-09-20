@@ -1,6 +1,7 @@
 <Application x:Class="SysMonitor.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:sys="clr-namespace:System;assembly=System.Runtime"
              xmlns:conv="clr-namespace:SysMonitor.Converters"
              ShutdownMode="OnMainWindowClose">
     <Application.Resources>
@@ -9,29 +10,38 @@
         <conv:BoolToCollapsed x:Key="BoolToCollapsed"/>
         <conv:EmptyToCollapsed x:Key="EmptyToCollapsed"/>
 
-        <!-- One place for the type ramp, so mini and expanded stay consistent.
-             Leelawadee UI keeps the Thai strings legible at these sizes. -->
+        <!-- The type ramp, as resources rather than literals, so the font-size
+             slider can rewrite it at run time. Everything that draws text
+             takes its size from here through DynamicResource. -->
+        <sys:Double x:Key="FontTiny">9</sys:Double>
+        <sys:Double x:Key="FontSmall">10</sys:Double>
+        <sys:Double x:Key="FontLabel">10</sys:Double>
+        <sys:Double x:Key="FontBody">11</sys:Double>
+        <sys:Double x:Key="FontValue">14</sys:Double>
+        <sys:Double x:Key="FontHeading">15</sys:Double>
+
+        <!-- Leelawadee UI keeps the Thai strings legible at these sizes. -->
         <Style x:Key="Label" TargetType="TextBlock">
             <Setter Property="FontFamily" Value="Segoe UI, Leelawadee UI, Tahoma"/>
-            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="FontSize" Value="{DynamicResource FontLabel}"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="TextOptions.TextFormattingMode" Value="Ideal"/>
         </Style>
 
         <Style x:Key="Body" TargetType="TextBlock">
             <Setter Property="FontFamily" Value="Segoe UI, Leelawadee UI, Tahoma"/>
-            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontSize" Value="{DynamicResource FontBody}"/>
             <Setter Property="TextOptions.TextFormattingMode" Value="Ideal"/>
         </Style>
 
         <Style x:Key="Value" TargetType="TextBlock">
             <Setter Property="FontFamily" Value="Segoe UI, Leelawadee UI, Tahoma"/>
-            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontSize" Value="{DynamicResource FontValue}"/>
             <Setter Property="FontWeight" Value="Bold"/>
             <Setter Property="TextOptions.TextFormattingMode" Value="Ideal"/>
         </Style>
 
-        <!-- Flat round icon button for the expanded view's title bar. -->
+        <!-- Flat round icon button for the title bars. -->
         <Style x:Key="IconButton" TargetType="Button">
             <Setter Property="Foreground" Value="#94a3b8"/>
             <Setter Property="Background" Value="Transparent"/>
@@ -53,6 +63,105 @@
                                 <Setter TargetName="Chrome" Property="Background" Value="#55808080"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- A scrollbar in the shape the rest of Windows uses now: no arrow
+             buttons, no track chrome, a thin rounded thumb that thickens when
+             the pointer is near it. -->
+        <Style x:Key="ScrollThumb" TargetType="Thumb">
+            <Setter Property="IsTabStop" Value="False"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Thumb">
+                        <Border Background="{TemplateBinding Background}"
+                                CornerRadius="4" Margin="2,0,2,0"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="ScrollBar">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Width" Value="10"/>
+            <Setter Property="MinWidth" Value="10"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollBar">
+                        <Grid Background="Transparent">
+                            <Track x:Name="PART_Track" IsDirectionReversed="True">
+                                <Track.Thumb>
+                                    <Thumb x:Name="Thumb" Style="{StaticResource ScrollThumb}"
+                                           Background="#55808080"/>
+                                </Track.Thumb>
+                                <!-- Clicking the track still pages, but the
+                                     buttons draw nothing. -->
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="ScrollBar.PageUpCommand"
+                                                  Opacity="0" Focusable="False"/>
+                                </Track.DecreaseRepeatButton>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="ScrollBar.PageDownCommand"
+                                                  Opacity="0" Focusable="False"/>
+                                </Track.IncreaseRepeatButton>
+                            </Track>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Thumb" Property="Background" Value="#99808080"/>
+                            </Trigger>
+                            <Trigger Property="Orientation" Value="Horizontal">
+                                <Setter Property="Height" Value="10"/>
+                                <Setter Property="MinHeight" Value="10"/>
+                                <Setter TargetName="PART_Track" Property="IsDirectionReversed"
+                                        Value="False"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- The slider the opacity and font-size controls use. -->
+        <Style TargetType="Slider">
+            <Setter Property="IsMoveToPointEnabled" Value="True"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Slider">
+                        <Grid Height="18" Background="Transparent">
+                            <Border Height="4" CornerRadius="2" Background="#44808080"
+                                    VerticalAlignment="Center"/>
+                            <Track x:Name="PART_Track">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="Slider.DecreaseLarge"
+                                                  Focusable="False">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate TargetType="RepeatButton">
+                                                <Border Height="4" CornerRadius="2"
+                                                        Background="#3b82f6"
+                                                        VerticalAlignment="Center"/>
+                                            </ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.DecreaseRepeatButton>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="Slider.IncreaseLarge"
+                                                  Focusable="False" Opacity="0"/>
+                                </Track.IncreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb Width="14" Height="14" Cursor="Hand">
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="Thumb">
+                                                <Ellipse Fill="#ffffff" Stroke="#3b82f6"
+                                                         StrokeThickness="2"/>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                            </Track>
+                        </Grid>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>

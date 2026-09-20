@@ -1,3 +1,4 @@
+using System.Windows;
 using SysMonitor.Model;
 using SysMonitor.ViewModels;
 
@@ -207,5 +208,81 @@ public class ExpandedColumnTests
     {
         WidgetViewModel model = Model(new AppConfig { CpuMode = "total" });
         Assert.AreEqual(1, Named(model, "CPU").Columns);
+    }
+}
+
+/// <summary>
+/// Dragging the corner. The expanded view is the one that most needs to be
+/// resizable and the one where it was broken, so the arithmetic is pinned.
+/// </summary>
+[TestClass]
+public class WindowGeometryTests
+{
+    private const double Pad = WindowGeometry.ShadowPad * 2;
+
+    [TestMethod]
+    public void The_corner_is_a_hit_target_out_to_the_window_edge()
+    {
+        // The shadow margin is part of the corner as far as anyone aiming at
+        // it is concerned.
+        Assert.IsTrue(WindowGeometry.InGrip(new Point(499, 399), 500, 400));
+        Assert.IsTrue(WindowGeometry.InGrip(new Point(500, 400), 500, 400));
+    }
+
+    [TestMethod]
+    public void The_rest_of_the_window_is_not_the_corner()
+    {
+        Assert.IsFalse(WindowGeometry.InGrip(new Point(250, 200), 500, 400));
+        Assert.IsFalse(WindowGeometry.InGrip(new Point(460, 200), 500, 400));
+        Assert.IsFalse(WindowGeometry.InGrip(new Point(250, 360), 500, 400));
+    }
+
+    [TestMethod]
+    public void The_expanded_view_has_room_to_grow()
+    {
+        // It was capped at 2000x1400, which is smaller than the screen this
+        // runs on. A panel view should not run out of room before the monitor
+        // does.
+        (var min, var max) = WindowGeometry.Limits(expanded: true);
+        Assert.AreEqual(AppConfig.MinExp, min);
+        Assert.IsTrue(max.W >= 3840, $"width cap {max.W} is below a 4K monitor");
+        Assert.IsTrue(max.H >= 2160, $"height cap {max.H} is below a 4K monitor");
+    }
+
+    [TestMethod]
+    public void The_mini_strip_stays_capped()
+    {
+        (var min, var max) = WindowGeometry.Limits(expanded: false);
+        Assert.AreEqual(AppConfig.MinMini, min);
+        Assert.AreEqual(AppConfig.MaxMini, max);
+    }
+
+    [TestMethod]
+    public void A_corner_dragged_inwards_stops_at_the_minimum()
+    {
+        (var min, var max) = WindowGeometry.Limits(expanded: true);
+        Size window = WindowGeometry.Clamp(10, 10, min, max);
+
+        Assert.AreEqual(AppConfig.MinExp.W + Pad, window.Width);
+        Assert.AreEqual(AppConfig.MinExp.H + Pad, window.Height);
+    }
+
+    [TestMethod]
+    public void A_corner_dragged_outwards_keeps_what_was_asked_for()
+    {
+        (var min, var max) = WindowGeometry.Limits(expanded: true);
+        Size window = WindowGeometry.Clamp(1200, 900, min, max);
+
+        Assert.AreEqual(1200, window.Width);
+        Assert.AreEqual(900, window.Height);
+    }
+
+    [TestMethod]
+    public void The_size_saved_is_the_panel_not_the_window()
+    {
+        // The shadow margin is not part of what the user sized.
+        Size panel = WindowGeometry.Panel(654, 504);
+        Assert.AreEqual(654 - Pad, panel.Width);
+        Assert.AreEqual(504 - Pad, panel.Height);
     }
 }

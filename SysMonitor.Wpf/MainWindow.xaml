@@ -116,7 +116,7 @@
                                 Margin="8,0,0,0"/>
 
                 <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="4"
-                           Style="{StaticResource Body}" FontSize="10"
+                           Style="{StaticResource Body}" FontSize="{DynamicResource FontSmall}"
                            Text="{Binding Detail}"
                            Visibility="{Binding Detail, Converter={StaticResource EmptyToCollapsed}}"
                            Foreground="{Binding DataContext.LabelBrush,
@@ -155,7 +155,7 @@
                                    HorizontalAlignment="Right" VerticalAlignment="Center"/>
                     </Grid>
 
-                    <TextBlock Grid.Row="1" Style="{StaticResource Body}" FontSize="10"
+                    <TextBlock Grid.Row="1" Style="{StaticResource Body}" FontSize="{DynamicResource FontSmall}"
                                Text="{Binding Detail}"
                                Visibility="{Binding Detail, Converter={StaticResource EmptyToCollapsed}}"
                                Foreground="{Binding DataContext.LabelBrush,
@@ -164,12 +164,12 @@
 
                     <!-- What the vertical axis counts, and where its top is. -->
                     <Grid Grid.Row="2" Margin="0,6,0,2">
-                        <TextBlock Style="{StaticResource Body}" FontSize="9"
+                        <TextBlock Style="{StaticResource Body}" FontSize="{DynamicResource FontTiny}"
                                    Text="{Binding Unit}"
                                    Foreground="{Binding DataContext.LabelBrush,
                                                 RelativeSource={RelativeSource AncestorType=Window}}"
                                    HorizontalAlignment="Left"/>
-                        <TextBlock Style="{StaticResource Body}" FontSize="9"
+                        <TextBlock Style="{StaticResource Body}" FontSize="{DynamicResource FontTiny}"
                                    Text="{Binding Ceiling}"
                                    Foreground="{Binding DataContext.LabelBrush,
                                                 RelativeSource={RelativeSource AncestorType=Window}}"
@@ -243,7 +243,7 @@
                             </ItemsControl.ItemsPanel>
                         </ItemsControl>
 
-                        <TextBlock Style="{StaticResource Body}" FontSize="10"
+                        <TextBlock Style="{StaticResource Body}" FontSize="{DynamicResource FontSmall}"
                                    Text="{Binding MiniDetail}"
                                    Visibility="{Binding MiniDetail,
                                                 Converter={StaticResource EmptyToCollapsed}}"
@@ -274,12 +274,17 @@
 
                         <StackPanel Grid.Row="0" Orientation="Horizontal"
                                     HorizontalAlignment="Right">
+                            <Button x:Name="FullScreenButton" Content="&#xE740;"
+                                    FontFamily="Segoe MDL2 Assets"
+                                    FontSize="{DynamicResource FontBody}"
+                                    Width="26" Height="26" Margin="0,0,8,0"
+                                    Style="{StaticResource IconButton}"/>
                             <Button x:Name="CollapseButton" Content="&#xE921;"
-                                    FontFamily="Segoe MDL2 Assets" FontSize="11"
+                                    FontFamily="Segoe MDL2 Assets" FontSize="{DynamicResource FontBody}"
                                     Width="26" Height="26" Margin="0,0,8,0"
                                     Style="{StaticResource IconButton}"/>
                             <Button x:Name="CloseButton" Content="&#xE8BB;"
-                                    FontFamily="Segoe MDL2 Assets" FontSize="11"
+                                    FontFamily="Segoe MDL2 Assets" FontSize="{DynamicResource FontBody}"
                                     Width="26" Height="26"
                                     Style="{StaticResource IconButton}"/>
                         </StackPanel>
@@ -318,7 +323,7 @@
                         </ScrollViewer>
 
                         <TextBlock Grid.Row="2" Style="{StaticResource Body}"
-                                   FontSize="10"
+                                   FontSize="{DynamicResource FontSmall}"
                                    Text="{Binding TempLegend}"
                                    Foreground="{Binding LabelBrush}"
                                    TextWrapping="Wrap" Margin="0,6,0,0"/>
@@ -337,11 +342,11 @@
                                    HorizontalAlignment="Left" VerticalAlignment="Center"/>
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                             <Button x:Name="FullCollapseButton" Content="&#xE73F;"
-                                    FontFamily="Segoe MDL2 Assets" FontSize="11"
+                                    FontFamily="Segoe MDL2 Assets" FontSize="{DynamicResource FontBody}"
                                     Width="26" Height="26" Margin="0,0,8,0"
                                     Style="{StaticResource IconButton}"/>
                             <Button x:Name="FullCloseButton" Content="&#xE8BB;"
-                                    FontFamily="Segoe MDL2 Assets" FontSize="11"
+                                    FontFamily="Segoe MDL2 Assets" FontSize="{DynamicResource FontBody}"
                                     Width="26" Height="26"
                                     Style="{StaticResource IconButton}"/>
                         </StackPanel>
@@ -354,7 +359,7 @@
                                 <DataTemplate DataType="{x:Type vm:ChartGroup}">
                                     <StackPanel Margin="0,0,0,10">
                                         <TextBlock Style="{StaticResource Value}"
-                                                   FontSize="15"
+                                                   FontSize="{DynamicResource FontHeading}"
                                                    Text="{Binding Title}"
                                                    Foreground="{Binding DataContext.TextBrush,
                                                                 RelativeSource={RelativeSource AncestorType=Window}}"

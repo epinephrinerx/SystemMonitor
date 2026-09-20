@@ -18,6 +18,12 @@ public sealed class AppConfig
     public bool AlwaysOnTop { get; set; } = true;
     public bool Snap { get; set; } = true;
     public double Opacity { get; set; } = 0.92;
+
+    /// <summary>
+    /// Multiplies the whole type ramp. Bars keep their height; rows grow
+    /// taller as the text in them does.
+    /// </summary>
+    public double FontScale { get; set; } = 1.0;
     public bool ShowCpu { get; set; } = true;
     public bool ShowRam { get; set; } = true;
     public bool ShowDisk { get; set; } = true;

@@ -12,9 +12,8 @@ namespace SysMonitor;
 
 public partial class MainWindow : Window
 {
-    private const double ShadowPad = 12;   // room the drop shadow needs
+    private const double ShadowPad = WindowGeometry.ShadowPad;
     private const double SnapMargin = 25;
-    private const double GripSize = 16;    // bottom-right resize hit zone
 
     private static readonly TimeSpan Tick = TimeSpan.FromMilliseconds(400);
     private static readonly TimeSpan RotateEvery = TimeSpan.FromSeconds(5);
@@ -58,12 +57,14 @@ public partial class MainWindow : Window
         DataContext = _model;
 
         Topmost = config.AlwaysOnTop;
+        ApplyFontScale();
         ApplyPanelSize();
         RestorePosition();
         BuildSidebar();
 
         CloseButton.Click += (_, _) => Close();
         CollapseButton.Click += (_, _) => SetMode(Mode.Mini);
+        FullScreenButton.Click += (_, _) => SetMode(Mode.Full);
         FullCloseButton.Click += (_, _) => Close();
         FullCollapseButton.Click += (_, _) => SetMode(Mode.Expanded);
         KeyDown += OnKeyDown;
@@ -332,6 +333,32 @@ public partial class MainWindow : Window
     }
 
     // ------------------------------------------------------------- pointer
+    /// <summary>
+    /// Start a resize before anything else sees the click.
+    ///
+    /// The bubbling handler never fired over the expanded view: ScrollViewer
+    /// marks MouseLeftButtonDown handled to take focus, so the corner of the
+    /// one view that most needs resizing was the one place it did not work.
+    /// </summary>
+    protected override void OnPreviewMouseLeftButtonDown(MouseButtonEventArgs e)
+    {
+        base.OnPreviewMouseLeftButtonDown(e);
+        if (_mode == Mode.Full || e.ClickCount > 1)
+        {
+            return;
+        }
+        Point point = e.GetPosition(this);
+        if (!InGrip(point))
+        {
+            return;
+        }
+        _dragOrigin = PointToScreen(point);
+        _resizeOrigin = new Size(Width, Height);
+        _resizing = true;
+        CaptureMouse();
+        e.Handled = true;
+    }
+
     protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
     {
         base.OnMouseLeftButtonDown(e);
@@ -348,19 +375,10 @@ public partial class MainWindow : Window
             return;     // nothing to drag or resize when it fills the screen
         }
 
-        Point point = e.GetPosition(this);
-        _dragOrigin = PointToScreen(point);
+        // The grip was already handled in the preview pass.
+        _dragOrigin = PointToScreen(e.GetPosition(this));
         _windowOrigin = new Point(Left, Top);
-
-        if (InGrip(point))
-        {
-            _resizing = true;
-            _resizeOrigin = new Size(Width, Height);
-        }
-        else
-        {
-            _dragging = true;
-        }
+        _dragging = true;
         CaptureMouse();
     }
 
@@ -412,28 +430,25 @@ public partial class MainWindow : Window
         SavePlacement();
     }
 
-    private bool InGrip(Point point) =>
-        point.X >= Width - ShadowPad - GripSize && point.X <= Width - ShadowPad
-        && point.Y >= Height - ShadowPad - GripSize && point.Y <= Height - ShadowPad;
+    private bool InGrip(Point point) => WindowGeometry.InGrip(point, Width, Height);
 
     private void Resize(double width, double height)
     {
-        (double minW, double minH) = _expanded ? AppConfig.MinExp : AppConfig.MinMini;
-        double maxW = _expanded ? 2000 : AppConfig.MaxMini.W;
-        double maxH = _expanded ? 1400 : AppConfig.MaxMini.H;
+        (var min, var max) = WindowGeometry.Limits(_expanded);
+        Size window = WindowGeometry.Clamp(width, height, min, max);
+        Width = window.Width;
+        Height = window.Height;
 
-        Width = Math.Clamp(width, minW + ShadowPad * 2, maxW + ShadowPad * 2);
-        Height = Math.Clamp(height, minH + ShadowPad * 2, maxH + ShadowPad * 2);
-
+        Size panel = WindowGeometry.Panel(window.Width, window.Height);
         if (_expanded)
         {
-            _config.ExpW = Width - ShadowPad * 2;
-            _config.ExpH = Height - ShadowPad * 2;
+            _config.ExpW = panel.Width;
+            _config.ExpH = panel.Height;
         }
         else
         {
-            _config.MiniW = Width - ShadowPad * 2;
-            _config.MiniH = Height - ShadowPad * 2;
+            _config.MiniW = panel.Width;
+            _config.MiniH = panel.Height;
         }
     }
 
@@ -525,24 +540,23 @@ public partial class MainWindow : Window
             _model.ApplyTheme();
         }));
 
-        Sidebar.Children.Add(Heading(lang["opacity"]));
-        var opacity = new Slider
-        {
-            Minimum = 0.35,
-            Maximum = 1.0,
-            Value = _config.Opacity,
-            IsMoveToPointEnabled = true,
-            Margin = new Thickness(0, 0, 0, 6),
-        };
         // Live while dragging: the Tk build redrew the whole canvas here and
         // destroyed the item the pointer had grabbed.
-        opacity.ValueChanged += (_, e) =>
-        {
-            _config.Opacity = e.NewValue;
-            _model.ApplyTheme();
-        };
-        opacity.PreviewMouseUp += (_, _) => _config.Save();
-        Sidebar.Children.Add(opacity);
+        Sidebar.Children.Add(Dial(lang["opacity"], 0.35, 1.0, _config.Opacity,
+            value => $"{value * 100:F0}%",
+            value =>
+            {
+                _config.Opacity = value;
+                _model.ApplyTheme();
+            }));
+
+        Sidebar.Children.Add(Dial(lang["font_size"], 0.8, 1.6, _config.FontScale,
+            value => $"{value * 100:F0}%",
+            value =>
+            {
+                _config.FontScale = value;
+                ApplyFontScale();
+            }));
 
         Sidebar.Children.Add(Heading(lang["display_settings"]));
         Sidebar.Children.Add(Check(lang["show_cpu"], _config.ShowCpu, value =>
@@ -626,6 +640,73 @@ public partial class MainWindow : Window
             _model.UpdateMini(snap);
         }
         _config.Save();
+    }
+
+    /// <summary>
+    /// A labelled slider that shows where it is. A bare track leaves the user
+    /// guessing whether they are at 60% or 65%.
+    /// </summary>
+    private UIElement Dial(string text, double min, double max, double value,
+                           Func<double, string> format, Action<double> onChange)
+    {
+        var readout = new TextBlock
+        {
+            Text = format(value),
+            Style = (Style)FindResource("Label"),
+            Foreground = _model.MutedBrush,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var caption = new TextBlock
+        {
+            Text = text.ToUpperInvariant(),
+            Style = (Style)FindResource("Label"),
+            Foreground = _model.LabelBrush,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+
+        var header = new Grid { Margin = new Thickness(0, 10, 0, 4) };
+        header.Children.Add(caption);
+        header.Children.Add(readout);
+
+        var slider = new Slider
+        {
+            Minimum = min,
+            Maximum = max,
+            Value = value,
+            Margin = new Thickness(0, 0, 0, 6),
+        };
+        slider.ValueChanged += (_, e) =>
+        {
+            readout.Text = format(e.NewValue);
+            onChange(e.NewValue);
+        };
+        // Saving on release, not on every pixel of the drag.
+        slider.PreviewMouseUp += (_, _) => _config.Save();
+
+        var panel = new StackPanel();
+        panel.Children.Add(header);
+        panel.Children.Add(slider);
+        return panel;
+    }
+
+    /// <summary>
+    /// Rewrite the type ramp. The styles take their sizes from these resources
+    /// through DynamicResource, so everything that draws text follows.
+    /// </summary>
+    private void ApplyFontScale()
+    {
+        double scale = Math.Clamp(_config.FontScale, 0.8, 1.6);
+        var ramp = new (string Key, double Size)[]
+        {
+            ("FontTiny", 9), ("FontSmall", 10), ("FontLabel", 10),
+            ("FontBody", 11), ("FontValue", 14), ("FontHeading", 15),
+        };
+        foreach ((string key, double size) in ramp)
+        {
+            Application.Current.Resources[key] = Math.Round(size * scale, 1);
+        }
     }
 
     private TextBlock Heading(string text) => new()
