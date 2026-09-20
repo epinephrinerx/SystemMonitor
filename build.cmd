@@ -3,37 +3,46 @@ setlocal
 cd /d "%~dp0"
 set "APP_ONLY=0"
 if /I "%~1"=="--app-only" set "APP_ONLY=1"
+if not defined SYSMONITOR_PYTHON set "SYSMONITOR_PYTHON=python"
 
 echo ============================================================
 echo  Building SysMonitor %~n0
 echo ============================================================
 
-where python >nul 2>&1
+"%SYSMONITOR_PYTHON%" -c "import sys; print(sys.executable); print(sys.version)"
 if errorlevel 1 (
-    echo ERROR: python not found on PATH.
+    echo ERROR: Set SYSMONITOR_PYTHON to the Python executable used for this build.
     exit /b 1
 )
 
-python -c "import PyInstaller" >nul 2>&1
+rem Tcl/Tk 9.0.4 panicked in the user's build despite source and startup checks.
+rem Package the 8.6 compatibility runtime until the native crash is understood.
+"%SYSMONITOR_PYTHON%" -c "import _tkinter,sys; print('Build Tcl/Tk:', _tkinter.TCL_VERSION, _tkinter.TK_VERSION); sys.exit(0 if (_tkinter.TCL_VERSION,_tkinter.TK_VERSION)==('8.6','8.6') else 1)"
 if errorlevel 1 (
-    echo Installing PyInstaller...
-    python -m pip install --quiet pyinstaller || exit /b 1
+    echo ERROR: This build requires Tcl/Tk 8.6. Select its Python with SYSMONITOR_PYTHON.
+    exit /b 1
+)
+
+"%SYSMONITOR_PYTHON%" -c "import PyInstaller" >nul 2>&1
+if errorlevel 1 (
+    echo ERROR: PyInstaller is not installed for the selected Python. No packages were installed.
+    exit /b 1
 )
 
 echo.
 echo [1/4] Generating icon...
 if "%APP_ONLY%"=="1" goto buildapp
-python -c "import PIL" >nul 2>&1
+"%SYSMONITOR_PYTHON%" -c "import PIL" >nul 2>&1
 if errorlevel 1 (
     echo   Pillow not installed - keeping existing SysMonitor.ico
 ) else (
-    python tools\make_icon.py || exit /b 1
+    "%SYSMONITOR_PYTHON%" tools\make_icon.py || exit /b 1
 )
 
 :buildapp
 echo.
 echo [2/4] Building SysMonitor.exe...
-python -m PyInstaller --noconfirm --clean --onefile --noconsole ^
+"%SYSMONITOR_PYTHON%" -m PyInstaller --noconfirm --clean --onefile --noconsole ^
     --name SysMonitor ^
     --icon "%~dp0SysMonitor.ico" ^
     --version-file "%~dp0version_info.txt" ^
@@ -46,7 +55,7 @@ if "%APP_ONLY%"=="1" goto appdone
 
 echo.
 echo [3/4] Building SysMonitor-Setup.exe...
-python -m PyInstaller --noconfirm --clean --onefile --noconsole ^
+"%SYSMONITOR_PYTHON%" -m PyInstaller --noconfirm --clean --onefile --noconsole ^
     --name SysMonitor-Setup ^
     --icon "%~dp0SysMonitor.ico" ^
     --add-binary "%~dp0dist\SysMonitor.exe;." ^

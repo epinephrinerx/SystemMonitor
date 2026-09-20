@@ -40,6 +40,8 @@ class Widget:
 
         self.root = tk.Tk()
         diag.install_tk_handler(self.root)
+        if cfg.get("diagnostics", True):
+            diag.log_tk_runtime(self.root)
         self.root.withdraw()
         self.root.title("SysMonitor")
 
@@ -78,6 +80,7 @@ class Widget:
         self._slider_drag = False
         self._cursor = ""
         self._menu = None
+        self._closing = False
         self._bound = set()                    # (canvas id, tag, sequence)
 
         self._bind()
@@ -323,11 +326,18 @@ class Widget:
         self.render()
 
     def quit(self):
+        if self._closing:
+            return
+        self._closing = True
         self.cfg["pos_x"] = self.root.winfo_x()
         self.cfg["pos_y"] = self.root.winfo_y()
         self.cfg.save()
         self.sampler.stop()
         try:
+            # Destroying a Tk root deletes Python callback commands but may
+            # leave Tcl after-events queued. Cancel them before teardown.
+            for timer in self.root.tk.splitlist(self.root.tk.call("after", "info")):
+                self.root.after_cancel(timer)
             self.root.destroy()
         except tk.TclError:
             pass
@@ -368,6 +378,8 @@ class Widget:
 
     # ---------------------------------------------------------------- timers
     def _tick(self):
+        if getattr(self, "_closing", False):
+            return
         try:
             # Receive completed samples without waiting for hardware I/O.
             self.sampler.poll()
@@ -395,6 +407,8 @@ class Widget:
             return
 
     def _pulse(self):
+        if getattr(self, "_closing", False):
+            return
         try:
             if self.hot_items:
                 self.pulse_on = not self.pulse_on

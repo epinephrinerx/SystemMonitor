@@ -100,6 +100,7 @@ def start(version, enabled=True):
     write("--- start v%s  python %s  tcl/tk %s  frozen=%s  rss=%.1fMB"
           % (version, sys.version.split()[0], tcl,
              bool(getattr(sys, "frozen", False)), working_set_mb()))
+    write("process pid=%d exe=%s" % (os.getpid(), sys.executable))
 
     previous = sys.excepthook
 
@@ -149,3 +150,10 @@ def install_tk_handler(root):
     def report(kind, value, tb):
         report_exception("Tk callback", kind, value, tb)
     root.report_callback_exception = report
+
+
+def log_tk_runtime(root):
+    """Record actual loaded patch versions, not just compile-time major/minor."""
+    write("ui runtime tcl=%s tk=%s"
+          % (root.tk.call("info", "patchlevel"),
+             root.tk.call("package", "provide", "Tk")))

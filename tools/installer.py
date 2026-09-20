@@ -18,7 +18,7 @@ import tkinter as tk
 import winreg
 
 APP_NAME = "SysMonitor"
-APP_VERSION = "2.0.0"
+APP_VERSION = "2.0.1"
 PUBLISHER = "SysMonitor"
 EXE_NAME = "SysMonitor.exe"
 UNINST_NAME = "uninstall.exe"
