@@ -24,8 +24,32 @@ public sealed class ChartCard : INotifyPropertyChanged
     private int _revision;
     private double _maximum = 100;
     private Brush _accent = Brushes.Gray;
+    private string _ceiling = string.Empty;
 
     public required string Key { get; init; }
+
+    /// <summary>Which heading this graph sits under: CPU, Memory, Disk, Network.</summary>
+    public required string Group { get; init; }
+
+    /// <summary>
+    /// A headline device gets a full card; the per-core graphs get a quarter
+    /// of one, the way Task Manager shows the package large and the logical
+    /// processors as a grid of small boxes.
+    /// </summary>
+    public bool Small { get; init; }
+
+    public double CardWidth => Small ? 168 : 344;
+    public double CardHeight => Small ? 104 : 178;
+
+    /// <summary>"% ใช้งาน" or "MB/s": what the vertical axis is counting.</summary>
+    public string Unit { get; init; } = string.Empty;
+
+    /// <summary>The top of the scale, written out: "100%" or the peak so far.</summary>
+    public string Ceiling
+    {
+        get => _ceiling;
+        set => Set(ref _ceiling, value);
+    }
 
     public History Series { get; } = new(Points);
 

@@ -125,13 +125,16 @@
             </Grid>
         </DataTemplate>
 
-        <!-- One device in the full-screen view: reading, then its history. -->
+        <!-- One device in the full-screen view, laid out like Task Manager:
+             name and reading, then the axis caption, then the framed plot. -->
         <DataTemplate DataType="{x:Type vm:ChartCard}">
             <Border Background="{Binding DataContext.ControlBrush,
                                  RelativeSource={RelativeSource AncestorType=Window}}"
-                    CornerRadius="10" Padding="12,10,12,10" Margin="0,0,10,10">
+                    CornerRadius="8" Padding="10,8,10,9" Margin="0,0,10,10"
+                    Width="{Binding CardWidth}" Height="{Binding CardHeight}">
                 <Grid>
                     <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
@@ -140,12 +143,12 @@
                     <Grid Grid.Row="0">
                         <TextBlock Style="{StaticResource Label}"
                                    Text="{Binding Title}"
-                                   Foreground="{Binding DataContext.LabelBrush,
+                                   Foreground="{Binding DataContext.TextBrush,
                                                 RelativeSource={RelativeSource AncestorType=Window}}"
                                    TextTrimming="CharacterEllipsis"
                                    HorizontalAlignment="Left" VerticalAlignment="Center"
-                                   Margin="0,0,80,0"/>
-                        <TextBlock Style="{StaticResource Value}"
+                                   Margin="0,0,66,0"/>
+                        <TextBlock Style="{StaticResource Body}" FontWeight="SemiBold"
                                    Text="{Binding Value}"
                                    Foreground="{Binding DataContext.TextBrush,
                                                 RelativeSource={RelativeSource AncestorType=Window}}"
@@ -157,15 +160,33 @@
                                Visibility="{Binding Detail, Converter={StaticResource EmptyToCollapsed}}"
                                Foreground="{Binding DataContext.LabelBrush,
                                             RelativeSource={RelativeSource AncestorType=Window}}"
-                               TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
+                               TextTrimming="CharacterEllipsis" Margin="0,1,0,0"/>
 
-                    <ctl:Chart Grid.Row="2" MinHeight="64" Margin="0,8,0,0"
+                    <!-- What the vertical axis counts, and where its top is. -->
+                    <Grid Grid.Row="2" Margin="0,6,0,2">
+                        <TextBlock Style="{StaticResource Body}" FontSize="9"
+                                   Text="{Binding Unit}"
+                                   Foreground="{Binding DataContext.LabelBrush,
+                                                RelativeSource={RelativeSource AncestorType=Window}}"
+                                   HorizontalAlignment="Left"/>
+                        <TextBlock Style="{StaticResource Body}" FontSize="9"
+                                   Text="{Binding Ceiling}"
+                                   Foreground="{Binding DataContext.LabelBrush,
+                                                RelativeSource={RelativeSource AncestorType=Window}}"
+                                   HorizontalAlignment="Right"/>
+                    </Grid>
+
+                    <ctl:Chart Grid.Row="3" MinHeight="40"
                                Series="{Binding Series}"
                                Revision="{Binding Revision}"
                                Maximum="{Binding Maximum}"
                                Accent="{Binding Accent}"
-                               GridBrush="{Binding DataContext.EdgeBrush,
-                                           RelativeSource={RelativeSource AncestorType=Window}}"/>
+                               PlotBrush="{Binding DataContext.PlotBrush,
+                                           RelativeSource={RelativeSource AncestorType=Window}}"
+                               GridBrush="{Binding DataContext.GridBrush,
+                                           RelativeSource={RelativeSource AncestorType=Window}}"
+                               FrameBrush="{Binding DataContext.EdgeBrush,
+                                            RelativeSource={RelativeSource AncestorType=Window}}"/>
                 </Grid>
             </Border>
         </DataTemplate>
@@ -328,15 +349,28 @@
 
                     <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
                                   HorizontalScrollBarVisibility="Disabled">
-                        <ItemsControl ItemsSource="{Binding Cards}">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <!-- Cards flow and wrap, so the same view
-                                         works on one monitor or four. -->
-                                    <WrapPanel Orientation="Horizontal"
-                                               ItemWidth="330" ItemHeight="160"/>
-                                </ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
+                        <ItemsControl ItemsSource="{Binding Groups}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:ChartGroup}">
+                                    <StackPanel Margin="0,0,0,10">
+                                        <TextBlock Style="{StaticResource Value}"
+                                                   FontSize="15"
+                                                   Text="{Binding Title}"
+                                                   Foreground="{Binding DataContext.TextBrush,
+                                                                RelativeSource={RelativeSource AncestorType=Window}}"
+                                                   Margin="2,0,0,8"/>
+                                        <!-- Cards flow and wrap, so the same view
+                                             works on one monitor or four. -->
+                                        <ItemsControl ItemsSource="{Binding Cards}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <WrapPanel Orientation="Horizontal"/>
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
                         </ItemsControl>
                     </ScrollViewer>
                 </Grid>

@@ -5,16 +5,22 @@ using SysMonitor.Model;
 namespace SysMonitor.Controls;
 
 /// <summary>
-/// A filled line graph of one series.
+/// A filled line graph of one series, drawn the way Task Manager draws one:
+/// a framed plot box, a square grid behind the data, a solid tint under the
+/// line, and an angular stroke on top.
 ///
 /// A bare <see cref="FrameworkElement"/> that draws in OnRender, not a chart
-/// built from elements: a hundred and eighty points as a hundred and eighty
-/// visuals would cost more than everything else in the window put together.
-/// One <see cref="StreamGeometry"/> per repaint, frozen, and a scratch buffer
-/// reused between repaints so drawing allocates nothing per frame.
+/// built from elements: seventy-two points as seventy-two visuals would cost
+/// more than everything else in the window put together. One
+/// <see cref="StreamGeometry"/> per repaint and a scratch buffer reused
+/// between repaints, so drawing allocates almost nothing per frame.
 /// </summary>
 public sealed class Chart : FrameworkElement
 {
+    /// <summary>Grid cells across and down, matching Task Manager's spacing.</summary>
+    private const int Columns = 6;
+    private const int Rows = 4;
+
     private double[] _scratch = Array.Empty<double>();
 
     public static readonly DependencyProperty SeriesProperty =
@@ -34,9 +40,20 @@ public sealed class Chart : FrameworkElement
         DependencyProperty.Register(nameof(Accent), typeof(Brush), typeof(Chart),
             new FrameworkPropertyMetadata(Brushes.Gray, FrameworkPropertyMetadataOptions.AffectsRender));
 
+    /// <summary>The square grid behind the data.</summary>
     public static readonly DependencyProperty GridBrushProperty =
         DependencyProperty.Register(nameof(GridBrush), typeof(Brush), typeof(Chart),
             new FrameworkPropertyMetadata(Brushes.DimGray, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    /// <summary>The rectangle around the plot. Darker than the grid.</summary>
+    public static readonly DependencyProperty FrameBrushProperty =
+        DependencyProperty.Register(nameof(FrameBrush), typeof(Brush), typeof(Chart),
+            new FrameworkPropertyMetadata(Brushes.Gray, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    /// <summary>Behind the grid; the plot reads as a surface of its own.</summary>
+    public static readonly DependencyProperty PlotBrushProperty =
+        DependencyProperty.Register(nameof(PlotBrush), typeof(Brush), typeof(Chart),
+            new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
 
     /// <summary>
     /// The top of the scale. Percentages fix it at 100; rates leave it at 0
@@ -71,6 +88,18 @@ public sealed class Chart : FrameworkElement
         set => SetValue(GridBrushProperty, value);
     }
 
+    public Brush FrameBrush
+    {
+        get => (Brush)GetValue(FrameBrushProperty);
+        set => SetValue(FrameBrushProperty, value);
+    }
+
+    public Brush? PlotBrush
+    {
+        get => (Brush?)GetValue(PlotBrushProperty);
+        set => SetValue(PlotBrushProperty, value);
+    }
+
     public double Maximum
     {
         get => (double)GetValue(MaximumProperty);
@@ -97,28 +126,72 @@ public sealed class Chart : FrameworkElement
         return pen;
     }
 
+    /// <summary>
+    /// A solid tint of the line colour for the area under it. Task Manager
+    /// fills far more strongly than a faint wash -- at a glance the filled
+    /// area is what tells you how busy something is.
+    /// </summary>
+    private static Brush FillFor(Brush accent, bool dark)
+    {
+        if (accent is not SolidColorBrush solid)
+        {
+            return accent;
+        }
+        Color line = solid.Color;
+        // Toward the panel rather than to transparency, so overlapping grid
+        // lines stay hidden under the fill the way they do in Task Manager.
+        Color toward = dark ? Color.FromRgb(15, 23, 42) : Colors.White;
+        return Palette.Brush(Mix(line, toward, dark ? 0.62 : 0.72));
+    }
+
+    private static Color Mix(Color from, Color to, double amount) => Color.FromRgb(
+        (byte)Math.Round(from.R + (to.R - from.R) * amount),
+        (byte)Math.Round(from.G + (to.G - from.G) * amount),
+        (byte)Math.Round(from.B + (to.B - from.B) * amount));
+
+    private static bool IsDark(Brush? plot) =>
+        plot is SolidColorBrush s && (s.Color.R + s.Color.G + s.Color.B) < 384;
+
     protected override void OnRender(DrawingContext dc)
     {
         double width = ActualWidth;
         double height = ActualHeight;
-        if (width <= 1 || height <= 1)
+        if (width <= 2 || height <= 2)
         {
             return;
         }
 
-        Pen grid = PenFor(GridBrush, 0.6);
-        for (int line = 1; line < 4; line++)
+        // Half-pixel offsets so a one-pixel line lands on a pixel instead of
+        // straddling two and rendering as two grey ones.
+        var plot = new Rect(0.5, 0.5, Math.Floor(width) - 1, Math.Floor(height) - 1);
+        Pen frame = PenFor(FrameBrush, 1);
+        Pen grid = PenFor(GridBrush, 1);
+
+        dc.DrawRectangle(PlotBrush, null, plot);
+
+        for (int column = 1; column < Columns; column++)
         {
-            double y = Math.Round(height * line / 4.0) + 0.5;
-            dc.DrawLine(grid, new Point(0, y), new Point(width, y));
+            double x = Math.Round(plot.Left + plot.Width * column / Columns) + 0.5;
+            dc.DrawLine(grid, new Point(x, plot.Top), new Point(x, plot.Bottom));
+        }
+        for (int row = 1; row < Rows; row++)
+        {
+            double y = Math.Round(plot.Top + plot.Height * row / Rows) + 0.5;
+            dc.DrawLine(grid, new Point(plot.Left, y), new Point(plot.Right, y));
         }
 
         History? series = Series;
-        if (series is null || series.Count < 2)
+        if (series is not null && series.Count >= 2)
         {
-            return;
+            DrawSeries(dc, plot, series);
         }
 
+        // The frame goes on last so the fill cannot paint over it.
+        dc.DrawRectangle(null, frame, plot);
+    }
+
+    private void DrawSeries(DrawingContext dc, Rect plot, History series)
+    {
         if (_scratch.Length < series.Capacity)
         {
             _scratch = new double[series.Capacity];
@@ -135,25 +208,23 @@ public sealed class Chart : FrameworkElement
 
         // The newest reading sits at the right edge, and a series that has not
         // filled its buffer yet starts partway across rather than stretching.
-        double step = width / (series.Capacity - 1);
-        double left = width - (count - 1) * step;
+        double step = plot.Width / (series.Capacity - 1);
+        double left = plot.Right - (count - 1) * step;
 
         var geometry = new StreamGeometry { FillRule = FillRule.Nonzero };
         using (StreamGeometryContext ctx = geometry.Open())
         {
-            ctx.BeginFigure(new Point(left, height), isFilled: true, isClosed: true);
+            ctx.BeginFigure(new Point(left, plot.Bottom), isFilled: true, isClosed: true);
             for (int i = 0; i < count; i++)
             {
-                double y = height - Math.Clamp(_scratch[i] / max, 0, 1) * height;
-                ctx.LineTo(new Point(left + i * step, y), isStroked: true, isSmoothJoin: true);
+                double y = plot.Bottom - Math.Clamp(_scratch[i] / max, 0, 1) * plot.Height;
+                // Angular, not smoothed: a spike should look like a spike.
+                ctx.LineTo(new Point(left + i * step, y), isStroked: true, isSmoothJoin: false);
             }
-            ctx.LineTo(new Point(width, height), isStroked: false, isSmoothJoin: false);
+            ctx.LineTo(new Point(plot.Right, plot.Bottom), isStroked: false, isSmoothJoin: false);
         }
         geometry.Freeze();
 
-        Brush fill = Accent.Clone();
-        fill.Opacity = 0.22;
-        fill.Freeze();
-        dc.DrawGeometry(fill, PenFor(Accent, 1.4), geometry);
+        dc.DrawGeometry(FillFor(Accent, IsDark(PlotBrush)), PenFor(Accent, 1.2), geometry);
     }
 }

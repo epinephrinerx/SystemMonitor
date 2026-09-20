@@ -58,6 +58,8 @@ public sealed class Lang
             ["fullscreen"] = "เต็มจอ",
             ["exit_fullscreen"] = "ออกจากเต็มจอ",
             ["history"] = "ย้อนหลัง",
+            ["utilisation"] = "% การใช้งาน",
+            ["over_time"] = "ย้อนหลัง 3 นาที",
             ["no_link"] = "ไม่ทราบความเร็วลิงก์",
         },
         ["en"] = new()
@@ -113,6 +115,8 @@ public sealed class Lang
             ["fullscreen"] = "Full screen",
             ["exit_fullscreen"] = "Leave full screen",
             ["history"] = "History",
+            ["utilisation"] = "% utilisation",
+            ["over_time"] = "over 3 minutes",
             ["no_link"] = "link speed unknown",
         },
     };

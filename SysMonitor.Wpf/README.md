@@ -219,15 +219,41 @@ long list. Sixteen cores in a single column was most of a screen; side by side
 it is four rows.
 
 **Full screen** takes the whole monitor, taskbar included, and gives every
-device its own graph: CPU total and each core, memory, each drive's usage and
-its throughput, and each adapter. History is pushed on every snapshot whatever
-view is on screen, so opening the full view shows the last few minutes rather
-than an empty box. Seventy-two points is three minutes at the balanced cadence.
+device its own graph **under a heading per device kind** -- CPU, Memory, Disk
+Storage, Network -- rather than one flat wrap of cards. The CPU package gets a
+full-size graph and the logical processors a grid of quarter-size ones, the way
+Task Manager lays them out. Each drive gets two graphs: how full it is, and
+what it is doing. History is pushed on every snapshot whatever view is on
+screen, so opening the full view shows the last few minutes rather than an
+empty box. Seventy-two points is three minutes at the balanced cadence.
 
 The graphs are one `FrameworkElement` drawing in `OnRender`, not a chart built
 from elements -- seventy-two points as seventy-two visuals would cost more than
 everything else in the window together. One `StreamGeometry` per repaint, and a
 scratch buffer reused between repaints, so drawing allocates nothing per frame.
+
+### Drawn like Task Manager
+
+The first version looked weak beside it, and comparing the two said why:
+
+- A **framed plot box**, not a floating line. The frame is drawn last so the
+  fill cannot paint over it.
+- A **square grid**, six by four, vertical lines as well as horizontal. Grid
+  and frame are drawn on half-pixel offsets so a one-pixel line lands on a
+  pixel instead of straddling two and rendering as two grey ones.
+- A **solid tint** under the line instead of a faint wash. The tint is the line
+  colour mixed toward the panel rather than toward transparency, so grid lines
+  stay hidden under the fill exactly as they do in Task Manager. At a glance
+  the filled area is what tells you how busy something is.
+- An **angular stroke**: `isSmoothJoin: false`, because a spike should look
+  like a spike.
+- **Axis labels above the plot**: what the axis counts on the left, where its
+  top is on the right. A percentage says `100%`; a throughput graph has no
+  ceiling, so it scales to its own peak and says what that peak is.
+
+`ChartAppearanceTests` renders the graph at card size in both themes and saves
+`%TEMP%\sysmonitor-chart-dark.png` and `-light.png`, so the look can be judged
+against Task Manager without opening a window over anybody's desktop.
 
 ## Network
 

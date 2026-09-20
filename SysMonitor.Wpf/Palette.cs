@@ -16,7 +16,8 @@ public static class Palette
     public sealed record Colours(
         Color Panel, Color Sidebar, Color Control, Color Chip, Color BarEmpty,
         Color Text, Color Muted, Color Label, Color Border, Color Tag,
-        Color BadgeOk, Color BadgeWarm, Color BadgeHot);
+        Color BadgeOk, Color BadgeWarm, Color BadgeHot,
+        Color Plot, Color Grid);
 
     private static Color Hex(string value) =>
         (Color)ColorConverter.ConvertFromString(value)!;
@@ -34,7 +35,9 @@ public static class Palette
         Tag: Hex("#243044"),
         BadgeOk: Hex("#16351f"),
         BadgeWarm: Hex("#3a3212"),
-        BadgeHot: Hex("#3d1717"));
+        BadgeHot: Hex("#3d1717"),
+        Plot: Hex("#0b1220"),
+        Grid: Hex("#22304a"));
 
     public static readonly Colours Light = new(
         Panel: Hex("#ffffff"),
@@ -49,7 +52,9 @@ public static class Palette
         Tag: Hex("#e8ecf1"),
         BadgeOk: Hex("#dcfce7"),
         BadgeWarm: Hex("#fef3c7"),
-        BadgeHot: Hex("#fee2e2"));
+        BadgeHot: Hex("#fee2e2"),
+        Plot: Hex("#ffffff"),
+        Grid: Hex("#e2e6ec"));
 
     public static readonly Color AccentCpu = Hex("#3b82f6");
     public static readonly Color AccentRam = Hex("#a855f7");

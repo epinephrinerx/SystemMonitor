@@ -1,4 +1,6 @@
+using System.IO;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using SysMonitor.Controls;
@@ -163,4 +165,79 @@ public class ChartRenderTests
     }
 
     private const int ChartCardPoints = 72;
+}
+
+/// <summary>
+/// Renders the graph at the size the full-screen view uses and saves a PNG, so
+/// its look can be compared against Task Manager without opening a window over
+/// anyone's desktop.
+/// </summary>
+[TestClass]
+public class ChartAppearanceTests
+{
+    [DataTestMethod]
+    [DataRow("dark")]
+    [DataRow("light")]
+    public void The_graph_renders_at_card_size_for_inspection(string theme)
+    {
+        string path = Path.Combine(Path.GetTempPath(),
+                                   $"sysmonitor-chart-{theme}.png");
+        var random = new Random(7);
+
+        var thread = new Thread(() =>
+        {
+            bool dark = theme == "dark";
+            var panel = new StackPanel
+            {
+                Background = new SolidColorBrush(dark
+                    ? Color.FromRgb(0x1a, 0x24, 0x38) : Color.FromRgb(0xee, 0xf1, 0xf6)),
+                Width = 340,
+            };
+
+            // Two shapes worth looking at: a busy core and a quiet one.
+            foreach (double load in new[] { 55.0, 6.0 })
+            {
+                var series = new History(72);
+                double value = load;
+                for (int i = 0; i < 72; i++)
+                {
+                    value = Math.Clamp(value + (random.NextDouble() - 0.5) * load, 0, 100);
+                    series.Add(value);
+                }
+                panel.Children.Add(new Chart
+                {
+                    Height = 96,
+                    Margin = new Thickness(10, 10, 10, 6),
+                    Series = series,
+                    Revision = series.Revision,
+                    Maximum = 100,
+                    Accent = new SolidColorBrush(Color.FromRgb(0x3b, 0x82, 0xf6)),
+                    PlotBrush = new SolidColorBrush(dark
+                        ? Color.FromRgb(0x0b, 0x12, 0x20) : Colors.White),
+                    GridBrush = new SolidColorBrush(dark
+                        ? Color.FromRgb(0x22, 0x30, 0x4a) : Color.FromRgb(0xe2, 0xe6, 0xec)),
+                    FrameBrush = new SolidColorBrush(dark
+                        ? Color.FromRgb(0x2b, 0x37, 0x4b) : Color.FromRgb(0xd5, 0xda, 0xe1)),
+                });
+            }
+
+            panel.Measure(new Size(340, 240));
+            panel.Arrange(new Rect(0, 0, 340, 240));
+            panel.UpdateLayout();
+
+            var target = new RenderTargetBitmap(340, 240, 96, 96, PixelFormats.Pbgra32);
+            target.Render(panel);
+
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(target));
+            using var file = File.Create(path);
+            encoder.Save(file);
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        Assert.IsTrue(thread.Join(TimeSpan.FromSeconds(30)), "render thread hung");
+
+        Assert.IsTrue(File.Exists(path), path);
+        Assert.IsTrue(new FileInfo(path).Length > 1000, "the preview should not be blank");
+    }
 }

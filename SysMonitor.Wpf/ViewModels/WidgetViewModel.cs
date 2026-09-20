@@ -6,6 +6,13 @@ using SysMonitor.Model;
 
 namespace SysMonitor.ViewModels;
 
+/// <summary>A titled group of graphs; the full-screen view is a list of these.</summary>
+public sealed class ChartGroup
+{
+    public required string Title { get; init; }
+    public ObservableCollection<ChartCard> Cards { get; } = new();
+}
+
 /// <summary>A titled group of meters; the expanded view is a list of these.</summary>
 public sealed class Section : INotifyPropertyChanged
 {
@@ -76,12 +83,18 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
     public SolidColorBrush EdgeBrush { get; } = new();
     public SolidColorBrush BarEmptyBrush { get; } = new();
 
+    /// <summary>Behind a graph, so the plot reads as a surface of its own.</summary>
+    public SolidColorBrush PlotBrush { get; } = new();
+
+    /// <summary>The square grid inside a graph: present, but never loud.</summary>
+    public SolidColorBrush GridBrush { get; } = new();
+
     // ---------------------------------------------------------------- state
     public ObservableCollection<MeterRow> MiniRows { get; } = new();
     public ObservableCollection<Section> Sections { get; } = new();
 
-    /// <summary>The full-screen view: one graph per device.</summary>
-    public ObservableCollection<ChartCard> Cards { get; } = new();
+    /// <summary>The full-screen view: graphs, under a heading per device kind.</summary>
+    public ObservableCollection<ChartGroup> Groups { get; } = new();
 
     public string MiniTitle
     {
@@ -155,6 +168,8 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
         LabelBrush.Color = _palette.Label;
         EdgeBrush.Color = _palette.Border;
         BarEmptyBrush.Color = _palette.BarEmpty;
+        PlotBrush.Color = _palette.Plot;
+        GridBrush.Color = _palette.Grid;
 
         ApplyTempColours(MiniHeader);
         foreach (MeterRow row in AllRows())
@@ -555,92 +570,140 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
             return;
         }
 
-        var wanted = new List<(string Key, string Title, double Sample, string Value,
-                               string Detail, Color Accent, double Max)>();
+        var wanted = new List<Planned>();
 
         if (_config.ShowCpu)
         {
-            wanted.Add(("cpu", _lang["cpu"], snap.CpuTotal, snap.CpuTotal + "%",
-                        $"{snap.Cores.Count} {_lang["cores"]}"
-                        + (snap.CpuTemp is int t
-                           ? "  ·  " + Palette.TempText(t, snap.CpuTempEstimated)
-                           : string.Empty),
-                        Palette.AccentCpu, 100));
+            string group = _lang["cpu"];
+            wanted.Add(new Planned("cpu", group, _lang["cpu"], snap.CpuTotal,
+                snap.CpuTotal + "%",
+                $"{snap.Cores.Count} {_lang["cores"]}"
+                + (snap.CpuTemp is int t
+                   ? "  ·  " + Palette.TempText(t, snap.CpuTempEstimated)
+                   : string.Empty),
+                Palette.AccentCpu, 100, Percent, "100%", Small: false));
 
             if (_config.CpuMode == "separated")
             {
                 for (int i = 0; i < snap.Cores.Count; i++)
                 {
                     Core core = snap.Cores[i];
-                    wanted.Add(($"core{i}", "C" + i, core.Usage, core.Usage + "%",
-                                string.Empty, Palette.AccentCpu, 100));
+                    wanted.Add(new Planned($"core{i}", group, "C" + i, core.Usage,
+                        core.Usage + "%", string.Empty, Palette.AccentCpu, 100,
+                        Percent, "100%", Small: true));
                 }
             }
         }
 
         if (_config.ShowRam)
         {
-            wanted.Add(("ram", _lang["memory"], snap.Ram.Usage, snap.Ram.Usage + "%",
-                        $"{snap.Ram.UsedGb:F1} / {snap.Ram.TotalGb:F1} GB",
-                        Palette.LoadColor(snap.Ram.Usage, Palette.AccentRam), 100));
+            wanted.Add(new Planned("ram", _lang["memory"], _lang["memory"],
+                snap.Ram.Usage, snap.Ram.Usage + "%",
+                $"{snap.Ram.UsedGb:F1} / {snap.Ram.TotalGb:F1} GB",
+                Palette.AccentRam, 100, Percent, "100%", Small: false));
         }
 
         if (_config.ShowDisk)
         {
+            string group = _lang["disk"];
             foreach (Disk disk in snap.Disks)
             {
-                wanted.Add(($"disk{disk.Letter}", disk.Title, disk.Usage, disk.Usage + "%",
-                            $"{disk.UsedGb:F0}/{disk.TotalGb:F0} GB · "
-                            + SpeedText(disk.ReadMb, disk.WriteMb),
-                            Palette.LoadColor(disk.Usage, Palette.AccentDisk), 100));
+                wanted.Add(new Planned($"disk{disk.Letter}", group, disk.Title,
+                    disk.Usage, disk.Usage + "%",
+                    $"{disk.Media} · {disk.UsedGb:F0}/{disk.TotalGb:F0} GB",
+                    Palette.AccentDisk, 100, Percent, "100%", Small: false));
 
-                // A drive's throughput is the interesting series, and it has no
-                // ceiling to scale against, so the graph scales to its own peak.
-                wanted.Add(($"diskio{disk.Letter}", disk.Letter + ": I/O",
-                            disk.ReadMb + disk.WriteMb,
-                            Speed(disk.ReadMb + disk.WriteMb) + " MB/s",
-                            SpeedText(disk.ReadMb, disk.WriteMb),
-                            Palette.AccentDisk, 0));
+                // Throughput has no ceiling to measure against, so the graph
+                // scales to its own peak and says what that peak is.
+                wanted.Add(new Planned($"diskio{disk.Letter}", group,
+                    disk.Letter + ":  " + _lang["read"] + "/" + _lang["write"],
+                    disk.ReadMb + disk.WriteMb,
+                    Speed(disk.ReadMb + disk.WriteMb) + " MB/s",
+                    SpeedText(disk.ReadMb, disk.WriteMb),
+                    Palette.AccentDisk, 0, "MB/s", string.Empty, Small: false));
             }
         }
 
         if (_config.ShowNetwork)
         {
+            string group = _lang["network"];
             foreach (Adapter adapter in snap.Adapters)
             {
-                wanted.Add(($"net{adapter.Id}", adapter.Name,
-                            adapter.DownMb + adapter.UpMb,
-                            Speed(adapter.DownMb + adapter.UpMb) + " MB/s",
-                            (adapter.Wireless ? _lang["wireless"] : _lang["wired"])
-                            + "  ·  " + NetText(adapter.DownMb, adapter.UpMb),
-                            Palette.AccentNet, 0));
+                wanted.Add(new Planned($"net{adapter.Id}", group, adapter.Name,
+                    adapter.DownMb + adapter.UpMb,
+                    Speed(adapter.DownMb + adapter.UpMb) + " MB/s",
+                    (adapter.Wireless ? _lang["wireless"] : _lang["wired"])
+                    + "  ·  " + NetText(adapter.DownMb, adapter.UpMb),
+                    Palette.AccentNet, 0, "MB/s", string.Empty, Small: false));
             }
         }
 
-        // Match by key so a card keeps its history when the list around it
-        // changes; a drive that comes back finds its own graph again.
-        var byKey = Cards.ToDictionary(c => c.Key);
-        foreach (string stale in byKey.Keys.Where(k => wanted.All(w => w.Key != k)).ToList())
+        Reconcile(wanted);
+    }
+
+    /// <summary>What a graph should look like this tick, before it exists.</summary>
+    private readonly record struct Planned(string Key, string Group, string Title,
+        double Sample, string Value, string Detail, Color Accent, double Max,
+        string Unit, string Ceiling, bool Small);
+
+    private string Percent => _lang["utilisation"];
+
+    /// <summary>
+    /// Bring the groups into line with the plan, matching by key so a graph
+    /// keeps its history when the list around it changes -- a drive that comes
+    /// back finds its own graph again rather than starting from empty.
+    /// </summary>
+    private void Reconcile(List<Planned> wanted)
+    {
+        foreach (string staleGroup in Groups.Select(g => g.Title)
+                     .Where(title => wanted.All(w => w.Group != title)).ToList())
         {
-            Cards.Remove(byKey[stale]);
-            byKey.Remove(stale);
+            Groups.Remove(Groups.First(g => g.Title == staleGroup));
         }
 
-        for (int i = 0; i < wanted.Count; i++)
+        var order = wanted.Select(w => w.Group).Distinct().ToList();
+        for (int i = 0; i < order.Count; i++)
         {
-            var item = wanted[i];
-            if (!byKey.TryGetValue(item.Key, out ChartCard? card))
+            ChartGroup? group = Groups.FirstOrDefault(g => g.Title == order[i]);
+            if (group is null)
             {
-                card = new ChartCard { Key = item.Key };
-                byKey[item.Key] = card;
-                Cards.Insert(Math.Min(i, Cards.Count), card);
+                group = new ChartGroup { Title = order[i] };
+                Groups.Insert(Math.Min(i, Groups.Count), group);
             }
-            card.Title = item.Title;
-            card.Value = item.Value;
-            card.Detail = item.Detail;
-            card.Maximum = item.Max;
-            card.Accent = Palette.Brush(item.Accent);
-            card.Push(item.Sample);
+
+            List<Planned> members = wanted.Where(w => w.Group == order[i]).ToList();
+            foreach (ChartCard stale in group.Cards
+                         .Where(c => members.All(m => m.Key != c.Key)).ToList())
+            {
+                group.Cards.Remove(stale);
+            }
+
+            for (int j = 0; j < members.Count; j++)
+            {
+                Planned plan = members[j];
+                ChartCard? card = group.Cards.FirstOrDefault(c => c.Key == plan.Key);
+                if (card is null)
+                {
+                    card = new ChartCard
+                    {
+                        Key = plan.Key,
+                        Group = plan.Group,
+                        Small = plan.Small,
+                        Unit = plan.Unit,
+                    };
+                    group.Cards.Insert(Math.Min(j, group.Cards.Count), card);
+                }
+                card.Title = plan.Title;
+                card.Value = plan.Value;
+                card.Detail = plan.Detail;
+                card.Maximum = plan.Max;
+                card.Accent = Palette.Brush(plan.Accent);
+                card.Push(plan.Sample);
+                // An unbounded graph says what its own peak is, since the
+                // vertical scale moves with the data.
+                card.Ceiling = plan.Max > 0 ? plan.Ceiling
+                    : Speed(card.Series.Max * 1.25) + " MB/s";
+            }
         }
     }
 
