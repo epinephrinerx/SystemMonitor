@@ -269,10 +269,17 @@ shows no percentage rather than dividing by zero.
 
 ## Memory modules
 
-Slot, size, speed, type and maker, from `Win32_PhysicalMemory`, queried once
-and cached because a DIMM does not appear while the widget runs.
+What is fitted, summarised onto the memory row: `22.1 / 31.6 GB in use  ·
+2 x 16 GB DDR4 2667 MHz`. From `Win32_PhysicalMemory`, queried once and cached
+because a DIMM does not appear while the widget runs.
 
-**There is no per-module usage, and no API exposes one.** The memory controller
-interleaves across channels, so "how much of DIMM 2 is in use" is not a
-quantity the hardware tracks. The section shows what is installed, says so in
-its heading, and draws no bar rather than inventing a number.
+It began as a section of its own, one row per module. That was a mistake twice
+over. **There is no per-module usage, and no API exposes one** -- the memory
+controller interleaves across channels, so "how much of DIMM 2 is in use" is
+not a quantity the hardware tracks -- so every row was a fact with no bar. And
+the section sat last, below sixteen cores, four drives and two adapters, where
+nobody scrolled to find it. The facts are worth having; a section was not the
+place for them.
+
+Mixed sizes are listed rather than averaged (`16 GB + 8 GB`), and a type or
+speed the modules disagree on is left out rather than guessed at.

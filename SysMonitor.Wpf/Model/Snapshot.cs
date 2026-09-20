@@ -96,6 +96,42 @@ public sealed class Module
 
     public string Title => Slot.Length > 0 ? Slot : Bank;
 
+    /// <summary>
+    /// What is fitted, in one line: "2 x 16 GB DDR4 2667 MHz". Mixed sizes are
+    /// listed rather than averaged, because a machine with one 16 and one 8 is
+    /// a fact worth seeing.
+    ///
+    /// There is deliberately no per-module usage here. Windows reports none,
+    /// and no API exposes one: the controller interleaves across channels, so
+    /// the quantity does not exist to be read.
+    /// </summary>
+    public static string Summarise(IReadOnlyList<Module> modules)
+    {
+        if (modules.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var sizes = modules.GroupBy(m => m.Gb)
+            .OrderByDescending(g => g.Key)
+            .Select(g => g.Count() > 1 ? $"{g.Count()} x {g.Key:F0} GB" : $"{g.Key:F0} GB");
+        var parts = new List<string> { string.Join(" + ", sizes) };
+
+        // Only state the type and speed when every module agrees; otherwise
+        // the single figure would be a guess about which one won.
+        string kind = modules[0].Kind;
+        if (kind.Length > 0 && modules.All(m => m.Kind == kind))
+        {
+            parts.Add(kind);
+        }
+        int mhz = modules[0].Mhz;
+        if (mhz > 0 && modules.All(m => m.Mhz == mhz))
+        {
+            parts.Add($"{mhz} MHz");
+        }
+        return string.Join(" ", parts);
+    }
+
     public string Detail
     {
         get

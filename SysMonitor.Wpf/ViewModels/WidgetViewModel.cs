@@ -428,10 +428,6 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
         {
             wanted.Add("net");
         }
-        if (_config.ShowRam && snap.Modules.Count > 0)
-        {
-            wanted.Add("modules");
-        }
 
         // Section identity is the title, so a display-settings change rebuilds
         // only what actually changed.
@@ -474,9 +470,13 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
 
                 case "ram":
                     Fill(section.Rows, 1);
+                    // What is fitted joins the reading rather than getting a
+                    // section of its own; there is no per-module usage to show
+                    // in one, and at the bottom of the list nobody found it.
                     Meter(section.Rows[0], _lang["memory"], snap.Ram.Usage,
                           Palette.LoadColor(snap.Ram.Usage, Palette.AccentRam),
-                          $"{snap.Ram.UsedGb:F1} / {snap.Ram.TotalGb:F1} GB  {_lang["in_use"]}",
+                          $"{snap.Ram.UsedGb:F1} / {snap.Ram.TotalGb:F1} GB  {_lang["in_use"]}"
+                          + Suffix(Module.Summarise(snap.Modules)),
                           snap.Ram.Temp, snap.Ram.Estimated);
                     break;
 
@@ -503,25 +503,6 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
                         Meter(section.Rows[0], _lang["all_adapters"],
                               LinkUsage(down, up, link), Palette.LoadColor(LinkUsage(down, up, link), Palette.AccentNet),
                               NetText(down, up), null, false);
-                    }
-                    break;
-
-                case "modules":
-                    // No bar: Windows reports no per-module usage, so a filled
-                    // meter here would be inventing a number.
-                    Fill(section.Rows, snap.Modules.Count);
-                    for (int m = 0; m < snap.Modules.Count; m++)
-                    {
-                        Module module = snap.Modules[m];
-                        MeterRow row = section.Rows[m];
-                        row.Title = module.Title;
-                        row.Detail = module.Detail;
-                        row.ValueText = string.Empty;
-                        row.Percent = 0;
-                        row.Compact = true;
-                        row.InfoOnly = true;
-                        row.Temp = null;
-                        ApplyTempColours(row);
                     }
                     break;
 
@@ -719,7 +700,6 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
         "cpu" => _lang["cpu"],
         "ram" => _lang["memory"],
         "net" => _lang["network"],
-        "modules" => _lang["modules"] + "  —  " + _lang["no_module_usage"],
         _ => _lang["disk"],
     };
 
@@ -767,6 +747,9 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
     private static int LinkUsage(double down, double up, double linkMbps) =>
         linkMbps <= 0 ? 0
         : (int)Math.Clamp(Math.Round((down + up) * 8 / linkMbps * 100), 0, 100);
+
+    private static string Suffix(string text) =>
+        text.Length > 0 ? "  ·  " + text : string.Empty;
 
     private string SpeedText(double read, double write) =>
         $"{_lang["read"]} {Speed(read)} | {_lang["write"]} {Speed(write)} MB/s";

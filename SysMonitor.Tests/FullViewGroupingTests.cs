@@ -196,11 +196,10 @@ public class ExpandedColumnTests
     }
 
     [TestMethod]
-    public void Adapters_and_modules_run_down_the_page_too()
+    public void Adapters_run_down_the_page_too()
     {
         WidgetViewModel model = Model();
         Assert.AreEqual(1, Named(model, "Network").Columns);
-        Assert.AreEqual(1, Named(model, "Memory modules").Columns);
     }
 
     [TestMethod]

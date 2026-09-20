@@ -91,7 +91,7 @@
                 <!-- The fill is a star column, so the layout system does the
                      arithmetic and a resize needs no recalculation here. -->
                 <Grid Grid.Row="0" Grid.Column="1" Height="10" VerticalAlignment="Center"
-                      Visibility="{Binding InfoOnly, Converter={StaticResource BoolToCollapsed}}">
+>
                     <Border Background="{Binding Empty}" CornerRadius="5"/>
                     <Grid>
                         <Grid.ColumnDefinitions>

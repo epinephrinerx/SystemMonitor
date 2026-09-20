@@ -195,3 +195,52 @@ public class ChartPenTests
         Assert.AreEqual(Colors.SteelBlue, ((SolidColorBrush)pen.Brush).Color);
     }
 }
+
+[TestClass]
+public class ModuleSummaryTests
+{
+    private static Module Of(double gb, string kind = "DDR4", int mhz = 2667) =>
+        new() { Gb = gb, Kind = kind, Mhz = mhz };
+
+    [TestMethod]
+    public void Matching_modules_are_counted_not_listed()
+    {
+        // This machine: two 16 GB DDR4-2667.
+        Assert.AreEqual("2 x 16 GB DDR4 2667 MHz",
+            Module.Summarise(new[] { Of(16), Of(16) }));
+    }
+
+    [TestMethod]
+    public void A_single_module_is_not_counted()
+    {
+        Assert.AreEqual("16 GB DDR4 2667 MHz", Module.Summarise(new[] { Of(16) }));
+    }
+
+    [TestMethod]
+    public void Mixed_sizes_are_listed_largest_first()
+    {
+        // One 16 and one 8 is worth seeing, not averaging away.
+        Assert.AreEqual("16 GB + 8 GB DDR4 2667 MHz",
+            Module.Summarise(new[] { Of(8), Of(16) }));
+    }
+
+    [TestMethod]
+    public void A_disagreeing_speed_is_left_out_rather_than_guessed()
+    {
+        Assert.AreEqual("2 x 16 GB DDR4",
+            Module.Summarise(new[] { Of(16, mhz: 2667), Of(16, mhz: 2400) }));
+    }
+
+    [TestMethod]
+    public void A_disagreeing_type_is_left_out_too()
+    {
+        Assert.AreEqual("2 x 16 GB 2667 MHz",
+            Module.Summarise(new[] { Of(16, kind: "DDR4"), Of(16, kind: "DDR5") }));
+    }
+
+    [TestMethod]
+    public void No_modules_reported_means_nothing_to_append()
+    {
+        Assert.AreEqual(string.Empty, Module.Summarise(Array.Empty<Module>()));
+    }
+}
