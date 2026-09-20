@@ -30,7 +30,7 @@ public static class Installer
     public const string Key = "SysMonitor.NET";
 
     public const string DisplayName = "SysMonitor (.NET)";
-    public const string Version = "3.0.3";
+    public const string Version = "3.0.4";
     public const string Publisher = "SysMonitor";
     public const string ExeName = "SysMonitor.exe";
     public const string UninstallName = "uninstall.exe";

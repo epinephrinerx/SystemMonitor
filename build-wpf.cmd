@@ -41,14 +41,26 @@ rem the application does.
 
 echo.
 echo [4/4] Collecting...
+
+rem The version is read back off the executable that was just built, so the
+rem names cannot drift from what is actually inside the file.
+for /f "usebackq delims=" %%v in (`"%DOTNET%" msbuild SysMonitor.Wpf -nologo -getProperty:Version`) do set "VERSION=%%v"
+if not defined VERSION (
+    echo ERROR: could not read the version from the project.
+    exit /b 1
+)
+
+rem Only the distributed copies are named with the version. The file the
+rem installer lays down stays SysMonitor.exe: an uninstaller from an older
+rem version looks for that name, and renaming it would strand it.
 if not exist "%OUT%" mkdir "%OUT%"
-copy /y "SysMonitor.Wpf\%PUBLISH%\SysMonitor.exe" "%OUT%\SysMonitor.exe" >nul || exit /b 1
-copy /y "SysMonitor.Setup\%PUBLISH%\SysMonitor-Setup.exe" "%OUT%\SysMonitor-Setup.exe" >nul || exit /b 1
+copy /y "SysMonitor.Wpf\%PUBLISH%\SysMonitor.exe" "%OUT%\SysMonitor-%VERSION%.exe" >nul || exit /b 1
+copy /y "SysMonitor.Setup\%PUBLISH%\SysMonitor-Setup.exe" "%OUT%\SysMonitor-Setup-%VERSION%.exe" >nul || exit /b 1
 
 echo.
-echo Done.
-for %%F in ("%OUT%\SysMonitor.exe" "%OUT%\SysMonitor-Setup.exe") do @echo   %%~nxF  %%~zF bytes
+echo Done.  version %VERSION%
+for %%F in ("%OUT%\SysMonitor-%VERSION%.exe" "%OUT%\SysMonitor-Setup-%VERSION%.exe") do @echo   %%~nxF  %%~zF bytes
 echo.
-echo Install silently with:  dist-wpf\SysMonitor-Setup.exe /S
+echo Install silently with:  dist-wpf\SysMonitor-Setup-%VERSION%.exe /S
 echo Run it from PowerShell, not Git Bash: Git Bash rewrites a bare /S into a path.
 endlocal

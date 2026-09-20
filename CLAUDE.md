@@ -96,7 +96,8 @@ logs both numbers, and `TrimWorkingSet` on each heartbeat hands them back.
 | Install dir | `%LOCALAPPDATA%\Programs\SysMonitor.NET` |
 | Backlog | `requirements.md`, written by the user |
 
-`dist-wpf\SysMonitor-Setup.exe /S` installs silently. Run it from PowerShell,
+`dist-wpf\SysMonitor-Setup-<version>.exe /S` installs silently. The
+distributed files carry the version; the installed one stays `SysMonitor.exe`. Run it from PowerShell,
 not Git Bash: Git Bash rewrites a bare `/S` into a Windows path and the wizard
 opens instead.
 

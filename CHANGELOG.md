@@ -1,5 +1,23 @@
 # Change log
 
+## v3.0.4 — 2026-09-20 — versioned artifacts
+
+The distributed files now carry their version: `SysMonitor-3.0.4.exe` and
+`SysMonitor-Setup-3.0.4.exe`. Downloading two builds no longer leaves two files
+with the same name and no way to tell them apart.
+
+**The installed file names do not change.** What the installer lays down stays
+`SysMonitor.exe` and `uninstall.exe`, because an uninstaller written by an
+older version looks for exactly those names, and a rename would strand it with
+nothing to remove. Verified by installing from the versioned setup, uninstalling,
+and checking the directory came away clean.
+
+The version is read out of the project at build time with
+`msbuild -getProperty:Version`, so the name on the file and the version inside
+it come from one place and cannot drift apart.
+
+No code changes. 124 tests.
+
 ## v3.0.3 — 2026-09-20 — third review pass
 
 Two findings, both in the pen cache added two rounds ago. The review is

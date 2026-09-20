@@ -123,7 +123,7 @@ so a skipped probe cannot report a huge instantaneous rate.
 ## Installing
 
 `SysMonitor.Setup` is the wizard. It is the same executable twice: run as
-`SysMonitor-Setup.exe` it installs, and the copy it leaves in the install
+`SysMonitor-Setup-<version>.exe` it installs, and the copy it leaves in the install
 directory as `uninstall.exe` removes. `/S` runs either silently.
 
 Everything it owns is named apart from the Python build's -- install directory
@@ -178,8 +178,15 @@ dotnet run --project SysMonitor.Wpf -- --expanded
 `--expanded` exists so the expanded layout can be checked without driving a
 double-click into the user's desktop.
 
-Run `dist-wpf\SysMonitor-Setup.exe /S` from PowerShell, not Git Bash: Git Bash
-rewrites a bare `/S` into a Windows path and the wizard opens instead.
+The distributed files carry their version: `SysMonitor-3.0.4.exe` and
+`SysMonitor-Setup-3.0.4.exe`. The name the installer lays down does not --
+that stays `SysMonitor.exe`, because an uninstaller from an older version looks
+for exactly that name and renaming it would strand it. The version comes from
+the project through an MSBuild target, so the name on the file and the version
+inside it cannot drift apart.
+
+Run `dist-wpf\SysMonitor-Setup-<version>.exe /S` from PowerShell, not Git Bash:
+Git Bash rewrites a bare `/S` into a Windows path and the wizard opens instead.
 
 ## Tests
 
