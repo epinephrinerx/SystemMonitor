@@ -1,5 +1,68 @@
 # Change log
 
+## v3.0.0 — 2026-09-20 — the C# / WPF build
+
+The widget is now C# on .NET 8 with a WPF front end. No Tcl/Tk in the process
+at all, which is what the port was for. The Python build is retired; it still
+runs and stays installed, and both can be installed at once because this one
+owns `SysMonitor.NET` everywhere the other owns `SysMonitor`.
+
+### Views
+
+- **Mini** rotates one metric every five seconds, with its own close button.
+- **Expanded** lists everything beside a settings sidebar. Per-core rows sit
+  two to a line; drives, adapters and modules run down the page, because they
+  each carry a line of detail that does not survive half width.
+- **Full screen** graphs every device under a heading per kind, drawn the way
+  Task Manager draws one: framed plot, square grid, solid tint under an angular
+  line, axis labels above.
+
+Double-click cycles them, F11 toggles full screen, Escape steps back, and
+there are buttons for all of it.
+
+### What it reads
+
+Per-core CPU, memory, per-drive space and throughput, drive temperature,
+SSD/HDD and bus detection, LAN and Wi-Fi throughput, installed memory modules,
+and a **real CPU temperature** from the ACPI thermal zone — through
+`Win32_PerfFormattedData_Counters_ThermalZoneInformation`, which needs no
+elevation, unlike the `root\WMI` class the Python build asked for and was
+denied every time.
+
+### Interface
+
+Traffic light on every usage bar: its own colour to 70%, amber to 90%, then
+red. The temperature thresholds are separate and unchanged at 65/80.
+
+Resizing works from every edge and corner, computed from the rectangle the drag
+started on so the opposite side never creeps. Opacity and font size are
+sliders that say what they are set to. The close button either exits or hides
+to a tray icon, whichever the user picked.
+
+### Measured on this machine
+
+| | Python + Tk | C# + WPF |
+|---|---|---|
+| exe | 13.6 MB | 0.35 MB (framework-dependent) |
+| RSS, mini idle | 25–31 MB | 45–65 MB |
+| CPU, mini idle | 0.57% | 1.6% |
+| CPU, expanded idle | — | 1.5% |
+
+Release build, measured over 40 s after a 20 s warm-up. WPF costs more memory
+than Tk; that is the runtime and it is not going away.
+
+**Full screen is not measured.** A 2560x1440 window with per-pixel alpha is
+composited in software, and a reading of about 30% of one core was seen while
+the window was open — though the process was being used at the time, so the
+number is not clean. Worth measuring properly before leaning on that view.
+
+### Tests
+
+104, no hardware and no installing. The graph is checked by rendering it into
+a `RenderTargetBitmap` and counting pixels; the descriptor tests assert the
+exact shape of a bug that shipped once, where the drive temperature was read
+from a reserved byte and a drive at 55 C reported 0.
+
 ## 2026-09-14 — Source review fixes
 
 The review identified six defects. This revision addresses them without adding
