@@ -83,20 +83,53 @@ public static class Palette
     private static readonly Dictionary<Color, SolidColorBrush> BrushCache = new();
 
     /// <summary>
+    /// Above this the cache is emptied and refilled. The palette itself is a
+    /// couple of dozen colours, so the cap is never reached in practice -- but
+    /// the chart's colours come from public properties, and an animated or
+    /// continually recoloured brush would otherwise add an entry per frame for
+    /// the life of the process.
+    /// </summary>
+    private const int CacheLimit = 512;
+
+    /// <summary>
     /// A frozen brush per colour.  The bars and badges re-evaluate their
     /// colours several times a second; allocating a brush each time pushes
     /// work onto the GC and forces WPF to re-realise the same resource.
+    ///
+    /// Locked because this is reached from the chart's render path as well as
+    /// from the view model, and nothing stops a second WPF dispatcher having a
+    /// chart of its own. An unsynchronised dictionary does not merely give the
+    /// wrong answer under concurrent writes, it corrupts.
     /// </summary>
     public static SolidColorBrush Brush(Color color)
     {
-        if (BrushCache.TryGetValue(color, out SolidColorBrush? brush))
+        lock (BrushCache)
         {
+            if (BrushCache.TryGetValue(color, out SolidColorBrush? brush))
+            {
+                return brush;
+            }
+            if (BrushCache.Count >= CacheLimit)
+            {
+                BrushCache.Clear();
+            }
+            brush = new SolidColorBrush(color);
+            brush.Freeze();
+            BrushCache[color] = brush;
             return brush;
         }
-        brush = new SolidColorBrush(color);
-        brush.Freeze();
-        BrushCache[color] = brush;
-        return brush;
+    }
+
+    /// <summary>How many brushes are held. For tests; the cache is private.</summary>
+    internal static int CachedBrushCount
+    {
+        get
+        {
+            lock (BrushCache)
+            {
+                return BrushCache.Count;
+            }
+        }
     }
 
     /// <summary>

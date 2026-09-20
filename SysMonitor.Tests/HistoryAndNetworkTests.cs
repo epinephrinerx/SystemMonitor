@@ -389,3 +389,72 @@ public class SnapshotSealingTests
             () => ((IList<Adapter>)snap.Adapters).Add(new Adapter { Id = "x" }));
     }
 }
+
+/// <summary>
+/// The two colour caches. Both are static, both are reached from the render
+/// path and from the view model, and locking only one of them was the state
+/// the third review found.
+/// </summary>
+[TestClass]
+public class CacheTests
+{
+    [TestMethod]
+    public void Many_threads_asking_for_brushes_at_once_do_not_corrupt_the_cache()
+    {
+        // An unsynchronised Dictionary under concurrent writes does not give
+        // the wrong answer, it corrupts or throws.
+        var colours = Enumerable.Range(0, 200)
+            .Select(i => Color.FromRgb((byte)i, (byte)(255 - i), 128)).ToArray();
+
+        Parallel.For(0, 8, _ =>
+        {
+            foreach (Color colour in colours)
+            {
+                SolidColorBrush brush = Palette.Brush(colour);
+                Assert.IsTrue(brush.IsFrozen);
+            }
+        });
+
+        // Same colour, same instance, whichever thread asked first.
+        Assert.AreSame(Palette.Brush(colours[0]), Palette.Brush(colours[0]));
+    }
+
+    [TestMethod]
+    public void Many_threads_asking_for_pens_at_once_do_not_corrupt_the_cache()
+    {
+        Parallel.For(0, 8, _ =>
+        {
+            for (int i = 0; i < 200; i++)
+            {
+                var brush = new SolidColorBrush(Color.FromRgb((byte)i, 64, (byte)(255 - i)));
+                Assert.IsNotNull(SysMonitor.Controls.Chart.PenFor(brush, 1.2));
+            }
+        });
+    }
+
+    [TestMethod]
+    public void The_brush_cache_does_not_grow_without_end()
+    {
+        // The palette is a couple of dozen colours, but the chart's are public
+        // properties: an animated brush would otherwise add one per frame and
+        // never give it back.
+        for (int i = 0; i < 2000; i++)
+        {
+            Palette.Brush(Color.FromArgb(255, (byte)(i % 256), (byte)(i / 256), 7));
+        }
+        Assert.IsTrue(Palette.CachedBrushCount <= 512,
+            $"held {Palette.CachedBrushCount} brushes");
+    }
+
+    [TestMethod]
+    public void The_pen_cache_does_not_grow_without_end()
+    {
+        for (int i = 0; i < 2000; i++)
+        {
+            var brush = new SolidColorBrush(Color.FromArgb(255, 9, (byte)(i % 256), (byte)(i / 256)));
+            SysMonitor.Controls.Chart.PenFor(brush, 1.4);
+        }
+        Assert.IsTrue(SysMonitor.Controls.Chart.CachedPenCount <= 512,
+            $"held {SysMonitor.Controls.Chart.CachedPenCount} pens");
+    }
+}

@@ -130,6 +130,13 @@ public sealed class Chart : FrameworkElement
                 {
                     return cached;
                 }
+                // The colours come from public properties, so an animated or
+                // continually recoloured brush could otherwise add a pen per
+                // frame and never give one back.
+                if (Pens.Count >= CacheLimit)
+                {
+                    Pens.Clear();
+                }
                 Pen made = Frozen(new Pen(Palette.Brush(solid.Color), thickness));
                 Pens[key] = made;
                 return made;
@@ -184,6 +191,20 @@ public sealed class Chart : FrameworkElement
     /// it corrupts.
     /// </summary>
     private static readonly Dictionary<(Color, double), Pen> Pens = new();
+
+    private const int CacheLimit = 512;
+
+    /// <summary>How many pens are held. For tests; the cache is private.</summary>
+    internal static int CachedPenCount
+    {
+        get
+        {
+            lock (Pens)
+            {
+                return Pens.Count;
+            }
+        }
+    }
 
     /// <summary>
     /// A solid tint of the line colour for the area under it. Task Manager

@@ -1,5 +1,33 @@
 # Change log
 
+## v3.0.3 — 2026-09-20 — third review pass
+
+Two findings, both in the pen cache added two rounds ago. The review is
+converging: ten, then seven, now two, and nothing outside the code the previous
+round touched.
+
+- **Only one of the two colour caches was locked.** `Chart.Pens` was guarded;
+  `Palette.BrushCache` was not, and it is reached from the chart's render path,
+  from `FillFor` and from the view model. Locking half of a problem is not
+  locking it. Both are guarded now.
+- **Both caches could grow for the life of the process.** The palette is a
+  couple of dozen colours, but the chart's colours come from public properties,
+  so an animated or continually recoloured brush would have added an entry per
+  frame and never given one back. Both are capped, and emptied and refilled if
+  the cap is ever reached.
+
+Everything else the review looked at came back clean: `Seal` no longer lets a
+collection escape and its copying costs a small reference array every couple of
+seconds; leaving full screen restores the position, applies the view size, then
+clamps; rejecting a zero declared size follows the structure contract and
+should affect no conforming driver; and the anchor list fails closed.
+
+The non-atomic junction check was accepted as a defensible trade for a
+per-user installer, with the limitation stated plainly rather than papered
+over. It stays as it is.
+
+124 tests, up from 120.
+
 ## v3.0.2 — 2026-09-20 — second review pass
 
 The same reviewer went over the 3.0.1 fixes and found seven more things. Four
