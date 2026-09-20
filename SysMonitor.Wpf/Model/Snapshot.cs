@@ -39,22 +39,31 @@ public sealed class Snapshot
     }
 
     /// <summary>
-    /// Wrap a list so it cannot be written to through the interface it is
-    /// handed out on.
+    /// Take a copy the caller cannot reach and hand it out read-only.
     ///
     /// A snapshot crosses from the sampler's thread to the UI thread and is
-    /// meant to be read-only once published. `IReadOnlyList&lt;T&gt;` says so
-    /// but does not enforce it: a `List&lt;T&gt;` behind that interface can be
-    /// cast straight back and written to. This makes the claim true.
+    /// meant to be fixed once published. Two things stood in the way of that
+    /// being true: `IReadOnlyList&lt;T&gt;` does not stop a `List&lt;T&gt;`
+    /// behind it being cast back and written to, and `AsReadOnly` is a live
+    /// view of the original, so a producer still holding the input could
+    /// change what the UI was reading after the fact.
+    ///
+    /// The copy is what makes it a snapshot. It costs an array of a few dozen
+    /// references every couple of seconds.
     /// </summary>
-    private static IReadOnlyList<T> Seal<T>(IReadOnlyList<T> values) => values switch
+    private static IReadOnlyList<T> Seal<T>(IReadOnlyList<T> values)
     {
-        null => Array.Empty<T>(),
-        System.Collections.ObjectModel.ReadOnlyCollection<T> sealed_ => sealed_,
-        List<T> list => list.AsReadOnly(),
-        T[] array => Array.AsReadOnly(array),
-        _ => values,
-    };
+        if (values is null || values.Count == 0)
+        {
+            return Array.Empty<T>();
+        }
+        var copy = new T[values.Count];
+        for (int i = 0; i < copy.Length; i++)
+        {
+            copy[i] = values[i];
+        }
+        return Array.AsReadOnly(copy);
+    }
     public int CpuTotal { get; init; }
     public int? CpuTemp { get; init; }
     public bool CpuTempEstimated { get; init; }

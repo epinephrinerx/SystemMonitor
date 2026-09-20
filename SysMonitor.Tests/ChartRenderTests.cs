@@ -52,6 +52,13 @@ internal static class ChartPixels
         return pixels;
     }
 
+    /// <summary>The pixel at a point, so a test can name the place it means.</summary>
+    public static (byte R, byte G, byte B) At(byte[] pixels, int x, int y, int width)
+    {
+        int i = (y * width + x) * 4;
+        return (pixels[i + 2], pixels[i + 1], pixels[i]);
+    }
+
     /// <summary>How many pixels satisfy a colour test.</summary>
     public static int CountOf(byte[] pixels, Func<(byte R, byte G, byte B), bool> match)
     {
@@ -272,8 +279,18 @@ public class ChartAppearanceTests
             chart.Series = null;
         }, 120, 60);
 
-        Assert.IsTrue(ChartPixels.CountOf(pixels, c => c.R > 200 && c.G < 60) > 100,
-            "the plot should be framed on all four sides");
+        // Counting red pixels was not the assertion it claimed: one
+        // horizontal edge of a 120-wide box clears any such total on its own.
+        // Each side is asked for by name.
+        foreach ((string side, int x, int y) in new[]
+                 {
+                     ("top", 60, 0), ("bottom", 60, 59),
+                     ("left", 0, 30), ("right", 119, 30),
+                 })
+        {
+            (byte r, byte g, byte _) = ChartPixels.At(pixels, x, y, 120);
+            Assert.IsTrue(r > 200 && g < 60, $"the {side} edge of the frame is missing");
+        }
         Assert.IsTrue(ChartPixels.CountOf(pixels, c => c.G > 200 && c.R < 60) > 60,
             "the grid should be drawn inside the frame");
     }

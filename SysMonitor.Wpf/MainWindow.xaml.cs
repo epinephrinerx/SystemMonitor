@@ -133,7 +133,16 @@ public partial class MainWindow : Window
         // DPI are real. A position saved against a monitor that has since been
         // unplugged would otherwise put the widget somewhere unreachable, with
         // no way back short of editing the config by hand.
-        Loaded += (_, _) => KeepOnScreen();
+        Loaded += (_, _) =>
+        {
+            // Not in full screen: that view is deliberately the whole monitor,
+            // and KeepOnScreen measures the work area, so a taskbar on the top
+            // or left edge would shove it off the other side.
+            if (_mode != Mode.Full)
+            {
+                KeepOnScreen();
+            }
+        };
         Diag.Write($"window ready mode={start.ToString().ToLowerInvariant()}");
     }
 

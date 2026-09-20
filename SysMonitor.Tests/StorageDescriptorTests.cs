@@ -73,21 +73,47 @@ public class StorageDescriptorTests
         Assert.IsNull(StorageDescriptors.Temperature(TemperatureDescriptor(200)));
     }
 
+    /// <summary>A descriptor of a given length that declares its own size.</summary>
+    private static byte[] Descriptor(int length, int declared)
+    {
+        var raw = new byte[length];
+        BitConverter.GetBytes(1u).CopyTo(raw, 0);               // Version
+        BitConverter.GetBytes((uint)declared).CopyTo(raw, 4);   // Size
+        return raw;
+    }
+
     [TestMethod]
     public void Media_type_comes_from_the_seek_penalty_flag()
     {
-        var ssd = new byte[9];
-        var hdd = new byte[9];
+        byte[] ssd = Descriptor(9, 9);
+        byte[] hdd = Descriptor(9, 9);
         hdd[8] = 1;
         Assert.AreEqual("SSD", StorageDescriptors.MediaType(ssd));
         Assert.AreEqual("HDD", StorageDescriptors.MediaType(hdd));
-        Assert.IsNull(StorageDescriptors.MediaType(new byte[8]));
+        Assert.IsNull(StorageDescriptors.MediaType(Descriptor(8, 8)));
+    }
+
+    [TestMethod]
+    public void Media_type_rejects_a_descriptor_declaring_less_than_it_returned()
+    {
+        // The buffer is long enough; the device says the data is not.
+        Assert.IsNull(StorageDescriptors.MediaType(Descriptor(9, 8)));
+    }
+
+    [TestMethod]
+    public void A_descriptor_declaring_nothing_is_not_read()
+    {
+        // Zero used to be waved through as "the device did not say", which is
+        // reading past a descriptor stating it holds nothing. These tests used
+        // zero-filled headers, so they never reached the check at all.
+        Assert.IsNull(StorageDescriptors.MediaType(Descriptor(9, 0)));
+        Assert.IsNull(StorageDescriptors.BusType(Descriptor(25, 0)));
     }
 
     [TestMethod]
     public void Bus_type_is_read_at_offset_24()
     {
-        var raw = new byte[25];
+        byte[] raw = Descriptor(25, 25);
         raw[24] = 17;                                   // BusTypeNvme
         Assert.AreEqual("NVMe", StorageDescriptors.BusType(raw));
 

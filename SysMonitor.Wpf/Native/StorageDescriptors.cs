@@ -82,10 +82,11 @@ internal static class StorageDescriptors
         {
             return false;
         }
-        uint declared = BitConverter.ToUInt32(raw[4..8]);
-        // A device that reports nothing at all is taken at the returned
-        // length; one that reports a size has to cover the field we want.
-        return declared == 0 || declared >= needed;
+        // The declared size has to cover the field, full stop. Letting zero
+        // through was a way of reading past a descriptor that said it held
+        // nothing -- the temperature parser never allowed it, and these two
+        // are the same kind of structure.
+        return BitConverter.ToUInt32(raw[4..8]) >= needed;
     }
 
     /// <summary>

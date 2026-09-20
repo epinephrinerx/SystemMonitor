@@ -303,13 +303,38 @@ public class ChartBrushTests
     }
 
     [TestMethod]
-    public void The_same_brush_and_width_hand_back_the_same_pen()
+    public void The_same_colour_and_width_hand_back_the_same_pen()
     {
         // A repaint built three pens every frame, which is not the "allocates
-        // almost nothing per frame" the class claims.
-        var brush = new SolidColorBrush(Colors.Goldenrod);
-        Assert.AreSame(SysMonitor.Controls.Chart.PenFor(brush, 1.2),
-                       SysMonitor.Controls.Chart.PenFor(brush, 1.2));
+        // almost nothing per frame" the class claims. Keyed by colour rather
+        // than by brush instance, so two brushes of one colour share a pen.
+        Assert.AreSame(
+            SysMonitor.Controls.Chart.PenFor(new SolidColorBrush(Colors.Goldenrod), 1.2),
+            SysMonitor.Controls.Chart.PenFor(new SolidColorBrush(Colors.Goldenrod), 1.2));
+    }
+
+    [TestMethod]
+    public void A_gradient_is_never_put_in_the_cache()
+    {
+        // Cloning on the way in and then keying the cache by the clone meant
+        // every repaint added an entry that could never be hit again: a cache
+        // that only grew. Non-solid brushes get a fresh pen and no entry.
+        var gradient = new LinearGradientBrush(Colors.SteelBlue, Colors.White, 90);
+        Assert.AreNotSame(SysMonitor.Controls.Chart.PenFor(gradient, 1.0),
+                          SysMonitor.Controls.Chart.PenFor(gradient, 1.0));
+    }
+
+    [TestMethod]
+    public void A_brush_that_cannot_be_frozen_still_draws()
+    {
+        // VisualBrush returns CanFreeze false, and freezing it throws rather
+        // than drawing.
+        // DrawingVisual rather than a TextBlock: a FrameworkElement needs an
+        // STA thread to construct, and this test is about the brush.
+        var visual = new VisualBrush(new DrawingVisual());
+        Pen pen = SysMonitor.Controls.Chart.PenFor(visual, 1.0);
+        Assert.IsNotNull(pen.Brush);
+        Assert.IsFalse(visual.IsFrozen, "the caller's brush must stay writable");
     }
 
     [TestMethod]
@@ -340,15 +365,20 @@ public class SnapshotSealingTests
     }
 
     [TestMethod]
-    public void The_sampler_can_still_keep_filling_its_own_list()
+    public void A_published_snapshot_does_not_change_when_the_producer_does()
     {
-        // Sealing must copy nothing: the caller's list stays usable, it is
-        // only the published view that is closed.
+        // This test used to assert the opposite, and was wrong to. AsReadOnly
+        // is a live view: a producer still holding the input list could change
+        // what the UI was already reading. A snapshot that moves under the
+        // reader is not a snapshot.
         var disks = new List<Disk> { new() { Letter = "C" } };
         var snap = new Snapshot { Ready = true, Disks = disks };
-        disks.Add(new Disk { Letter = "D" });
 
-        Assert.AreEqual(2, snap.Disks.Count, "the wrapper is a view, not a copy");
+        disks.Add(new Disk { Letter = "D" });
+        disks[0] = new Disk { Letter = "Z" };
+
+        Assert.AreEqual(1, snap.Disks.Count, "the published list is a copy");
+        Assert.AreEqual("C", snap.Disks[0].Letter);
     }
 
     [TestMethod]

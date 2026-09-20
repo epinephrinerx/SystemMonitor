@@ -143,6 +143,20 @@ drive roots, subdirectories and anything resolving outside the two directories
 we own. The directory goes only if it ends up empty, so a file the user put
 there keeps both the file and the folder.
 
+`IsSafeTarget` also refuses a path that reaches its target through a junction
+or symbolic link, because a lexically perfect path inside a directory we appear
+to own resolves somewhere else entirely when that directory is a link. The walk
+stops at the known folder the directory is rooted in: corporate profiles are
+routinely redirected with junctions, and refusing to uninstall on such a
+machine would be a worse failure than the one this guards against.
+
+**That is a check, not a guarantee.** It reads the state of the path and the
+delete happens afterwards, so a link put in place in between would still be
+followed. Closing the race properly means opening every path component by
+handle and never by name, which is a great deal of Win32 for a per-user
+installer -- and an attacker who can win it can already run code as the user
+whose files are at stake. Said plainly here rather than left implied.
+
 An executable cannot delete itself, so `uninstall.exe` copies itself to the
 temp directory, hands over via `--finish <pid>`, and the copy waits for the
 original to exit before finishing the job and marking itself for removal at the

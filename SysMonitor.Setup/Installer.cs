@@ -30,7 +30,7 @@ public static class Installer
     public const string Key = "SysMonitor.NET";
 
     public const string DisplayName = "SysMonitor (.NET)";
-    public const string Version = "3.0.1";
+    public const string Version = "3.0.2";
     public const string Publisher = "SysMonitor";
     public const string ExeName = "SysMonitor.exe";
     public const string UninstallName = "uninstall.exe";
@@ -124,18 +124,53 @@ public static class Installer
     }
 
     /// <summary>
-    /// Does any directory from <paramref name="directory"/> up to its root
-    /// redirect somewhere else? A junction or symbolic link on the way means
-    /// the path we resolved lexically is not the path Windows will open.
+    /// The folders Windows gives us, which are where our own directories are
+    /// rooted. A redirection at or above one of these is the profile being
+    /// redirected -- ordinary on a managed machine -- and is not our business.
+    /// </summary>
+    private static readonly string[] Anchors = new[]
+    {
+        Environment.SpecialFolder.LocalApplicationData,
+        Environment.SpecialFolder.ApplicationData,
+        Environment.SpecialFolder.DesktopDirectory,
+        Environment.SpecialFolder.Programs,
+        Environment.SpecialFolder.StartMenu,
+        Environment.SpecialFolder.UserProfile,
+    }.Select(Environment.GetFolderPath)
+     .Where(path => path.Length > 0)
+     .Select(Path.GetFullPath)
+     .ToArray();
+
+    /// <summary>
+    /// Does anything between <paramref name="directory"/> and the folder it
+    /// sits under redirect somewhere else?
+    ///
+    /// A junction or symbolic link on the way means the path we resolved by
+    /// text is not the path Windows will open. The walk stops at the known
+    /// folder it is rooted in: corporate profiles are routinely redirected
+    /// with junctions, and refusing to uninstall on such a machine would be a
+    /// worse failure than the one this guards against.
+    ///
+    /// **This is a check, not a guarantee.** It reads the state of the path
+    /// and the delete happens afterwards; a link put in place in between would
+    /// still be followed. Closing that properly means opening each component
+    /// by handle and never by name, which is a great deal of Win32 for a
+    /// per-user installer -- an attacker who can win this race can already run
+    /// code as the user whose files are at stake.
     /// </summary>
     private static bool PassesThroughLink(string directory)
     {
         try
         {
-            for (var node = new DirectoryInfo(directory);
+            for (var node = new DirectoryInfo(Path.GetFullPath(directory));
                  node is not null;
                  node = node.Parent)
             {
+                if (Anchors.Any(anchor => string.Equals(anchor, node.FullName,
+                                                        StringComparison.OrdinalIgnoreCase)))
+                {
+                    return false;
+                }
                 if (node.Exists && node.LinkTarget is not null)
                 {
                     return true;

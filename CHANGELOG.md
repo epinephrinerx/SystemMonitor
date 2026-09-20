@@ -1,5 +1,54 @@
 # Change log
 
+## v3.0.2 — 2026-09-20 — second review pass
+
+The same reviewer went over the 3.0.1 fixes and found seven more things. Four
+of them were faults the fixes themselves had introduced, which is the useful
+half of asking twice.
+
+### Introduced by the previous round
+
+- **The pen cache only grew.** Non-solid brushes were cloned on the way in and
+  the cache was keyed by the clone, so every repaint added an entry that could
+  never be hit again. It is keyed by colour now, only solid brushes are cached
+  at all, and the dictionary is locked: nothing stops a second dispatcher
+  rendering a `Chart` of its own, and an unsynchronised dictionary does not
+  merely give wrong answers then, it corrupts.
+- **`Seal` wrapped rather than copied.** `AsReadOnly` is a live view of the
+  original, so a producer still holding the input list could change what the UI
+  was already reading. It copies now. A test had asserted the wrapping
+  behaviour as though it were correct; that test now asserts the opposite.
+- **Clamping at load broke full screen.** The new position check runs against
+  the work area, and full screen is deliberately the whole monitor, so a
+  taskbar on the top or left edge would have shoved it off the other side.
+  Full screen is exempt.
+- **Freezing a clone throws for brushes that cannot be frozen.** A
+  `VisualBrush` reports `CanFreeze == false`, and the fix for gradients froze
+  unconditionally.
+
+### Remaining from the first round
+
+- **A descriptor declaring size zero was still read.** It was waved through as
+  "the device did not say", which is reading past a structure that states it
+  holds nothing. The tests had used zero-filled headers throughout, so they
+  never reached the check they were meant to cover.
+- **The link walk could reject a legitimate folder.** It climbed to the drive
+  root, so a profile redirected with a junction -- ordinary on a managed
+  machine -- would have made the uninstaller refuse to remove anything. It now
+  stops at the known folder the directory is rooted in.
+- **The junction check is a check, not a guarantee**, and the README now says
+  so instead of implying otherwise. The state is read and the delete happens
+  afterwards; closing that race means opening every path component by handle
+  rather than by name.
+
+### Also
+
+The "framed on all four sides" assertion counted red pixels, which one
+horizontal edge of a 120-pixel-wide box satisfies on its own. Each side is
+asked for by name.
+
+120 tests, up from 116.
+
 ## v3.0.1 — 2026-09-20 — review fixes
 
 An outside review of the C# code found ten things. All ten are addressed here.

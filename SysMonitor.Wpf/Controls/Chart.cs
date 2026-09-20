@@ -117,27 +117,34 @@ public sealed class Chart : FrameworkElement
     /// </summary>
     internal static Pen PenFor(Brush brush, double thickness)
     {
-        Brush safe = Safe(brush);
-        if (Pens.TryGetValue((safe, thickness), out Pen? cached))
+        // Only the canonical palette brushes are cached, keyed by colour. An
+        // earlier version cached by brush instance and cloned every non-solid
+        // brush on the way in, so each repaint added a key that could never be
+        // hit again -- a cache that only grew.
+        if (brush is SolidColorBrush solid)
         {
-            return cached;
+            var key = (solid.Color, thickness);
+            lock (Pens)
+            {
+                if (Pens.TryGetValue(key, out Pen? cached))
+                {
+                    return cached;
+                }
+                Pen made = Frozen(new Pen(Palette.Brush(solid.Color), thickness));
+                Pens[key] = made;
+                return made;
+            }
         }
-        var pen = new Pen(safe, thickness);
-        if (pen.CanFreeze)
-        {
-            pen.Freeze();
-        }
-        Pens[(safe, thickness)] = pen;
-        return pen;
+        return Frozen(new Pen(Safe(brush), thickness));
     }
 
     /// <summary>
-    /// A brush that is safe to hand to something that will freeze it.
+    /// A brush that is safe to hand to something that may freeze it.
     ///
-    /// Solid brushes come from the shared cache, keyed by colour. Anything
-    /// else -- a gradient, an image brush -- is cloned, because the first
-    /// version of this only handled the solid case and a gradient would have
-    /// walked straight back into the bug it was written to prevent.
+    /// Anything not solid is copied, because the first version of this only
+    /// handled the solid case and a gradient would have walked straight back
+    /// into the bug it was written to prevent. The copy is frozen only if it
+    /// can be: a VisualBrush cannot, and freezing it throws rather than draws.
     /// </summary>
     private static Brush Safe(Brush brush)
     {
@@ -150,17 +157,33 @@ public sealed class Chart : FrameworkElement
             return brush;
         }
         Brush copy = brush.Clone();
-        copy.Freeze();
+        if (copy.CanFreeze)
+        {
+            copy.Freeze();
+        }
         return copy;
     }
 
+    private static Pen Frozen(Pen pen)
+    {
+        if (pen.CanFreeze)
+        {
+            pen.Freeze();
+        }
+        return pen;
+    }
+
     /// <summary>
-    /// Pens by the brush and width they draw with. A repaint used to build
+    /// Pens by the colour and width they draw with. A repaint used to build
     /// three of them every time, which is not the "allocates almost nothing
     /// per frame" this class claims; the geometry alone is rebuilt, because
     /// that is the part that actually changes.
+    ///
+    /// Locked because nothing stops a second WPF dispatcher rendering a Chart
+    /// of its own, and an unsynchronised dictionary is not merely wrong then,
+    /// it corrupts.
     /// </summary>
-    private static readonly Dictionary<(Brush, double), Pen> Pens = new();
+    private static readonly Dictionary<(Color, double), Pen> Pens = new();
 
     /// <summary>
     /// A solid tint of the line colour for the area under it. Task Manager
