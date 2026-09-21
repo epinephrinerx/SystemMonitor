@@ -665,7 +665,7 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
             // three disks, and which letters share a spindle is exactly what a
             // person wants to know when one of them is busy.
             foreach (var group in snap.Disks
-                         .Where(d => d.Detail?.DiskNumber is int)
+                         .Where(d => !d.IsNetwork && d.Detail?.DiskNumber is int)
                          .GroupBy(d => d.Detail!.DiskNumber!.Value)
                          .OrderBy(g => g.Key))
             {
@@ -688,18 +688,20 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
             // share, a subst. They are real to the user and invisible to the
             // storage stack, so they share one heading rather than vanishing.
             var virtualDrives = snap.Disks
-                .Where(d => d.Detail?.DiskNumber is null)
+                .Where(d => !d.IsNetwork && d.Detail?.DiskNumber is null)
                 .OrderBy(d => d.Letter, StringComparer.OrdinalIgnoreCase)
                 .ToList();
-            if (virtualDrives.Count > 0)
-            {
-                var tab = new PlannedTab("diskvirtual", _lang["virtual_drives"],
-                    string.Join("  \u00b7  ", virtualDrives.Select(d => d.Letter + ":")),
-                    detail: $"{virtualDrives.Count} {_lang["drives"]}");
+            AddLetterGroup(wanted, "diskvirtual", _lang["virtual_drives"], virtualDrives);
 
-                AddDriveCards(tab, virtualDrives);
-                wanted.Add(tab);
-            }
+            // Mapped shares get their own heading rather than sharing the
+            // virtual one. Windows itself separates them -- This PC calls them
+            // Network Locations -- and they behave differently enough to be
+            // worth telling apart: a share can simply be gone.
+            var networkDrives = snap.Disks
+                .Where(d => d.IsNetwork)
+                .OrderBy(d => d.Letter, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            AddLetterGroup(wanted, "disknetwork", _lang["network_drives"], networkDrives);
         }
 
         if (_config.ShowGpu && snap.Gpu.Present)
@@ -862,6 +864,26 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
         }
         int total = Math.Max(snap.MemorySlots, filled);
         return $"{filled} {_lang["of_slots"]} {total} {_lang["slots"]}";
+    }
+
+    /// <summary>
+    /// A heading for a set of drive letters that has no physical disk behind
+    /// it. Added only when it has members: an empty heading is a row of
+    /// nothing.
+    /// </summary>
+    private void AddLetterGroup(List<PlannedTab> wanted, string key, string title,
+                                List<Disk> drives)
+    {
+        if (drives.Count == 0)
+        {
+            return;
+        }
+        var tab = new PlannedTab(key, title,
+            string.Join("  \u00b7  ", drives.Select(d => d.Letter + ":")),
+            detail: $"{drives.Count} {_lang["drives"]}");
+
+        AddDriveCards(tab, drives);
+        wanted.Add(tab);
     }
 
     /// <summary>

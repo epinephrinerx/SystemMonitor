@@ -109,6 +109,9 @@ public sealed class Disk
     public string Label { get; init; } = string.Empty;
     public string Media { get; init; } = "Disk";
     public string Bus { get; init; } = "Unknown";
+
+    /// <summary>A mapped share. It has no physical disk and never will.</summary>
+    public bool IsNetwork { get; init; }
     public int Usage { get; init; }
     public double UsedGb { get; init; }
     public double TotalGb { get; init; }

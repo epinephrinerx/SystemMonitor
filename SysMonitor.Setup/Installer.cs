@@ -30,7 +30,19 @@ public static class Installer
     public const string Key = "SysMonitor.NET";
 
     public const string DisplayName = "SysMonitor (.NET)";
-    public const string Version = "3.1.0";
+    /// <summary>
+    /// Read from this assembly rather than written down.
+    ///
+    /// It was a const, and it went stale: the projects were bumped to 3.2.0
+    /// and this stayed at 3.1.0, so the wizard offered to "replace 3.2.0 with
+    /// 3.1.0" and Add/Remove Programs recorded the older number. A version
+    /// that has to be edited in three places is a version that will disagree
+    /// with itself.
+    /// </summary>
+    public static string Version { get; } =
+        typeof(Installer).Assembly.GetName().Version is System.Version version
+            ? $"{version.Major}.{version.Minor}.{version.Build}"
+            : "0.0.0";
     public const string Publisher = "SysMonitor";
     public const string ExeName = "SysMonitor.exe";
     public const string UninstallName = "uninstall.exe";

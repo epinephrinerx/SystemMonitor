@@ -41,6 +41,7 @@ public sealed class Sampler : IDisposable
     private readonly Dictionary<string, (ulong Used, ulong Total)> _space = new();
     private readonly Dictionary<string, int?> _temps = new();
     private readonly Dictionary<string, long> _slowUntil = new();
+    private readonly HashSet<string> _networkDrives = new(StringComparer.OrdinalIgnoreCase);
     private List<string> _drives = new();
     private readonly NetworkSensor _network = new();
     private readonly GpuSensor _gpu = new();
@@ -280,8 +281,14 @@ public sealed class Sampler : IDisposable
     // ----------------------------------------------------------------- disks
     private void RefreshDriveList()
     {
-        if (!Guard("enum", () => Win32.LogicalDrives(_config.IncludeRemovable),
-                   out List<string>? letters) || letters is null)
+        // A share that has gone away makes even enumeration slow, so this
+        // gets the longer budget rather than the default quarter-second.
+        if (!Guard("enum",
+                   () => Win32.LogicalDrives(_config.IncludeRemovable,
+                                             _config.IncludeNetwork),
+                   out List<string>? letters,
+                   slowAfter: _config.IncludeNetwork ? TimeSpan.FromSeconds(3) : null)
+            || letters is null)
         {
             return;
         }
@@ -299,6 +306,15 @@ public sealed class Sampler : IDisposable
                 continue;
             }
 
+            // A share has no physical drive to ask about, and asking takes
+            // a round trip to a machine that may not answer.
+            if (Win32.IsNetworkDrive(letter))
+            {
+                _networkDrives.Add(letter);
+                _hardware[letter] = ("Network", "SMB", null, string.Empty);
+                continue;
+            }
+
             (string Media, string Bus)? hardware = null;
             if (number is not null)
             {
@@ -311,6 +327,7 @@ public sealed class Sampler : IDisposable
         }
 
         // A drive that went away must not leave stale readings behind.
+        _networkDrives.IntersectWith(letters);
         Forget(_hardware, letters);
         Forget(_prevIo, letters);
         Forget(_space, letters);
@@ -499,6 +516,7 @@ public sealed class Sampler : IDisposable
                 Label = hardware.Label ?? string.Empty,
                 Media = hardware.Media ?? "Disk",
                 Bus = hardware.Bus ?? "Unknown",
+                IsNetwork = _networkDrives.Contains(letter),
                 Usage = usage,
                 UsedGb = usedGb,
                 TotalGb = totalGb,

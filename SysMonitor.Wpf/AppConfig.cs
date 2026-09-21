@@ -55,6 +55,13 @@ public sealed class AppConfig
     /// </summary>
     public bool CpuTemperature { get; set; } = true;
     public bool IncludeRemovable { get; set; } = true;
+
+    /// <summary>
+    /// Include mapped network drives. On by default, but they are probed on a
+    /// longer leash than local volumes: a share whose host is asleep or behind
+    /// a dropped VPN blocks until SMB gives up, which is seconds.
+    /// </summary>
+    public bool IncludeNetwork { get; set; } = true;
     public bool Diagnostics { get; set; } = true;
 
     /// <summary>
@@ -67,6 +74,13 @@ public sealed class AppConfig
     /// their own answer saved in it.
     /// </summary>
     public string CloseAction { get; set; } = "tray";
+
+    /// <summary>
+    /// Whether the tray icon has been lifted out of Windows 11's overflow
+    /// flyout already. Asked once: if the user later drags it back in, that is
+    /// their answer and we do not overrule it.
+    /// </summary>
+    public bool TrayPromoted { get; set; }
 
     public double? PosX { get; set; }
     public double? PosY { get; set; }

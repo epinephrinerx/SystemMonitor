@@ -326,9 +326,15 @@
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
 
+                    <!-- The settings list is taller than a short window, and a
+                         setting you cannot scroll to is a setting you do not
+                         have. -->
                     <Border Grid.Column="0" Background="{Binding SidebarBrush}"
                             CornerRadius="14,0,0,14">
-                        <StackPanel x:Name="Sidebar" Margin="16"/>
+                        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled">
+                            <StackPanel x:Name="Sidebar" Margin="16"/>
+                        </ScrollViewer>
                     </Border>
 
                     <Grid Grid.Column="1" Margin="16,14,14,12">

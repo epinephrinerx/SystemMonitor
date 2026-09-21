@@ -72,6 +72,22 @@ across channels, so the quantity does not exist. `MemoryModules` shows what is
 installed — slot, size, speed, type — and the section says so rather than
 drawing a bar nobody measured.
 
+**Windows 11 hides every tray icon it has not seen before.** A new icon goes
+into the overflow flyout and stays there until the user drags it out, which for
+an icon whose only job is being the way back to a window that just vanished is
+the one place it must not be. The shell records the choice under
+`HKCU\Control Panel\NotifyIconSettings`, keyed by a hash it computes, so
+`TrayPromotion` finds our entry by the `ExecutablePath` value it carries and
+sets `IsPromoted`. The entry exists only after the icon has been registered
+once, so this runs after `NotifyIcon.Visible`, and `AppConfig.TrayPromoted`
+stops it happening twice -- a user who drags the icon back in means it.
+
+**Network drives were filtered out at the source.** `Win32.LogicalDrives` takes
+an `includeNetwork` flag defaulting to false and the sampler was not passing
+one, so `DRIVE_REMOTE` letters never reached the view at all. They are probed on
+a longer leash than local volumes: a share whose host is asleep blocks until SMB
+gives up.
+
 **`PDH_FMT_COUNTERVALUE_ITEM` is 24 bytes, not 16.** The item is a name
 pointer followed by a whole `PDH_FMT_COUNTERVALUE`, which is a `CStatus` word
 *and* the union. Leaving the status field out of the interop struct makes the

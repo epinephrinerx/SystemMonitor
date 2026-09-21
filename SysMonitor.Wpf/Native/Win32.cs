@@ -294,6 +294,17 @@ internal static class Win32
         return letters;
     }
 
+    /// <summary>
+    /// Whether a letter is a mapped network share rather than a local volume.
+    ///
+    /// Worth knowing separately from whether to show it: a share behaves
+    /// differently -- it can be slow, it can be gone, and it has no physical
+    /// disk to belong to -- so it gets its own heading rather than being
+    /// counted among the letters with nothing behind them.
+    /// </summary>
+    public static bool IsNetworkDrive(string letter) =>
+        GetDriveTypeW(letter + ":\\") == DRIVE_REMOTE;
+
     /// <summary>(used, total) bytes for a drive letter, or null if unreadable.</summary>
     public static (ulong Used, ulong Total)? DiskSpace(string letter)
     {

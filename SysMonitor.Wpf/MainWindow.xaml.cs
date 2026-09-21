@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -876,6 +877,13 @@ public partial class MainWindow : Window
             _sampler.Nudge();
             Refresh();
         }));
+        Sidebar.Children.Add(Check(lang["show_network_drives"], _config.IncludeNetwork,
+                                   value =>
+        {
+            _config.IncludeNetwork = value;
+            _sampler.Nudge();
+            Refresh();
+        }));
         Sidebar.Children.Add(Check(lang["show_gpu"], _config.ShowGpu, value =>
         {
             _config.ShowGpu = value;
@@ -927,6 +935,117 @@ public partial class MainWindow : Window
                 BuildContextMenu();
                 Refresh();
             }));
+
+        Sidebar.Children.Add(Heading(lang["updates"]));
+        Sidebar.Children.Add(BuildUpdatePanel(lang));
+    }
+
+    // --------------------------------------------------------------- updates
+    /// <summary>
+    /// The update corner: what version this is, a button to look for a newer
+    /// one, and a line saying how that went.
+    ///
+    /// One button that changes what it does -- check, then download -- rather
+    /// than two, one of which is meaningless until the other has been pressed.
+    /// </summary>
+    private UIElement BuildUpdatePanel(Lang lang)
+    {
+        var panel = new StackPanel();
+
+        panel.Children.Add(new TextBlock
+        {
+            Text = $"{lang["current_version"]} {Updater.Current}",
+            Foreground = _model.MutedBrush,
+            FontFamily = new FontFamily("Segoe UI, Leelawadee UI, Tahoma"),
+            FontSize = 11,
+            Margin = new Thickness(0, 0, 0, 6),
+        });
+
+        var status = new TextBlock
+        {
+            Foreground = _model.MutedBrush,
+            FontFamily = new FontFamily("Segoe UI, Leelawadee UI, Tahoma"),
+            FontSize = 11,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 6, 0, 0),
+            Visibility = Visibility.Collapsed,
+        };
+
+        var button = new Button
+        {
+            Content = lang["check_updates"],
+            Style = (Style)FindResource("SidebarButton"),
+        };
+        button.Click += async (_, _) => await RunUpdateStep(button, status, lang);
+
+        panel.Children.Add(button);
+        panel.Children.Add(status);
+        return panel;
+    }
+
+    /// <summary>The release the last check found, waiting to be downloaded.</summary>
+    private Updater.Release? _pendingUpdate;
+
+    private async Task RunUpdateStep(Button button, TextBlock status, Lang lang)
+    {
+        button.IsEnabled = false;
+        status.Visibility = Visibility.Visible;
+
+        try
+        {
+            if (_pendingUpdate is null)
+            {
+                status.Text = lang["checking"];
+                Updater.Release? release = await Updater.CheckAsync();
+
+                if (release is null)
+                {
+                    status.Text = lang["check_failed"];
+                }
+                else if (release.Version <= Updater.Current)
+                {
+                    status.Text = lang["up_to_date"];
+                }
+                else
+                {
+                    _pendingUpdate = release;
+                    status.Text = $"{lang["update_found"]} {release.Version}";
+                    button.Content = lang["download_install"];
+                }
+                return;
+            }
+
+            var progress = new Progress<double>(fraction =>
+                status.Text = $"{lang["downloading"]} {fraction:P0}");
+            status.Text = lang["downloading"];
+
+            string? installer = await Updater.DownloadAsync(_pendingUpdate, progress);
+            if (installer is null)
+            {
+                status.Text = lang["download_failed"];
+                _pendingUpdate = null;
+                button.Content = lang["check_updates"];
+                return;
+            }
+
+            status.Text = lang["installing"];
+            Diag.Write($"launching installer {installer}");
+
+            // The installer replaces this program's own files, so it cannot do
+            // its work while we hold them open. Hand over and go.
+            Process.Start(new ProcessStartInfo(installer) { UseShellExecute = true });
+            _config.Save();
+            Application.Current.Shutdown();
+        }
+        catch (Exception error)
+        {
+            Diag.ReportException("Update", error);
+            status.Text = lang["check_failed"];
+        }
+        finally
+        {
+            button.IsEnabled = true;
+        }
     }
 
     private void Refresh()
@@ -1068,6 +1187,15 @@ public partial class MainWindow : Window
         SavePlacement();
         _timer.Stop();
         _tray.Show(new Lang(_config.Lang), TrayTooltip());
+
+        // The shell only writes the icon's settings entry once it has seen the
+        // icon, so this has to come after Show -- and on the very first hide
+        // the entry may still not be there, in which case the next one gets it.
+        if (!_config.TrayPromoted && Environment.ProcessPath is string exe)
+        {
+            _config.TrayPromoted = TrayPromotion.Promote(exe);
+        }
+
         Hide();
         Diag.Write("hidden to tray");
     }

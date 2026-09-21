@@ -6,13 +6,13 @@
 
         <Style TargetType="TextBlock">
             <Setter Property="FontFamily" Value="Segoe UI, Leelawadee UI, Tahoma"/>
-            <Setter Property="Foreground" Value="#e2e8f0"/>
+            <Setter Property="Foreground" Value="#0f172a"/>
             <Setter Property="FontSize" Value="13"/>
         </Style>
 
         <Style TargetType="CheckBox">
             <Setter Property="FontFamily" Value="Segoe UI, Leelawadee UI, Tahoma"/>
-            <Setter Property="Foreground" Value="#cbd5e1"/>
+            <Setter Property="Foreground" Value="#334155"/>
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="Margin" Value="0,6,0,6"/>
         </Style>
@@ -22,8 +22,8 @@
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="Padding" Value="20,7"/>
             <Setter Property="Margin" Value="8,0,0,0"/>
-            <Setter Property="Foreground" Value="#e2e8f0"/>
-            <Setter Property="Background" Value="#1a2438"/>
+            <Setter Property="Foreground" Value="#334155"/>
+            <Setter Property="Background" Value="#eef2f7"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Template">
                 <Setter.Value>
@@ -36,7 +36,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Chrome" Property="Background" Value="#243044"/>
+                                <Setter TargetName="Chrome" Property="Background" Value="#dfe6ef"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.4"/>
