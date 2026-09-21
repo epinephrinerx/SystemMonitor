@@ -9,6 +9,7 @@
         <conv:BoolToVisible x:Key="BoolToVisible"/>
         <conv:BoolToCollapsed x:Key="BoolToCollapsed"/>
         <conv:EmptyToCollapsed x:Key="EmptyToCollapsed"/>
+        <conv:ZeroToCollapsed x:Key="ZeroToCollapsed"/>
 
         <!-- The type ramp, as resources rather than literals, so the font-size
              slider can rewrite it at run time. Everything that draws text
@@ -81,6 +82,61 @@
                     <Setter Property="Opacity" Value="1"/>
                 </DataTrigger>
             </Style.Triggers>
+        </Style>
+
+        <!-- A full-width button in the settings sidebar. -->
+        <Style x:Key="SidebarButton" TargetType="Button">
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Foreground" Value="#3b82f6"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="Margin" Value="0,0,0,4"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome" CornerRadius="7"
+                                BorderThickness="1" BorderBrush="#553b82f6"
+                                Background="Transparent" Padding="10,7,10,7">
+                            <ContentPresenter HorizontalAlignment="Left"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="#223b82f6"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- A tab in the full view'"'"'s strip. The selected one is filled; the
+             rest are outlines, so the strip reads as one control. -->
+        <Style x:Key="DeviceTabButton" TargetType="Button">
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Margin" Value="0,0,6,6"/>
+            <Setter Property="Foreground" Value="#64748b"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome" CornerRadius="7"
+                                BorderThickness="1" BorderBrush="#33808080"
+                                Background="Transparent" Padding="12,6,12,6">
+                            <ContentPresenter VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="#22808080"/>
+                            </Trigger>
+                            <DataTrigger Binding="{Binding Selected}" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="#3b82f6"/>
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="#3b82f6"/>
+                                <Setter Property="Foreground" Value="#ffffff"/>
+                            </DataTrigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <!-- A scrollbar in the shape the rest of Windows uses now: no arrow

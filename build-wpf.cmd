@@ -50,6 +50,8 @@ if not defined VERSION (
     exit /b 1
 )
 
+rem dist-wpf is never emptied: every build that has been made stays on the
+rem machine, and the version in the name keeps them apart.
 rem Only the distributed copies are named with the version. The file the
 rem installer lays down stays SysMonitor.exe: an uninstaller from an older
 rem version looks for that name, and renaming it would strand it.

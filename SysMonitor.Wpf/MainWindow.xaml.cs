@@ -84,6 +84,8 @@ public partial class MainWindow : Window
         CollapseButton.Click += (_, _) => SetMode(Mode.Mini);
         FullScreenButton.Click += (_, _) => SetMode(Mode.Full);
         MiniCloseButton.Click += (_, _) => Close();
+        MiniPrevButton.Click += (_, _) => Step(-1);
+        MiniNextButton.Click += (_, _) => Step(1);
         FullCloseButton.Click += (_, _) => Close();
         FullCollapseButton.Click += (_, _) => SetMode(Mode.Expanded);
         KeyDown += OnKeyDown;
@@ -133,16 +135,10 @@ public partial class MainWindow : Window
         // DPI are real. A position saved against a monitor that has since been
         // unplugged would otherwise put the widget somewhere unreachable, with
         // no way back short of editing the config by hand.
-        Loaded += (_, _) =>
-        {
-            // Not in full screen: that view is deliberately the whole monitor,
-            // and KeepOnScreen measures the work area, so a taskbar on the top
-            // or left edge would shove it off the other side.
-            if (_mode != Mode.Full)
-            {
-                KeepOnScreen();
-            }
-        };
+        // Checked once the window has a handle, so the monitor layout and the
+        // DPI are real. A position saved against a monitor that has since been
+        // unplugged would otherwise put the widget somewhere unreachable.
+        Loaded += (_, _) => KeepOnScreen();
         Diag.Write($"window ready mode={start.ToString().ToLowerInvariant()}");
     }
 
@@ -167,13 +163,19 @@ public partial class MainWindow : Window
     {
         if (_mode == Mode.Full)
         {
-            // The whole monitor, taskbar included: a full-screen graph view
-            // with a strip of desktop along one edge is just a big window.
-            Rect screen = MonitorBounds(Left + Width / 2, Top + Height / 2);
-            Left = screen.Left;
-            Top = screen.Top;
-            Width = screen.Width;
-            Height = screen.Height;
+            // A window, not an OS full-screen mode: it fills the work area the
+            // first time and is a normal resizable window after that, so the
+            // taskbar stays reachable and the size is the user's to keep.
+            if (_config.FullW <= 0 || _config.FullH <= 0)
+            {
+                Rect area = WorkArea(Left + Width / 2, Top + Height / 2);
+                _config.FullW = Math.Max(AppConfig.MinFull.W, area.Width - ShadowPad * 2);
+                _config.FullH = Math.Max(AppConfig.MinFull.H, area.Height - ShadowPad * 2);
+                Left = area.Left;
+                Top = area.Top;
+            }
+            Width = _config.FullW + ShadowPad * 2;
+            Height = _config.FullH + ShadowPad * 2;
             return;
         }
         Width = (_expanded ? _config.ExpW : _config.MiniW) + ShadowPad * 2;
@@ -295,6 +297,22 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Move the mini view on by hand. The rotation timer restarts from here,
+    /// so stepping to something does not then have it swept away a moment
+    /// later by a rotation that was already half-way through.
+    /// </summary>
+    private void Step(int by)
+    {
+        if (_model.ViewCount == 0)
+        {
+            return;
+        }
+        _model.ViewIndex = (_model.ViewIndex + by + _model.ViewCount) % _model.ViewCount;
+        _lastRotate = DateTime.UtcNow;
+        _model.UpdateMini(_sampler.Current);
+    }
+
     // ----------------------------------------------------------- mode switch
     private void SetMode(Mode mode)
     {
@@ -335,7 +353,12 @@ public partial class MainWindow : Window
                 _model.UpdateExpanded(snap);
                 break;
             case Mode.Full:
-                FullTitle.Text = new Lang(_config.Lang)["history"];
+                FullTitle.Text = new Lang(_config.Lang)["full_data"];
+                _model.PushHistory(snap);
+                if (_config.FullTab.Length > 0)
+                {
+                    _model.Select(_config.FullTab);
+                }
                 break;
             default:
                 _model.RebuildViews(snap);
@@ -390,7 +413,7 @@ public partial class MainWindow : Window
     protected override void OnPreviewMouseLeftButtonDown(MouseButtonEventArgs e)
     {
         base.OnPreviewMouseLeftButtonDown(e);
-        if (_mode == Mode.Full || e.ClickCount > 1)
+        if (e.ClickCount > 1)
         {
             return;
         }
@@ -447,7 +470,7 @@ public partial class MainWindow : Window
 
         if (!_dragging && _resizing == Edge.None)
         {
-            Cursor = _mode == Mode.Full || OverControl(e.OriginalSource)
+            Cursor = OverControl(e.OriginalSource)
                 ? Cursors.Arrow
                 : CursorFor(WindowGeometry.HitTest(point, Width, Height));
             return;
@@ -519,7 +542,25 @@ public partial class MainWindow : Window
 
     private void Resize(Vector delta)
     {
-        (var min, var max) = WindowGeometry.Limits(_expanded);
+        (var min, var max) = WindowGeometry.Limits(ViewOf(_mode));
+
+        // Dragged below what the tabs need, the full view steps back to the
+        // expanded one rather than showing something cramped. Its own minimum
+        // is smaller, so the drag carries on from there.
+        if (_mode == Mode.Full)
+        {
+            Rect wanted = WindowGeometry.Resize(_resizeOrigin, _resizing, delta,
+                                                AppConfig.MinExp, max);
+            Size panelSize = WindowGeometry.Panel(wanted.Width, wanted.Height);
+            if (WindowGeometry.TooSmallForFull(panelSize.Width, panelSize.Height))
+            {
+                _config.FullW = 0;      // it will fill the work area next time
+                SetMode(Mode.Expanded);
+                _resizeOrigin = new Rect(Left, Top, Width, Height);
+                return;
+            }
+        }
+
         Rect window = WindowGeometry.Resize(_resizeOrigin, _resizing, delta, min, max);
         Left = window.Left;
         Top = window.Top;
@@ -527,15 +568,38 @@ public partial class MainWindow : Window
         Height = window.Height;
 
         Size panel = WindowGeometry.Panel(window.Width, window.Height);
-        if (_expanded)
+        switch (_mode)
         {
-            _config.ExpW = panel.Width;
-            _config.ExpH = panel.Height;
+            case Mode.Full:
+                _config.FullW = panel.Width;
+                _config.FullH = panel.Height;
+                break;
+            case Mode.Expanded:
+                _config.ExpW = panel.Width;
+                _config.ExpH = panel.Height;
+                break;
+            default:
+                _config.MiniW = panel.Width;
+                _config.MiniH = panel.Height;
+                break;
         }
-        else
+    }
+
+    private static WindowGeometry.View ViewOf(Mode mode) => mode switch
+    {
+        Mode.Full => WindowGeometry.View.Full,
+        Mode.Expanded => WindowGeometry.View.Expanded,
+        _ => WindowGeometry.View.Mini,
+    };
+
+    /// <summary>A tab was clicked; show it and remember which.</summary>
+    private void OnTabClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string key })
         {
-            _config.MiniW = panel.Width;
-            _config.MiniH = panel.Height;
+            _model.Select(key);
+            _config.FullTab = key;
+            _config.Save();
         }
     }
 
@@ -610,6 +674,38 @@ public partial class MainWindow : Window
     {
         var lang = new Lang(_config.Lang);
         Sidebar.Children.Clear();
+
+        // Above the settings, because it is the way into the full view and
+        // not a setting: F11 and a double-click are invisible to anyone who
+        // has not been told about them.
+        var fullData = new Button
+        {
+            Style = (Style)FindResource("SidebarButton"),
+            Content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = "",
+                        FontFamily = new FontFamily("Segoe MDL2 Assets"),
+                        FontSize = 13,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Margin = new Thickness(0, 0, 8, 0),
+                    },
+                    new TextBlock
+                    {
+                        Text = lang["full_data"],
+                        FontFamily = new FontFamily("Segoe UI, Leelawadee UI, Tahoma"),
+                        FontSize = 12,
+                        VerticalAlignment = VerticalAlignment.Center,
+                    },
+                },
+            },
+        };
+        fullData.Click += (_, _) => SetMode(Mode.Full);
+        Sidebar.Children.Add(fullData);
 
         Sidebar.Children.Add(Heading(lang["window_settings"]));
         Sidebar.Children.Add(Check(lang["always_on_top"], _config.AlwaysOnTop, value =>

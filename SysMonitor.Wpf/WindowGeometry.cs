@@ -129,9 +129,32 @@ internal static class WindowGeometry
     public static Size Panel(double width, double height) =>
         new(width - ShadowPad * 2, height - ShadowPad * 2);
 
-    /// <summary>Limits for a view: the mini strip is capped, the panel is not.</summary>
-    public static ((double W, double H) Min, (double W, double H) Max) Limits(bool expanded) =>
-        expanded
-            ? (AppConfig.MinExp, (4000.0, 3000.0))
-            : (AppConfig.MinMini, AppConfig.MaxMini);
+/// <summary>Which of the three views a size is being judged against.</summary>
+    public enum View
+    {
+        Mini,
+        Expanded,
+        Full,
+    }
+
+    /// <summary>
+    /// Limits for a view. The mini strip is capped; the other two are windows
+    /// that should be allowed to fill whatever monitor they are on.
+    /// </summary>
+    public static ((double W, double H) Min, (double W, double H) Max) Limits(View view) => view switch
+    {
+        View.Full => (AppConfig.MinFull, (4000.0, 3000.0)),
+        View.Expanded => (AppConfig.MinExp, (4000.0, 3000.0)),
+        _ => (AppConfig.MinMini, AppConfig.MaxMini),
+    };
+
+    /// <summary>
+    /// Has the full view been dragged below the size its tabs need?
+    ///
+    /// Asked of the panel size, not the window: the shadow margin is not part
+    /// of what the user is sizing, and the threshold in the requirement is
+    /// about what is visible.
+    /// </summary>
+    public static bool TooSmallForFull(double panelWidth, double panelHeight) =>
+        panelWidth < AppConfig.MinFull.W || panelHeight < AppConfig.MinFull.H;
 }

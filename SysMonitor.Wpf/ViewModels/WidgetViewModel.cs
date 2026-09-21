@@ -6,13 +6,6 @@ using SysMonitor.Model;
 
 namespace SysMonitor.ViewModels;
 
-/// <summary>A titled group of graphs; the full-screen view is a list of these.</summary>
-public sealed class ChartGroup
-{
-    public required string Title { get; init; }
-    public ObservableCollection<ChartCard> Cards { get; } = new();
-}
-
 /// <summary>A titled group of meters; the expanded view is a list of these.</summary>
 public sealed class Section : INotifyPropertyChanged
 {
@@ -93,8 +86,8 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
     public ObservableCollection<MeterRow> MiniRows { get; } = new();
     public ObservableCollection<Section> Sections { get; } = new();
 
-    /// <summary>The full-screen view: graphs, under a heading per device kind.</summary>
-    public ObservableCollection<ChartGroup> Groups { get; } = new();
+    /// <summary>The full view: one tab per device, each with its own graphs.</summary>
+    public ObservableCollection<DeviceTab> Tabs { get; } = new();
 
     public string MiniTitle
     {
@@ -540,12 +533,12 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
 
     // -------------------------------------------------------- full view
     /// <summary>
-    /// Append this sample to every graph, adding and removing cards as
-    /// hardware appears and disappears.
+    /// Append this sample to every graph and keep the tabs in step with the
+    /// hardware that is present.
     ///
-    /// Called on every snapshot regardless of which view is on screen, so the
-    /// graphs already have history behind them the moment the full view opens
-    /// rather than starting from an empty box.
+    /// Called on every snapshot whichever view is on screen, so the graphs
+    /// already have history behind them the moment the full view opens rather
+    /// than starting from an empty box.
     /// </summary>
     public void PushHistory(Snapshot snap)
     {
@@ -554,142 +547,358 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
             return;
         }
 
-        var wanted = new List<Planned>();
+        var wanted = new List<PlannedTab>();
 
         if (_config.ShowCpu)
         {
-            string group = _lang["cpu"];
-            wanted.Add(new Planned("cpu", group, _lang["cpu"], snap.CpuTotal,
-                snap.CpuTotal + "%",
+            var cpu = new PlannedTab("cpu", _lang["cpu"], snap.CpuTotal + "%");
+            cpu.Cards.Add(new Planned("cpu", _lang["cpu"], snap.CpuTotal, snap.CpuTotal + "%",
                 $"{snap.Cores.Count} {_lang["cores"]}"
                 + (snap.CpuTemp is int t
                    ? "  ·  " + Palette.TempText(t, snap.CpuTempEstimated)
                    : string.Empty),
-                Palette.AccentCpu, 100, Percent, "100%", Small: false));
+                Palette.AccentCpu, 100, Percent, "100%"));
 
             if (_config.CpuMode == "separated")
             {
                 for (int i = 0; i < snap.Cores.Count; i++)
                 {
                     Core core = snap.Cores[i];
-                    wanted.Add(new Planned($"core{i}", group, "C" + i, core.Usage,
+                    cpu.Cards.Add(new Planned($"core{i}", "Core " + i, core.Usage,
                         core.Usage + "%", string.Empty, Palette.AccentCpu, 100,
                         Percent, "100%", Small: true));
                 }
             }
+            cpu.Facts.Add(new DeviceFact { Name = _lang["cores"], Value = snap.Cores.Count.ToString() });
+            if (snap.CpuTemp is int temp)
+            {
+                cpu.Facts.Add(new DeviceFact
+                {
+                    Name = _lang["temp_label"],
+                    Value = Palette.TempText(temp, snap.CpuTempEstimated),
+                });
+            }
+            wanted.Add(cpu);
         }
 
         if (_config.ShowRam)
         {
-            wanted.Add(new Planned("ram", _lang["memory"], _lang["memory"],
-                snap.Ram.Usage, snap.Ram.Usage + "%",
-                $"{snap.Ram.UsedGb:F1} / {snap.Ram.TotalGb:F1} GB",
-                Palette.AccentRam, 100, Percent, "100%", Small: false));
+            var ram = new PlannedTab("ram", _lang["memory"], snap.Ram.Usage + "%");
+            ram.Cards.Add(new Planned("ram", _lang["memory"], snap.Ram.Usage,
+                snap.Ram.Usage + "%",
+                $"{snap.Ram.UsedGb:F1} / {snap.Ram.TotalGb:F1} GB {_lang["in_use"]}",
+                Palette.AccentRam, 100, Percent, "100%"));
+
+            ram.Facts.Add(new DeviceFact
+            {
+                Name = _lang["total"],
+                Value = $"{snap.Ram.TotalGb:F1} GB",
+            });
+            ram.Facts.Add(new DeviceFact
+            {
+                Name = _lang["in_use"],
+                Value = $"{snap.Ram.UsedGb:F1} GB ({snap.Ram.Usage}%)",
+            });
+            foreach (Module module in snap.Modules)
+            {
+                ram.Facts.Add(new DeviceFact { Name = module.Title, Value = module.Detail });
+            }
+            wanted.Add(ram);
         }
 
         if (_config.ShowDisk)
         {
-            string group = _lang["disk"];
+            // One tab per logical disk: a drive carries far more worth saying
+            // than a core does, and sharing a tab left none of it room.
             foreach (Disk disk in snap.Disks)
             {
-                wanted.Add(new Planned($"disk{disk.Letter}", group, disk.Title,
-                    disk.Usage, disk.Usage + "%",
-                    $"{disk.Media} · {disk.UsedGb:F0}/{disk.TotalGb:F0} GB",
-                    Palette.AccentDisk, 100, Percent, "100%", Small: false));
+                var tab = new PlannedTab("disk" + disk.Letter, disk.Letter + ":",
+                                         disk.Usage + "%");
+
+                tab.Cards.Add(new Planned($"disk{disk.Letter}", _lang["in_use"], disk.Usage,
+                    disk.Usage + "%",
+                    $"{disk.UsedGb:F1} / {disk.TotalGb:F1} GB",
+                    Palette.AccentDisk, 100, Percent, "100%"));
 
                 // Throughput has no ceiling to measure against, so the graph
                 // scales to its own peak and says what that peak is.
-                wanted.Add(new Planned($"diskio{disk.Letter}", group,
-                    disk.Letter + ":  " + _lang["read"] + "/" + _lang["write"],
+                tab.Cards.Add(new Planned($"diskio{disk.Letter}",
+                    _lang["read"] + " / " + _lang["write"],
                     disk.ReadMb + disk.WriteMb,
                     Speed(disk.ReadMb + disk.WriteMb) + " MB/s",
                     SpeedText(disk.ReadMb, disk.WriteMb),
-                    Palette.AccentDisk, 0, "MB/s", string.Empty, Small: false));
+                    Palette.AccentDisk, 0, "MB/s", string.Empty));
+
+                foreach (DeviceFact fact in DriveFacts(disk))
+                {
+                    tab.Facts.Add(fact);
+                }
+                wanted.Add(tab);
             }
         }
 
         if (_config.ShowNetwork)
         {
-            string group = _lang["network"];
             foreach (Adapter adapter in snap.Adapters)
             {
-                wanted.Add(new Planned($"net{adapter.Id}", group, adapter.Name,
+                var tab = new PlannedTab("net" + adapter.Id, adapter.Name,
+                                         Speed(adapter.DownMb + adapter.UpMb) + " MB/s");
+
+                tab.Cards.Add(new Planned($"net{adapter.Id}", adapter.Name,
                     adapter.DownMb + adapter.UpMb,
                     Speed(adapter.DownMb + adapter.UpMb) + " MB/s",
-                    (adapter.Wireless ? _lang["wireless"] : _lang["wired"])
-                    + "  ·  " + NetText(adapter.DownMb, adapter.UpMb),
-                    Palette.AccentNet, 0, "MB/s", string.Empty, Small: false));
+                    NetText(adapter.DownMb, adapter.UpMb),
+                    Palette.AccentNet, 0, "MB/s", string.Empty));
+
+                tab.Facts.Add(new DeviceFact
+                {
+                    Name = _lang["network"],
+                    Value = adapter.Wireless ? _lang["wireless"] : _lang["wired"],
+                });
+                tab.Facts.Add(new DeviceFact
+                {
+                    Name = "Link",
+                    Value = adapter.SpeedMbps > 0
+                        ? $"{adapter.SpeedMbps:F0} Mbps" : _lang["no_link"],
+                });
+                if (adapter.Description.Length > 0)
+                {
+                    tab.Facts.Add(new DeviceFact { Name = "Adapter", Value = adapter.Description });
+                }
+                wanted.Add(tab);
             }
         }
 
         Reconcile(wanted);
     }
 
+    /// <summary>
+    /// Everything worth stating about a drive: where it lives, how the
+    /// partition sits on the disk, and what the disk itself is.
+    /// </summary>
+    private IEnumerable<DeviceFact> DriveFacts(Disk disk)
+    {
+        yield return new DeviceFact
+        {
+            Name = _lang["drive"],
+            Value = disk.Letter + ":" + (disk.Label.Length > 0 ? $"  ({disk.Label})" : string.Empty),
+        };
+        yield return new DeviceFact
+        {
+            Name = _lang["in_use"],
+            Value = $"{disk.UsedGb:F1} / {disk.TotalGb:F1} GB  ({disk.Usage}%)",
+        };
+
+        DriveDetail? detail = disk.Detail;
+        if (detail is null)
+        {
+            yield break;
+        }
+
+        if (detail.FileSystem.Length > 0)
+        {
+            yield return new DeviceFact { Name = "File system", Value = detail.FileSystem };
+        }
+        if (detail.DiskNumber is int number)
+        {
+            yield return new DeviceFact
+            {
+                Name = _lang["partition"],
+                Value = $"#{detail.PartitionNumber} {_lang["of_disk"]} {number}"
+                        + (detail.IsBoot ? "  ·  boot" : string.Empty),
+            };
+            yield return new DeviceFact
+            {
+                Name = _lang["partition_size"],
+                Value = detail.Disk is { Bytes: > 0 }
+                    ? $"{detail.PartitionGb:F1} / {detail.Disk.Gb:F1} GB  ({detail.ShareOfDisk:F0}%)"
+                    : $"{detail.PartitionGb:F1} GB",
+            };
+        }
+
+        PhysicalDisk? physical = detail.Disk;
+        if (physical is null)
+        {
+            yield break;
+        }
+
+        yield return new DeviceFact { Name = _lang["physical_disk"], Value = physical.Title };
+        var hardware = new List<string>();
+        if (physical.Media.Length > 0)
+        {
+            hardware.Add(physical.Media);
+        }
+        if (physical.Bus.Length > 0)
+        {
+            hardware.Add(physical.Bus);
+        }
+        if (physical.Rpm > 0)
+        {
+            hardware.Add($"{physical.Rpm} rpm");
+        }
+        if (physical.PartitionStyle.Length > 0)
+        {
+            hardware.Add(physical.PartitionStyle);
+        }
+        if (hardware.Count > 0)
+        {
+            yield return new DeviceFact { Name = "Hardware", Value = string.Join("  ·  ", hardware) };
+        }
+        if (physical.Serial.Length > 0)
+        {
+            yield return new DeviceFact { Name = "Serial", Value = physical.Serial };
+        }
+        if (physical.Firmware.Length > 0)
+        {
+            yield return new DeviceFact { Name = "Firmware", Value = physical.Firmware };
+        }
+        if (physical.PartitionCount > 0)
+        {
+            yield return new DeviceFact
+            {
+                Name = _lang["partitions"],
+                Value = physical.PartitionCount.ToString(),
+            };
+        }
+        if (disk.Temp is int temp)
+        {
+            yield return new DeviceFact
+            {
+                Name = _lang["temp_label"],
+                Value = Palette.TempText(temp, disk.Estimated),
+            };
+        }
+    }
+
+    /// <summary>What a tab should hold this tick, before it exists.</summary>
+    private sealed class PlannedTab
+    {
+        public PlannedTab(string key, string title, string summary)
+        {
+            Key = key;
+            Title = title;
+            Summary = summary;
+        }
+
+        public string Key { get; }
+        public string Title { get; }
+        public string Summary { get; }
+        public List<Planned> Cards { get; } = new();
+        public List<DeviceFact> Facts { get; } = new();
+    }
+
     /// <summary>What a graph should look like this tick, before it exists.</summary>
-    private readonly record struct Planned(string Key, string Group, string Title,
-        double Sample, string Value, string Detail, Color Accent, double Max,
-        string Unit, string Ceiling, bool Small);
+    private readonly record struct Planned(string Key, string Title, double Sample,
+        string Value, string Detail, Color Accent, double Max, string Unit,
+        string Ceiling, bool Small = false);
 
     private string Percent => _lang["utilisation"];
 
     /// <summary>
-    /// Bring the groups into line with the plan, matching by key so a graph
+    /// Bring the tabs into line with the plan, matching by key so a graph
     /// keeps its history when the list around it changes -- a drive that comes
     /// back finds its own graph again rather than starting from empty.
     /// </summary>
-    private void Reconcile(List<Planned> wanted)
+    private void Reconcile(List<PlannedTab> wanted)
     {
-        foreach (string staleGroup in Groups.Select(g => g.Title)
-                     .Where(title => wanted.All(w => w.Group != title)).ToList())
+        foreach (DeviceTab stale in Tabs.Where(t => wanted.All(w => w.Key != t.Key)).ToList())
         {
-            Groups.Remove(Groups.First(g => g.Title == staleGroup));
+            Tabs.Remove(stale);
         }
 
-        var order = wanted.Select(w => w.Group).Distinct().ToList();
-        for (int i = 0; i < order.Count; i++)
+        for (int i = 0; i < wanted.Count; i++)
         {
-            ChartGroup? group = Groups.FirstOrDefault(g => g.Title == order[i]);
-            if (group is null)
+            PlannedTab plan = wanted[i];
+            DeviceTab? tab = Tabs.FirstOrDefault(t => t.Key == plan.Key);
+            if (tab is null)
             {
-                group = new ChartGroup { Title = order[i] };
-                Groups.Insert(Math.Min(i, Groups.Count), group);
+                tab = new DeviceTab { Key = plan.Key };
+                Tabs.Insert(Math.Min(i, Tabs.Count), tab);
             }
+            tab.Title = plan.Title;
+            tab.Summary = plan.Summary;
 
-            List<Planned> members = wanted.Where(w => w.Group == order[i]).ToList();
-            foreach (ChartCard stale in group.Cards
-                         .Where(c => members.All(m => m.Key != c.Key)).ToList())
-            {
-                group.Cards.Remove(stale);
-            }
+            Fill(tab, plan.Cards);
+            FillFacts(tab, plan.Facts);
+        }
 
-            for (int j = 0; j < members.Count; j++)
-            {
-                Planned plan = members[j];
-                ChartCard? card = group.Cards.FirstOrDefault(c => c.Key == plan.Key);
-                if (card is null)
-                {
-                    card = new ChartCard
-                    {
-                        Key = plan.Key,
-                        Group = plan.Group,
-                        Small = plan.Small,
-                        Unit = plan.Unit,
-                    };
-                    group.Cards.Insert(Math.Min(j, group.Cards.Count), card);
-                }
-                card.Title = plan.Title;
-                card.Value = plan.Value;
-                card.Detail = plan.Detail;
-                card.Maximum = plan.Max;
-                card.Accent = Palette.Brush(plan.Accent);
-                card.Push(plan.Sample);
-                // An unbounded graph says what its own peak is, since the
-                // vertical scale moves with the data.
-                card.Ceiling = plan.Max > 0 ? plan.Ceiling
-                    : Speed(card.Series.Max * 1.25) + " MB/s";
-            }
+        // Something has to be selected, and the first tab is the CPU.
+        if (Tabs.Count > 0 && !Tabs.Any(t => t.Selected))
+        {
+            Select(Tabs[0].Key);
         }
     }
+
+    private void Fill(DeviceTab tab, List<Planned> cards)
+    {
+        foreach (ChartCard stale in tab.Cards.Where(c => cards.All(p => p.Key != c.Key)).ToList())
+        {
+            tab.Cards.Remove(stale);
+        }
+
+        for (int i = 0; i < cards.Count; i++)
+        {
+            Planned plan = cards[i];
+            ChartCard? card = tab.Cards.FirstOrDefault(c => c.Key == plan.Key);
+            if (card is null)
+            {
+                card = new ChartCard
+                {
+                    Key = plan.Key,
+                    Group = tab.Key,
+                    Small = plan.Small,
+                    Unit = plan.Unit,
+                };
+                tab.Cards.Insert(Math.Min(i, tab.Cards.Count), card);
+            }
+            card.Title = plan.Title;
+            card.Value = plan.Value;
+            card.Detail = plan.Detail;
+            card.Maximum = plan.Max;
+            card.Accent = Palette.Brush(plan.Accent);
+            card.Push(plan.Sample);
+            // An unbounded graph says what its own peak is, since the vertical
+            // scale moves with the data.
+            card.Ceiling = plan.Max > 0 ? plan.Ceiling
+                : Speed(card.Series.Max * 1.25) + " MB/s";
+        }
+    }
+
+    /// <summary>
+    /// Facts are rebuilt only when they change. They are strings on a panel
+    /// nobody is watching change, and replacing the collection every couple of
+    /// seconds would restart the layout for no reason.
+    /// </summary>
+    private static void FillFacts(DeviceTab tab, List<DeviceFact> facts)
+    {
+        bool same = tab.Facts.Count == facts.Count;
+        for (int i = 0; same && i < facts.Count; i++)
+        {
+            same = tab.Facts[i].Name == facts[i].Name && tab.Facts[i].Value == facts[i].Value;
+        }
+        if (same)
+        {
+            return;
+        }
+        tab.Facts.Clear();
+        foreach (DeviceFact fact in facts)
+        {
+            tab.Facts.Add(fact);
+        }
+    }
+
+    /// <summary>Show one tab and put the others away.</summary>
+    public void Select(string key)
+    {
+        foreach (DeviceTab tab in Tabs)
+        {
+            tab.Selected = tab.Key == key;
+        }
+        SelectedTab = Tabs.FirstOrDefault(t => t.Selected);
+        OnPropertyChanged(nameof(SelectedTab));
+    }
+
+    public DeviceTab? SelectedTab { get; private set; }
 
     /// <summary>How many meters of this kind fit on one line.</summary>
     private int ColumnsFor(string kind) =>

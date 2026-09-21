@@ -104,6 +104,12 @@ public sealed class Disk
     public int? Temp { get; init; }
     public bool Estimated { get; init; }
 
+    /// <summary>
+    /// Which physical disk this letter lives on and how. Null until the first
+    /// slow pass has read it, and on a drive with no physical disk behind it.
+    /// </summary>
+    public DriveDetail? Detail { get; init; }
+
     public string Title => Letter + ":" + (Label.Length > 0 ? $" ({Label})" : string.Empty);
 }
 
@@ -204,4 +210,60 @@ public sealed class Module
             return string.Join(" · ", parts);
         }
     }
+}
+
+/// <summary>
+/// A physical disk, as Windows describes it. Static for the life of the
+/// machine, so it is read once and cached.
+/// </summary>
+public sealed class PhysicalDisk
+{
+    public int Number { get; init; }
+    public string Model { get; set; } = string.Empty;
+    public string Serial { get; set; } = string.Empty;
+    public string Firmware { get; set; } = string.Empty;
+    public string Bus { get; set; } = string.Empty;
+    public string Interface { get; set; } = string.Empty;
+    public string Media { get; set; } = string.Empty;
+    public string PartitionStyle { get; set; } = string.Empty;
+    public long Bytes { get; init; }
+    public int PartitionCount { get; set; }
+
+    /// <summary>Zero for an SSD, and zero for a disk that will not say.</summary>
+    public int Rpm { get; set; }
+
+    public bool Healthy { get; set; } = true;
+
+    public double Gb => Bytes / (1024.0 * 1024 * 1024);
+
+    /// <summary>"Disk 1  ·  WDS250G3X0C-00SJG0" -- what to head a panel with.</summary>
+    public string Title => Model.Length > 0 ? $"Disk {Number}  ·  {Model}" : $"Disk {Number}";
+}
+
+/// <summary>
+/// Where a drive letter actually lives: which physical disk, which partition
+/// of it, and how the filesystem on it is set up.
+/// </summary>
+public sealed class DriveDetail
+{
+    public required string Letter { get; init; }
+    public int? DiskNumber { get; init; }
+    public int PartitionNumber { get; init; }
+    public long PartitionBytes { get; init; }
+    public long PartitionOffset { get; init; }
+    public bool IsBoot { get; init; }
+    public string FileSystem { get; set; } = string.Empty;
+    public string Label { get; set; } = string.Empty;
+    public PhysicalDisk? Disk { get; init; }
+
+    public double PartitionGb => PartitionBytes / (1024.0 * 1024 * 1024);
+
+    /// <summary>
+    /// How much of the physical disk this partition takes. A drive that is one
+    /// partition of four reads very differently from one that has the disk to
+    /// itself, and the number says which.
+    /// </summary>
+    public double ShareOfDisk => Disk is { Bytes: > 0 }
+        ? Math.Clamp(PartitionBytes * 100.0 / Disk.Bytes, 0, 100)
+        : 0;
 }

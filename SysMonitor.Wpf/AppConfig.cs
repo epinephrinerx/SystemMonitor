@@ -14,7 +14,7 @@ namespace SysMonitor;
 public sealed class AppConfig
 {
     public string Lang { get; set; } = "th";
-    public string Theme { get; set; } = "dark";          // dark | light
+    public string Theme { get; set; } = "light";         // light | dark
     public bool AlwaysOnTop { get; set; } = true;
     public bool Snap { get; set; } = true;
     public double Opacity { get; set; } = 0.92;
@@ -61,10 +61,27 @@ public sealed class AppConfig
     public double ExpW { get; set; } = 630;
     public double ExpH { get; set; } = 480;
 
+    /// <summary>
+    /// The full view's size. It is a window like the others now, not an
+    /// OS full-screen mode, so it has a size worth remembering. Zero means
+    /// "not set yet" and the view opens filling the work area.
+    /// </summary>
+    public double FullW { get; set; }
+    public double FullH { get; set; }
+
+    /// <summary>Which tab the full view was last on.</summary>
+    public string FullTab { get; set; } = string.Empty;
+
     // Resize limits, matching the Python build.
     [JsonIgnore] public static (double W, double H) MinMini => (200, 64);
     [JsonIgnore] public static (double W, double H) MaxMini => (900, 400);
     [JsonIgnore] public static (double W, double H) MinExp => (470, 300);
+
+    /// <summary>
+    /// Below this the full view has no room for tabs and their contents, and
+    /// drops back to the expanded view rather than showing something cramped.
+    /// </summary>
+    [JsonIgnore] public static (double W, double H) MinFull => (640, 480);
 
     /// <summary>Sampling cadence per speed mode: metrics, disk usage, temperatures.</summary>
     [JsonIgnore]

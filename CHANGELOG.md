@@ -1,5 +1,43 @@
 # Change log
 
+## v3.1.0 — 2026-09-21 — the full view becomes a tabbed one
+
+Six requirements, all in `requirements.md`.
+
+**It is a window, not an OS full-screen mode.** It fills the work area the
+first time and is an ordinary resizable window after that, so the taskbar stays
+reachable, the corners stay rounded and the size is the user's to keep. Dragged
+below 640x480 it steps back to the expanded view rather than showing a tab
+strip with nowhere to put a graph.
+
+**A tab per device.** CPU, Memory, then one tab per *logical* disk, then the
+adapters -- the order of the middle view. Each tab carries its headline figure
+on the button, so the devices that are not open still report. Within a tab the
+graphs run down the page, each in its own framed panel.
+
+**A drive tab says what the drive actually is**: which physical disk it sits
+on and which partition, how big that partition is against the whole disk, the
+filesystem, and the disk's model, serial, firmware, bus, media type and
+partition count. Read once and cached from the storage WMI namespace -- the
+live figures stay on the direct syscalls that keep the widget cheap.
+
+**A "Full Data" button** in the sidebar above the window settings. F11, a
+double-click and the context menu are all invisible to someone who has not been
+told about them.
+
+**Light is the default theme**, and the background with it.
+
+**The widget steps.** Arrows on either side of the mini view move to the next
+reading instead of waiting out the five-second rotation, and using them
+restarts the timer so the choice is not swept away a moment later.
+
+Also: `dist-wpf` is no longer emptied before a build. Every version that has
+been built stays on the machine, and the version in the file name keeps them
+apart.
+
+128 tests, up from 124. `FullViewGroupingTests` became `FullViewTabTests`,
+because the thing it tested no longer exists.
+
 ## v3.0.4 — 2026-09-20 — versioned artifacts
 
 The distributed files now carry their version: `SysMonitor-3.0.4.exe` and

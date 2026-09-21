@@ -44,6 +44,8 @@ public sealed class Sampler : IDisposable
     private List<string> _drives = new();
     private readonly NetworkSensor _network = new();
     private IReadOnlyList<Module> _modules = Array.Empty<Module>();
+    private IReadOnlyDictionary<string, DriveDetail> _driveDetails =
+        new Dictionary<string, DriveDetail>();
 
     private int? _cpuTempReal;
     private int _thermalMisses;
@@ -358,6 +360,17 @@ public sealed class Sampler : IDisposable
                   slowAfter: TimeSpan.FromSeconds(2));
             _modules = modules ?? Array.Empty<Module>();
         }
+
+        // Which letter is on which disk, and what that disk is. Static, so it
+        // is read once; the same guard keeps a sluggish storage stack from
+        // holding up a sample.
+        if (_driveDetails.Count == 0)
+        {
+            Guard("drive-details", DiskDetails.Read,
+                  out IReadOnlyDictionary<string, DriveDetail>? details,
+                  slowAfter: TimeSpan.FromSeconds(3));
+            _driveDetails = details ?? new Dictionary<string, DriveDetail>();
+        }
     }
 
     private IReadOnlyList<Adapter> CollectAdapters()
@@ -460,6 +473,7 @@ public sealed class Sampler : IDisposable
                 ReadMb = readMb,
                 WriteMb = writeMb,
                 Temp = _temps.TryGetValue(letter, out int? temp) ? temp : null,
+                Detail = _driveDetails.GetValueOrDefault(letter),
             });
         }
         return disks;
