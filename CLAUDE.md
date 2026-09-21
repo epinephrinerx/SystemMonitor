@@ -35,6 +35,24 @@ is the author.
 class library and `ctypes`-style P/Invoke in `Native/Win32.cs`. The test project
 is the exception: MSTest is a test dependency and ships nothing.
 
+## The three views, and what to call them
+
+The user named these, and the names are the same in Thai, in English and in
+the code, so a sentence about one of them points at a symbol without
+translation:
+
+| | in code | in config |
+|---|---|---|
+| widget | `View.Widget` | `widget_w` / `widget_h` |
+| overall | `View.Overall` | `overall_w` / `overall_h` |
+| full | `View.Full` | `full_w` / `full_h` |
+
+"Overall" says what the middle view does -- every device group summarised on
+one page -- where the old name, "expanded", only said it was bigger than
+something else. Note that `CpuMode`/`DiskMode` also have a `"total"` setting,
+meaning "not split per core or per drive"; that is a different axis from the
+view, and neither name should be used for the other.
+
 ## What the app does that is easy to get wrong
 
 **Temperature colours and usage colours are separate.** `WarmAt`/`HotAt` (65/80)
@@ -53,6 +71,43 @@ is behind an MSR and needs a kernel driver.
 across channels, so the quantity does not exist. `MemoryModules` shows what is
 installed — slot, size, speed, type — and the section says so rather than
 drawing a bar nobody measured.
+
+**`PDH_FMT_COUNTERVALUE_ITEM` is 24 bytes, not 16.** The item is a name
+pointer followed by a whole `PDH_FMT_COUNTERVALUE`, which is a `CStatus` word
+*and* the union. Leaving the status field out of the interop struct makes the
+stride wrong, so every item after the first reads its name pointer out of the
+middle of a double -- an access violation, which .NET cannot catch, so it takes
+the process down rather than throwing. `Pdh.CounterItem` carries the field.
+
+**The GPU counter is cheap if the query stays open.** `\GPU Engine(*)` has
+about 1200 instances on this machine, and the reputation it has for being slow
+comes from reopening the query, which re-expands that instance list every time.
+`GpuSensor` holds one query open for the life of the process and a sample
+measures 0.5 ms, so it sits on the normal metrics cadence. `GpuSensorTests`
+asserts the budget. Note also that a rate counter has no value until the
+*second* collection.
+
+**The chip has one thermal sensor, so only one thing may wear a badge.**
+A per-core temperature does not exist without a kernel driver: reading
+`IA32_THERM_STATUS` (0x19C) per logical processor is a ring 0 instruction, and
+the only ways to it are a blocklisted driver like WinRing0 or an
+attestation-signed one of our own. What the core rows used to show was
+`40 + load * 0.4` -- the bar beside them converted into degrees -- or, with the
+thermal zone on, the one package reading printed sixteen times. The figure now
+sits on the CPU section heading (`Section.Note`) and on the full view's rail,
+and `MeterRow.ShowTemp` is what keeps a core row from claiming a reading.
+Note that this differs from a drive with no sensor, which still earns an
+"n/a": there the question makes sense and the answer is that nothing measured.
+
+**`VirtualizationFirmwareEnabled` lies on a machine running Hyper-V.** Once a
+hypervisor owns the virtualization extensions, Windows runs in the root
+partition and both that WMI property and `IsProcessorFeaturePresent(21)` come
+back false on a machine where virtualization plainly works. Task Manager reads
+`Win32_ComputerSystem.HypervisorPresent` as well, and so does `CpuDetails`.
+
+**WMI `char16` arrives as a signed `Int16`.** `MSFT_Partition.DriveLetter` is
+67 for C, not `'C'` and not a `ushort`. A conversion that missed `short`
+dropped every partition and left the disk panel empty.
 
 **Freezing a `Pen` freezes its `Brush`.** The view model recolours its brushes
 on every theme switch, so a chart that froze one turned the next switch into

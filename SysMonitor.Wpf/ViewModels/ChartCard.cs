@@ -38,8 +38,16 @@ public sealed class ChartCard : INotifyPropertyChanged
     /// </summary>
     public bool Small { get; init; }
 
-    public double CardWidth => Small ? 168 : 344;
-    public double CardHeight => Small ? 104 : 178;
+    /// <summary>
+    /// How tall a headline card stands. Small cards are half of it and square,
+    /// the way Task Manager draws the package large and the logical processors
+    /// as a grid of little boxes beneath it.
+    /// </summary>
+    public const double FullHeight = 178;
+    public const double SmallSide = FullHeight / 2;
+
+    public double CardWidth => Small ? SmallSide : double.NaN;
+    public double CardHeight => Small ? SmallSide : FullHeight;
 
     /// <summary>"% ใช้งาน" or "MB/s": what the vertical axis is counting.</summary>
     public string Unit { get; init; } = string.Empty;

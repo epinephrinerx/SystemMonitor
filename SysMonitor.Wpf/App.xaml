@@ -110,18 +110,19 @@
             </Setter>
         </Style>
 
-        <!-- A tab in the full view'"'"'s strip. The selected one is filled; the
-             rest are outlines, so the strip reads as one control. -->
+        <!-- A device in the full view'"'"'s strip. The selected one is filled; the
+             rest are plain, so the rail reads as one list. -->
         <Style x:Key="DeviceTabButton" TargetType="Button">
             <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Margin" Value="0,0,6,6"/>
+            <Setter Property="Margin" Value="0,0,0,3"/>
             <Setter Property="Foreground" Value="#64748b"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Border x:Name="Chrome" CornerRadius="7"
-                                BorderThickness="1" BorderBrush="#33808080"
-                                Background="Transparent" Padding="12,6,12,6">
+                                BorderThickness="3,0,0,0" BorderBrush="Transparent"
+                                Background="Transparent" Padding="9,6,10,6">
                             <ContentPresenter VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>

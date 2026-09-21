@@ -113,8 +113,8 @@ public class ConfigTests
             CpuMode = "total",
             PosX = 1049,
             PosY = 46,
-            ExpW = 763,
-            ExpH = 715,
+            OverallW = 763,
+            OverallH = 715,
         };
 
         var restored = JsonSerializer.Deserialize<AppConfig>(
@@ -126,8 +126,8 @@ public class ConfigTests
         Assert.AreEqual("total", restored.CpuMode);
         Assert.AreEqual(1049, restored.PosX);
         Assert.AreEqual(46, restored.PosY);
-        Assert.AreEqual(763, restored.ExpW);
-        Assert.AreEqual(715, restored.ExpH);
+        Assert.AreEqual(763, restored.OverallW);
+        Assert.AreEqual(715, restored.OverallH);
     }
 
     [TestMethod]

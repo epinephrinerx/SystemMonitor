@@ -129,23 +129,28 @@ internal static class WindowGeometry
     public static Size Panel(double width, double height) =>
         new(width - ShadowPad * 2, height - ShadowPad * 2);
 
-/// <summary>Which of the three views a size is being judged against.</summary>
+    /// <summary>
+    /// Which of the three views a size is being judged against.
+    ///
+    /// The names are the ones used in conversation about this app: the widget
+    /// strip, the overall summary, and the full per-device view.
+    /// </summary>
     public enum View
     {
-        Mini,
-        Expanded,
+        Widget,
+        Overall,
         Full,
     }
 
     /// <summary>
-    /// Limits for a view. The mini strip is capped; the other two are windows
-    /// that should be allowed to fill whatever monitor they are on.
+    /// Limits for a view. The widget strip is capped; the other two are
+    /// windows that should be allowed to fill whatever monitor they are on.
     /// </summary>
     public static ((double W, double H) Min, (double W, double H) Max) Limits(View view) => view switch
     {
         View.Full => (AppConfig.MinFull, (4000.0, 3000.0)),
-        View.Expanded => (AppConfig.MinExp, (4000.0, 3000.0)),
-        _ => (AppConfig.MinMini, AppConfig.MaxMini),
+        View.Overall => (AppConfig.MinOverall, (4000.0, 3000.0)),
+        _ => (AppConfig.MinWidget, AppConfig.MaxWidget),
     };
 
     /// <summary>

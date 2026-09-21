@@ -48,7 +48,11 @@ public partial class SetupWindow : Window
         // An upgrade must not silently undo choices the user already made.
         _desktop.IsChecked = update ? System.IO.File.Exists(Installer.DesktopShortcut) : false;
         _startMenu.IsChecked = update ? System.IO.File.Exists(Installer.StartMenuShortcut) : true;
-        _autostart.IsChecked = Installer.AutostartEnabled();
+        // On a first install there is no Run value to read, so asking the
+        // registry would always answer "no" and leave the box clear. An
+        // upgrade still follows whatever the user chose last time, or someone
+        // who turned it off would have it turned back on by every update.
+        _autostart.IsChecked = update ? Installer.AutostartEnabled() : true;
 
         Options.Children.Add(_desktop);
         Options.Children.Add(_startMenu);

@@ -16,6 +16,8 @@ public sealed class DeviceTab : INotifyPropertyChanged
     private bool _selected;
     private string _title = string.Empty;
     private string _summary = string.Empty;
+    private string _detail = string.Empty;
+    private string _hardware = string.Empty;
 
     /// <summary>Stable across rebuilds, so the selection survives a refresh.</summary>
     public required string Key { get; init; }
@@ -34,14 +36,40 @@ public sealed class DeviceTab : INotifyPropertyChanged
         set => Set(ref _summary, value);
     }
 
+    /// <summary>
+    /// What the device is, on the rail between the name and the figure:
+    /// "SSD (NVMe)", "31.6 GB", "Wi-Fi". Task Manager puts it here and it is
+    /// the right place -- a name alone does not tell you which drive is which,
+    /// and repeating it inside the panel only says it twice.
+    /// </summary>
+    public string Detail
+    {
+        get => _detail;
+        set => Set(ref _detail, value);
+    }
+
+    /// <summary>The model line that heads the panel, to the right of the name.</summary>
+    public string Hardware
+    {
+        get => _hardware;
+        set => Set(ref _hardware, value);
+    }
+
     public bool Selected
     {
         get => _selected;
         set => Set(ref _selected, value);
     }
 
-    /// <summary>The graphs, one framed panel each, top to bottom.</summary>
+    /// <summary>The headline graphs, one framed panel each, top to bottom.</summary>
     public ObservableCollection<ChartCard> Cards { get; } = new();
+
+    /// <summary>
+    /// The per-core squares, which flow into as many columns as the window is
+    /// wide. Kept apart from <see cref="Cards"/> because the two are laid out
+    /// differently: one stacks, the other wraps.
+    /// </summary>
+    public ObservableCollection<ChartCard> Cores { get; } = new();
 
     /// <summary>
     /// Facts rather than readings: what the hardware is. Empty for tabs that

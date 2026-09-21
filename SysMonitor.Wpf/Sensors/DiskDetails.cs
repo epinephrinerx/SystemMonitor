@@ -102,9 +102,10 @@ internal static class DiskDetails
         var disks = new Dictionary<int, PhysicalDisk>();
 
         foreach (var row in Wmi.Query(Storage,
-                     "SELECT Number, FriendlyName, BusType, Size, PartitionStyle, HealthStatus " +
-                     "FROM MSFT_Disk",
-                     "Number", "FriendlyName", "BusType", "Size", "PartitionStyle", "HealthStatus"))
+                     "SELECT Number, FriendlyName, BusType, Size, AllocatedSize, " +
+                     "PartitionStyle, HealthStatus, IsOffline FROM MSFT_Disk",
+                     "Number", "FriendlyName", "BusType", "Size", "AllocatedSize",
+                     "PartitionStyle", "HealthStatus", "IsOffline"))
         {
             long? number = Number(row.GetValueOrDefault("Number"));
             if (number is null)
@@ -125,6 +126,8 @@ internal static class DiskDetails
                     _ => string.Empty,
                 },
                 Healthy = (Number(row.GetValueOrDefault("HealthStatus")) ?? 0) == 0,
+                Online = row.GetValueOrDefault("IsOffline") is not true,
+                AllocatedBytes = Number(row.GetValueOrDefault("AllocatedSize")) ?? 0,
             };
         }
 
@@ -164,15 +167,30 @@ internal static class DiskDetails
         return disks;
     }
 
-    /// <summary>MSFT_Volume hands the letter back as a char, sometimes as 0.</summary>
-    private static string Letter(object? value) => value switch
+    /// <summary>
+    /// The drive letter, whatever shape it arrives in.
+    ///
+    /// The MOF says char16, and through the WMI scripting object it comes back
+    /// as a **signed** Int16 -- 67 for C, 0 for a partition with no letter.
+    /// An earlier version matched char, string and ushort, missed short, and
+    /// so dropped every single row: nine partitions in, nothing out, and a
+    /// disk panel with no disk in it.
+    /// </summary>
+    private static string Letter(object? value)
     {
-        null => string.Empty,
-        char c when char.IsLetter(c) => c.ToString().ToUpperInvariant(),
-        string s when s.Length > 0 && char.IsLetter(s[0]) => s[..1].ToUpperInvariant(),
-        ushort u when u > 0 && char.IsLetter((char)u) => ((char)u).ToString().ToUpperInvariant(),
-        _ => string.Empty,
-    };
+        char letter = value switch
+        {
+            null => ' ',
+            char c => c,
+            string s when s.Length > 0 => s[0],
+            short i when i > 0 => (char)i,
+            ushort u when u > 0 => (char)u,
+            int i when i is > 0 and < 0xFFFF => (char)i,
+            uint u when u is > 0 and < 0xFFFF => (char)u,
+            _ => ' ',
+        };
+        return char.IsLetter(letter) ? char.ToUpperInvariant(letter).ToString() : string.Empty;
+    }
 
     private static string Text(object? value) => value?.ToString()?.Trim() ?? string.Empty;
 

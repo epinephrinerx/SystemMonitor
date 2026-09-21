@@ -65,6 +65,19 @@ public sealed class Snapshot
         return Array.AsReadOnly(copy);
     }
     public int CpuTotal { get; init; }
+
+    /// <summary>What the processor is. Empty until the first slow pass.</summary>
+    public CpuInfo CpuInfo { get; init; } = new();
+
+    /// <summary>The graphics adapter. Not present on a machine with no WDDM counters.</summary>
+    public Gpu Gpu { get; init; } = new();
+
+    /// <summary>
+    /// How many memory slots the board has, filled or not. Zero until the
+    /// first slow pass, and on a board that will not report it.
+    /// </summary>
+    public int MemorySlots { get; init; }
+
     public int? CpuTemp { get; init; }
     public bool CpuTempEstimated { get; init; }
 
@@ -234,7 +247,25 @@ public sealed class PhysicalDisk
 
     public bool Healthy { get; set; } = true;
 
+    /// <summary>
+    /// Offline disks exist and are worth saying so: a disk that is present but
+    /// not online has no drive letters, so it would otherwise be invisible.
+    /// </summary>
+    public bool Online { get; set; } = true;
+
+    /// <summary>
+    /// How much of the disk is inside a partition. The rest is unallocated --
+    /// the one thing about a disk's layout that is worth a line, because it
+    /// says the disk is not fully in use and nothing else reports it.
+    /// </summary>
+    public long AllocatedBytes { get; set; }
+
     public double Gb => Bytes / (1024.0 * 1024 * 1024);
+
+    public double UnallocatedGb =>
+        Bytes > 0 && AllocatedBytes > 0 && Bytes > AllocatedBytes
+            ? (Bytes - AllocatedBytes) / (1024.0 * 1024 * 1024)
+            : 0;
 
     /// <summary>"Disk 1  ·  WDS250G3X0C-00SJG0" -- what to head a panel with.</summary>
     public string Title => Model.Length > 0 ? $"Disk {Number}  ·  {Model}" : $"Disk {Number}";
@@ -266,4 +297,79 @@ public sealed class DriveDetail
     public double ShareOfDisk => Disk is { Bytes: > 0 }
         ? Math.Clamp(PartitionBytes * 100.0 / Disk.Bytes, 0, 100)
         : 0;
+}
+
+/// <summary>
+/// What the processor is, rather than what it is doing.
+///
+/// Read once and carried on every snapshot: the CPU tab had nothing but a core
+/// count and a temperature on it, which is the one tab a person opens expecting
+/// to be told which chip this machine has.
+/// </summary>
+public sealed class CpuInfo
+{
+    public string Name { get; init; } = string.Empty;
+    public string Vendor { get; init; } = string.Empty;
+    public int Sockets { get; init; }
+    public int Cores { get; init; }
+    public int Logical { get; init; }
+
+    /// <summary>The rated clock, in MHz. Zero when WMI would not say.</summary>
+    public int BaseMhz { get; init; }
+
+    public int L2Kb { get; init; }
+    public int L3Kb { get; init; }
+
+    /// <summary>Null when the firmware does not report it either way.</summary>
+    public bool? Virtualization { get; init; }
+
+    /// <summary>True once anything at all was read.</summary>
+    public bool Known => Name.Length > 0 || Logical > 0;
+}
+
+/// <summary>
+/// The graphics adapter, from the WDDM performance counters.
+///
+/// `Present` is false on a machine whose driver publishes no counters at all,
+/// which is a remote session or a very old adapter; the UI leaves the section
+/// out rather than drawing an empty graph.
+/// </summary>
+public sealed class Gpu
+{
+    private readonly IReadOnlyList<GpuEngine> _engines = Array.Empty<GpuEngine>();
+
+    public bool Present { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public string Driver { get; init; } = string.Empty;
+
+    /// <summary>The busiest engine type, which is what Task Manager calls "GPU".</summary>
+    public int Usage { get; init; }
+
+    public IReadOnlyList<GpuEngine> Engines
+    {
+        get => _engines;
+        init => _engines = value is null || value.Count == 0
+            ? Array.Empty<GpuEngine>()
+            : value.ToArray();
+    }
+
+    /// <summary>Dedicated video memory in use. Zero on an adapter with none.</summary>
+    public double DedicatedGb { get; init; }
+
+    /// <summary>System memory the adapter has borrowed.</summary>
+    public double SharedGb { get; init; }
+
+    /// <summary>
+    /// No consumer iGPU exposes a temperature Windows will hand out, and a
+    /// discrete card needs an undocumented WDDM call to ask. Task Manager
+    /// shows "N/A" on this machine for the same reason.
+    /// </summary>
+    public int? Temp => null;
+}
+
+/// <summary>One kind of work the adapter does: 3D, Copy, Video decode.</summary>
+public sealed class GpuEngine
+{
+    public required string Name { get; init; }
+    public int Usage { get; init; }
 }

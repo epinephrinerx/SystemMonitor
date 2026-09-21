@@ -61,6 +61,9 @@ public static class Palette
     public static readonly Color AccentDisk = Hex("#10b981");
     public static readonly Color AccentNet = Hex("#06b6d4");
 
+    /// <summary>Amber, the one hue not already spoken for by the other four.</summary>
+    public static readonly Color AccentGpu = Hex("#f59e0b");
+
     // Temperature. These and the thresholds below belong to the thermometer
     // badge alone; the usage meters have their own set so a change to one can
     // never move the other.

@@ -10,8 +10,29 @@ namespace SysMonitor.ViewModels;
 public sealed class Section : INotifyPropertyChanged
 {
     private int _columns = 1;
+    private string _note = string.Empty;
 
     public required string Title { get; init; }
+
+    /// <summary>
+    /// A figure that belongs to the group rather than to any one row, shown
+    /// after the heading. The CPU package temperature lives here: it is one
+    /// reading for the whole chip, and putting it on each core row stated it
+    /// sixteen times as though sixteen sensors had been read.
+    /// </summary>
+    public string Note
+    {
+        get => _note;
+        set
+        {
+            if (_note == value)
+            {
+                return;
+            }
+            _note = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Note)));
+        }
+    }
     public ObservableCollection<MeterRow> Rows { get; } = new();
 
     /// <summary>
@@ -83,19 +104,19 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
     public SolidColorBrush GridBrush { get; } = new();
 
     // ---------------------------------------------------------------- state
-    public ObservableCollection<MeterRow> MiniRows { get; } = new();
+    public ObservableCollection<MeterRow> WidgetRows { get; } = new();
     public ObservableCollection<Section> Sections { get; } = new();
 
     /// <summary>The full view: one tab per device, each with its own graphs.</summary>
     public ObservableCollection<DeviceTab> Tabs { get; } = new();
 
-    public string MiniTitle
+    public string WidgetTitle
     {
         get => _miniTitle;
         private set => Set(ref _miniTitle, value);
     }
 
-    public string MiniValue
+    public string WidgetValue
     {
         get => _miniValue;
         private set => Set(ref _miniValue, value);
@@ -117,7 +138,7 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
     public string TempLegend => _lang["temp_legend"];
 
     /// <summary>One line of context under the mini bars: GB used, MB/s, cores.</summary>
-    public string MiniDetail
+    public string WidgetDetail
     {
         get => _miniDetail;
         private set => Set(ref _miniDetail, value);
@@ -127,10 +148,10 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
     /// Carries only the temperature badge for the mini heading line, so the
     /// badge template is the same one the meter rows use.
     /// </summary>
-    public MeterRow MiniHeader { get; } = new();
+    public MeterRow WidgetHeader { get; } = new();
 
     /// <summary>How many meters the mini view puts on one line.</summary>
-    public int MiniColumns
+    public int WidgetColumns
     {
         get => _miniColumns;
         private set => Set(ref _miniColumns, value);
@@ -164,7 +185,7 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
         PlotBrush.Color = _palette.Plot;
         GridBrush.Color = _palette.Grid;
 
-        ApplyTempColours(MiniHeader);
+        ApplyTempColours(WidgetHeader);
         foreach (MeterRow row in AllRows())
         {
             row.Empty = BarEmptyBrush;
@@ -183,7 +204,7 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
         Color.FromArgb(alpha, color.R, color.G, color.B);
 
     private IEnumerable<MeterRow> AllRows() =>
-        MiniRows.Concat(Sections.SelectMany(s => s.Rows));
+        WidgetRows.Concat(Sections.SelectMany(s => s.Rows));
 
     private void ApplyTempColours(MeterRow row)
     {
@@ -263,7 +284,7 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
     /// then the bars, then one line of detail.  The rows themselves stay
     /// compact so the badge is never repeated inside them.
     /// </summary>
-    public void UpdateMini(Snapshot snap)
+    public void UpdateWidget(Snapshot snap)
     {
         if (!snap.Ready)
         {
@@ -291,9 +312,9 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
                 Head($"{_lang["cpu"]} ({_lang["total"]})", snap.CpuTotal,
                      $"{snap.Cores.Count} {_lang["cores"]}",
                      snap.CpuTemp, snap.CpuTempEstimated);
-                MiniColumns = 1;
-                Fill(MiniRows, 1);
-                Meter(MiniRows[0], string.Empty, snap.CpuTotal,
+                WidgetColumns = 1;
+                Fill(WidgetRows, 1);
+                Meter(WidgetRows[0], string.Empty, snap.CpuTotal,
                       Palette.LoadColor(snap.CpuTotal), string.Empty,
                       null, false, compact: true);
                 break;
@@ -305,12 +326,12 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
                      snap.CpuTemp, snap.CpuTempEstimated);
                 // Four cores go side by side, as they did in the Tk build:
                 // stacked in one column they do not fit the mini height.
-                MiniColumns = count > 2 ? 2 : 1;
-                Fill(MiniRows, count);
+                WidgetColumns = count > 2 ? 2 : 1;
+                Fill(WidgetRows, count);
                 for (int i = 0; i < count; i++)
                 {
                     Core core = snap.Cores[from.Value + i];
-                    Meter(MiniRows[i], "C" + (from.Value + i), core.Usage,
+                    Meter(WidgetRows[i], "C" + (from.Value + i), core.Usage,
                           Palette.LoadColor(core.Usage), string.Empty,
                           null, false, compact: true);
                 }
@@ -321,9 +342,9 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
                 Head(_lang["memory"], snap.Ram.Usage,
                      $"{snap.Ram.UsedGb:F1} / {snap.Ram.TotalGb:F1} GB {_lang["in_use"]}",
                      snap.Ram.Temp, snap.Ram.Estimated);
-                MiniColumns = 1;
-                Fill(MiniRows, 1);
-                Meter(MiniRows[0], string.Empty, snap.Ram.Usage, Palette.LoadColor(snap.Ram.Usage, Palette.AccentRam),
+                WidgetColumns = 1;
+                Fill(WidgetRows, 1);
+                Meter(WidgetRows[0], string.Empty, snap.Ram.Usage, Palette.LoadColor(snap.Ram.Usage, Palette.AccentRam),
                       string.Empty, null, false, compact: true);
                 break;
 
@@ -332,9 +353,9 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
                 (int usage, int? temp, double read, double write) = DiskTotals(snap);
                 Head($"{_lang["disk"]} ({_lang["all_drives"]})", usage,
                      SpeedText(read, write), temp, false);
-                MiniColumns = 1;
-                Fill(MiniRows, 1);
-                Meter(MiniRows[0], string.Empty, usage, Palette.LoadColor(usage, Palette.AccentDisk),
+                WidgetColumns = 1;
+                Fill(WidgetRows, 1);
+                Meter(WidgetRows[0], string.Empty, usage, Palette.LoadColor(usage, Palette.AccentDisk),
                       string.Empty, null, false, compact: true);
                 break;
             }
@@ -344,9 +365,9 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
                 (double down, double up, double link) = NetTotals(snap);
                 Head($"{_lang["network"]} ({_lang["all_adapters"]})",
                      LinkUsage(down, up, link), NetText(down, up), null, false);
-                MiniColumns = 1;
-                Fill(MiniRows, 1);
-                Meter(MiniRows[0], string.Empty, LinkUsage(down, up, link),
+                WidgetColumns = 1;
+                Fill(WidgetRows, 1);
+                Meter(WidgetRows[0], string.Empty, LinkUsage(down, up, link),
                       Palette.LoadColor(LinkUsage(down, up, link), Palette.AccentNet), string.Empty, null, false, compact: true);
                 break;
             }
@@ -360,9 +381,9 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
                 Adapter adapter = snap.Adapters[from.Value];
                 Head(adapter.Name, adapter.Usage,
                      NetText(adapter.DownMb, adapter.UpMb), null, false);
-                MiniColumns = 1;
-                Fill(MiniRows, 1);
-                Meter(MiniRows[0], string.Empty, adapter.Usage, Palette.LoadColor(adapter.Usage, Palette.AccentNet),
+                WidgetColumns = 1;
+                Fill(WidgetRows, 1);
+                Meter(WidgetRows[0], string.Empty, adapter.Usage, Palette.LoadColor(adapter.Usage, Palette.AccentNet),
                       string.Empty, null, false, compact: true);
                 break;
             }
@@ -376,9 +397,9 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
                 Disk disk = snap.Disks[from.Value];
                 Head($"{_lang["drive"]} {disk.Title}", disk.Usage,
                      SpeedText(disk.ReadMb, disk.WriteMb), disk.Temp, disk.Estimated);
-                MiniColumns = 1;
-                Fill(MiniRows, 1);
-                Meter(MiniRows[0], string.Empty, disk.Usage, Palette.LoadColor(disk.Usage, Palette.AccentDisk),
+                WidgetColumns = 1;
+                Fill(WidgetRows, 1);
+                Meter(WidgetRows[0], string.Empty, disk.Usage, Palette.LoadColor(disk.Usage, Palette.AccentDisk),
                       string.Empty, null, false, compact: true);
                 break;
             }
@@ -388,16 +409,16 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
     /// <summary>Set the mini heading line and the badge that belongs to it.</summary>
     private void Head(string title, int percent, string detail, int? temp, bool estimated)
     {
-        MiniTitle = title.ToUpperInvariant();
-        MiniValue = percent + "%";
-        MiniDetail = detail;
-        MiniHeader.Temp = temp;
-        MiniHeader.Estimated = estimated;
-        ApplyTempColours(MiniHeader);
+        WidgetTitle = title.ToUpperInvariant();
+        WidgetValue = percent + "%";
+        WidgetDetail = detail;
+        WidgetHeader.Temp = temp;
+        WidgetHeader.Estimated = estimated;
+        ApplyTempColours(WidgetHeader);
     }
 
     // -------------------------------------------------------- expanded view
-    public void UpdateExpanded(Snapshot snap)
+    public void UpdateOverall(Snapshot snap)
     {
         if (!snap.Ready)
         {
@@ -416,6 +437,12 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
         if (_config.ShowDisk)
         {
             wanted.Add("disk");
+        }
+        // Only when the driver publishes counters: a remote session or a very
+        // old adapter has none, and an empty heading helps nobody.
+        if (_config.ShowGpu && snap.Gpu.Present)
+        {
+            wanted.Add("gpu");
         }
         if (_config.ShowNetwork && snap.Adapters.Count > 0)
         {
@@ -440,6 +467,13 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
             switch (wanted[i])
             {
                 case "cpu":
+                    // One chip, one temperature. It goes on the heading so it
+                    // is on screen in both modes without claiming to be a
+                    // per-core reading in either.
+                    section.Note = snap.CpuTemp is int package
+                        ? Palette.TempText(package, snap.CpuTempEstimated)
+                        : string.Empty;
+
                     if (_config.CpuMode == "separated")
                     {
                         Fill(section.Rows, snap.Cores.Count);
@@ -448,7 +482,7 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
                             Core core = snap.Cores[c];
                             Meter(section.Rows[c], "C" + c, core.Usage,
                                   Palette.LoadColor(core.Usage), string.Empty,
-                                  core.Temp, core.Estimated);
+                                  null, false, showTemp: false);
                         }
                     }
                     else
@@ -472,6 +506,31 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
                           + Suffix(Module.Summarise(snap.Modules)),
                           snap.Ram.Temp, snap.Ram.Estimated);
                     break;
+
+                case "gpu":
+                {
+                    Gpu gpu = snap.Gpu;
+                    section.Note = gpu.Name;
+
+                    // The overall figure, then one row per engine that is
+                    // doing anything. An idle engine is left out rather than
+                    // drawing a row of zero -- there are seven of them and on
+                    // most machines six are always idle.
+                    Fill(section.Rows, 1 + gpu.Engines.Count);
+                    Meter(section.Rows[0], _lang["gpu"], gpu.Usage,
+                          Palette.LoadColor(gpu.Usage), GpuMemory(gpu),
+                          null, false, showTemp: false);
+
+                    for (int e = 0; e < gpu.Engines.Count; e++)
+                    {
+                        GpuEngine engine = gpu.Engines[e];
+                        Meter(section.Rows[e + 1], engine.Name, engine.Usage,
+                              Palette.LoadColor(engine.Usage), string.Empty,
+                              null, false, showTemp: false);
+                    }
+                    section.Columns = 1;
+                    break;
+                }
 
                 case "net":
                     if (_config.NetworkMode == "separated")
@@ -551,7 +610,11 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
 
         if (_config.ShowCpu)
         {
-            var cpu = new PlannedTab("cpu", _lang["cpu"], snap.CpuTotal + "%");
+            CpuInfo chip = snap.CpuInfo;
+            var cpu = new PlannedTab("cpu", _lang["cpu"],
+                WithTemp(snap.CpuTotal + "%", snap.CpuTemp, snap.CpuTempEstimated),
+                detail: CpuDetail(chip, snap.Cores.Count),
+                hardware: chip.Name);
             cpu.Cards.Add(new Planned("cpu", _lang["cpu"], snap.CpuTotal, snap.CpuTotal + "%",
                 $"{snap.Cores.Count} {_lang["cores"]}"
                 + (snap.CpuTemp is int t
@@ -569,36 +632,25 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
                         Percent, "100%", Small: true));
                 }
             }
-            cpu.Facts.Add(new DeviceFact { Name = _lang["cores"], Value = snap.Cores.Count.ToString() });
-            if (snap.CpuTemp is int temp)
+            foreach (DeviceFact fact in CpuFacts(chip))
             {
-                cpu.Facts.Add(new DeviceFact
-                {
-                    Name = _lang["temp_label"],
-                    Value = Palette.TempText(temp, snap.CpuTempEstimated),
-                });
+                cpu.Facts.Add(fact);
             }
             wanted.Add(cpu);
         }
 
         if (_config.ShowRam)
         {
-            var ram = new PlannedTab("ram", _lang["memory"], snap.Ram.Usage + "%");
+            var ram = new PlannedTab("ram", _lang["memory"], snap.Ram.Usage + "%",
+                detail: $"{snap.Ram.UsedGb:F1} GB / {snap.Ram.TotalGb:F1} GB",
+                hardware: Slots(snap));
             ram.Cards.Add(new Planned("ram", _lang["memory"], snap.Ram.Usage,
                 snap.Ram.Usage + "%",
                 $"{snap.Ram.UsedGb:F1} / {snap.Ram.TotalGb:F1} GB {_lang["in_use"]}",
                 Palette.AccentRam, 100, Percent, "100%"));
 
-            ram.Facts.Add(new DeviceFact
-            {
-                Name = _lang["total"],
-                Value = $"{snap.Ram.TotalGb:F1} GB",
-            });
-            ram.Facts.Add(new DeviceFact
-            {
-                Name = _lang["in_use"],
-                Value = $"{snap.Ram.UsedGb:F1} GB ({snap.Ram.Usage}%)",
-            });
+            // The size and what is used are on the rail and on the graph
+            // below; what is left to say is which module sits in which slot.
             foreach (Module module in snap.Modules)
             {
                 ram.Facts.Add(new DeviceFact { Name = module.Title, Value = module.Detail });
@@ -608,33 +660,90 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
 
         if (_config.ShowDisk)
         {
-            // One tab per logical disk: a drive carries far more worth saying
-            // than a core does, and sharing a tab left none of it room.
-            foreach (Disk disk in snap.Disks)
+            // One tab per physical disk, the way Disk Management and Task
+            // Manager both group them. Seven letters were seven tabs; they are
+            // three disks, and which letters share a spindle is exactly what a
+            // person wants to know when one of them is busy.
+            foreach (var group in snap.Disks
+                         .Where(d => d.Detail?.DiskNumber is int)
+                         .GroupBy(d => d.Detail!.DiskNumber!.Value)
+                         .OrderBy(g => g.Key))
             {
-                var tab = new PlannedTab("disk" + disk.Letter, disk.Letter + ":",
-                                         disk.Usage + "%");
+                var drives = group.OrderBy(d => d.Letter, StringComparer.OrdinalIgnoreCase)
+                                  .ToList();
+                PhysicalDisk? physical = drives.Select(d => d.Detail?.Disk)
+                                               .FirstOrDefault(p => p is not null);
 
-                tab.Cards.Add(new Planned($"disk{disk.Letter}", _lang["in_use"], disk.Usage,
-                    disk.Usage + "%",
-                    $"{disk.UsedGb:F1} / {disk.TotalGb:F1} GB",
-                    Palette.AccentDisk, 100, Percent, "100%"));
+                var tab = new PlannedTab("disk" + group.Key,
+                                         $"Disk {group.Key}",
+                                         physical?.Model ?? string.Empty,
+                                         detail: DiskLine(physical, drives),
+                                         hardware: physical?.Model ?? string.Empty);
 
-                // Throughput has no ceiling to measure against, so the graph
-                // scales to its own peak and says what that peak is.
-                tab.Cards.Add(new Planned($"diskio{disk.Letter}",
-                    _lang["read"] + " / " + _lang["write"],
-                    disk.ReadMb + disk.WriteMb,
-                    Speed(disk.ReadMb + disk.WriteMb) + " MB/s",
-                    SpeedText(disk.ReadMb, disk.WriteMb),
-                    Palette.AccentDisk, 0, "MB/s", string.Empty));
-
-                foreach (DeviceFact fact in DriveFacts(disk))
-                {
-                    tab.Facts.Add(fact);
-                }
+                AddDriveCards(tab, drives);
                 wanted.Add(tab);
             }
+
+            // Letters with no disk behind them: a cloud filesystem, a mapped
+            // share, a subst. They are real to the user and invisible to the
+            // storage stack, so they share one heading rather than vanishing.
+            var virtualDrives = snap.Disks
+                .Where(d => d.Detail?.DiskNumber is null)
+                .OrderBy(d => d.Letter, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (virtualDrives.Count > 0)
+            {
+                var tab = new PlannedTab("diskvirtual", _lang["virtual_drives"],
+                    string.Join("  \u00b7  ", virtualDrives.Select(d => d.Letter + ":")),
+                    detail: $"{virtualDrives.Count} {_lang["drives"]}");
+
+                AddDriveCards(tab, virtualDrives);
+                wanted.Add(tab);
+            }
+        }
+
+        if (_config.ShowGpu && snap.Gpu.Present)
+        {
+            Gpu gpu = snap.Gpu;
+            var tab = new PlannedTab("gpu", _lang["gpu"], gpu.Usage + "%",
+                detail: GpuMemory(gpu),
+                hardware: gpu.Name);
+
+            tab.Cards.Add(new Planned("gpu", _lang["gpu"], gpu.Usage,
+                gpu.Usage + "%",
+                string.Join("  \u00b7  ", gpu.Engines.Select(e => $"{e.Name} {e.Usage}%")),
+                Palette.AccentGpu, 100, Percent, "100%"));
+
+            // One square per engine, the same shape the cores use: they are
+            // the parts of the adapter, as cores are the parts of the chip.
+            foreach (GpuEngine engine in gpu.Engines)
+            {
+                tab.Cards.Add(new Planned("gpu" + engine.Name, engine.Name, engine.Usage,
+                    engine.Usage + "%", string.Empty, Palette.AccentGpu, 100,
+                    Percent, "100%", Small: true));
+            }
+
+            if (gpu.Driver.Length > 0)
+            {
+                tab.Facts.Add(new DeviceFact { Name = "Driver", Value = gpu.Driver });
+            }
+            if (gpu.DedicatedGb > 0.01)
+            {
+                tab.Facts.Add(new DeviceFact
+                {
+                    Name = _lang["dedicated"],
+                    Value = $"{gpu.DedicatedGb:F2} GB",
+                });
+            }
+            if (gpu.SharedGb > 0.01)
+            {
+                tab.Facts.Add(new DeviceFact
+                {
+                    Name = _lang["shared"],
+                    Value = $"{gpu.SharedGb:F2} GB",
+                });
+            }
+            wanted.Add(tab);
         }
 
         if (_config.ShowNetwork)
@@ -642,7 +751,10 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
             foreach (Adapter adapter in snap.Adapters)
             {
                 var tab = new PlannedTab("net" + adapter.Id, adapter.Name,
-                                         Speed(adapter.DownMb + adapter.UpMb) + " MB/s");
+                                         Speed(adapter.DownMb + adapter.UpMb) + " MB/s",
+                                         detail: adapter.Wireless
+                                             ? _lang["wireless"] : _lang["wired"],
+                                         hardware: adapter.Description);
 
                 tab.Cards.Add(new Planned($"net{adapter.Id}", adapter.Name,
                     adapter.DownMb + adapter.UpMb,
@@ -673,116 +785,249 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Everything worth stating about a drive: where it lives, how the
-    /// partition sits on the disk, and what the disk itself is.
+    /// What the CPU is, as the rail says it in one line: the shape of the
+    /// chip, because the model name is too long to fit beside a percentage.
     /// </summary>
-    private IEnumerable<DeviceFact> DriveFacts(Disk disk)
+    private static string CpuDetail(CpuInfo chip, int sampled)
     {
-        yield return new DeviceFact
-        {
-            Name = _lang["drive"],
-            Value = disk.Letter + ":" + (disk.Label.Length > 0 ? $"  ({disk.Label})" : string.Empty),
-        };
-        yield return new DeviceFact
-        {
-            Name = _lang["in_use"],
-            Value = $"{disk.UsedGb:F1} / {disk.TotalGb:F1} GB  ({disk.Usage}%)",
-        };
+        int cores = chip.Cores > 0 ? chip.Cores : sampled;
+        int logical = chip.Logical > 0 ? chip.Logical : sampled;
 
-        DriveDetail? detail = disk.Detail;
-        if (detail is null)
+        var parts = new List<string>();
+        if (cores > 0)
         {
-            yield break;
+            parts.Add(logical > cores ? $"{cores}C/{logical}T" : $"{cores}C");
         }
+        if (chip.BaseMhz > 0)
+        {
+            // The clock speaks for itself; a label in front of it only takes
+            // room the rail does not have.
+            parts.Add($"{chip.BaseMhz / 1000.0:F2} GHz");
+        }
+        return string.Join("  ·  ", parts);
+    }
 
-        if (detail.FileSystem.Length > 0)
-        {
-            yield return new DeviceFact { Name = "File system", Value = detail.FileSystem };
-        }
-        if (detail.DiskNumber is int number)
+    /// <summary>
+    /// A reading with its temperature after it, where there is one. Drives
+    /// without a sensor and machines without a thermal zone just get the
+    /// reading, rather than a row of "n/a" that says nothing.
+    /// </summary>
+    private static string WithTemp(string value, int? temp, bool estimated) =>
+        temp is int c ? $"{value}  ·  {Palette.TempText(c, estimated)}" : value;
+
+    /// <summary>
+    /// What is left to say about the processor once the rail has said the
+    /// rest. The clock, the core counts and the temperature are on the rail
+    /// and the model heads the panel, so repeating any of them here would
+    /// fill the box with things already on screen.
+    /// </summary>
+    private IEnumerable<DeviceFact> CpuFacts(CpuInfo chip)
+    {
+        if (chip.Virtualization is bool virtualisation)
         {
             yield return new DeviceFact
             {
-                Name = _lang["partition"],
-                Value = $"#{detail.PartitionNumber} {_lang["of_disk"]} {number}"
-                        + (detail.IsBoot ? "  ·  boot" : string.Empty),
+                Name = _lang["virtualisation"],
+                Value = virtualisation ? _lang["enabled"] : _lang["disabled"],
             };
-            yield return new DeviceFact
-            {
-                Name = _lang["partition_size"],
-                Value = detail.Disk is { Bytes: > 0 }
-                    ? $"{detail.PartitionGb:F1} / {detail.Disk.Gb:F1} GB  ({detail.ShareOfDisk:F0}%)"
-                    : $"{detail.PartitionGb:F1} GB",
-            };
+        }
+        if (chip.L2Kb > 0)
+        {
+            yield return new DeviceFact { Name = "L2", Value = Cache(chip.L2Kb) };
+        }
+        if (chip.L3Kb > 0)
+        {
+            yield return new DeviceFact { Name = "L3", Value = Cache(chip.L3Kb) };
+        }
+    }
+
+    /// <summary>Cache sizes arrive in KB; MB reads better past a megabyte.</summary>
+    private static string Cache(int kb) =>
+        kb >= 1024 ? $"{kb / 1024.0:0.#} MB" : $"{kb} KB";
+
+    /// <summary>
+    /// How many memory slots are in use: "2 จาก 4 สล็อต".
+    ///
+    /// Not "2 x 16 GB", which is what this used to say and which is simply
+    /// wrong on a machine with unmatched modules -- the panel below lists each
+    /// module anyway, so the only thing worth saying up here is how much room
+    /// is left to add more.
+    /// </summary>
+    private string Slots(Snapshot snap)
+    {
+        int filled = snap.Modules.Count;
+        if (filled == 0)
+        {
+            return string.Empty;
+        }
+        int total = Math.Max(snap.MemorySlots, filled);
+        return $"{filled} {_lang["of_slots"]} {total} {_lang["slots"]}";
+    }
+
+    /// <summary>
+    /// One card per drive on a disk: what it is called, what is on it, and how
+    /// hard it is being read and written.
+    ///
+    /// Space in use is stated rather than graphed -- it moves by a gigabyte a
+    /// week, which is a flat line on a three-minute chart. Throughput is the
+    /// part that actually moves, and it has no ceiling to measure against, so
+    /// the graph scales to its own peak and says what that peak is.
+    /// </summary>
+    private void AddDriveCards(PlannedTab tab, List<Disk> drives)
+    {
+        foreach (Disk disk in drives)
+        {
+            tab.Cards.Add(new Planned($"diskio{disk.Letter}",
+                DriveName(disk),
+                disk.ReadMb + disk.WriteMb,
+                Speed(disk.ReadMb + disk.WriteMb) + " MB/s",
+                DriveLine(disk),
+                Palette.AccentDisk, 0, "MB/s", string.Empty));
+        }
+    }
+
+    /// <summary>
+    /// The second rail line for a physical disk: what kind it is, how big,
+    /// whether it is online, and how much of it is not in a partition.
+    ///
+    /// The unallocated figure appears only when there is some. A disk that is
+    /// fully partitioned -- which is most of them -- says nothing about it
+    /// rather than printing a zero.
+    /// </summary>
+    private string DiskLine(PhysicalDisk? physical, List<Disk> drives)
+    {
+        var parts = new List<string>();
+
+        string media = physical?.Media.Length > 0
+            ? physical.Media
+            : drives.Select(d => d.Media).FirstOrDefault(m => m.Length > 0) ?? string.Empty;
+        string bus = physical?.Bus.Length > 0
+            ? physical.Bus
+            : drives.Select(d => d.Bus).FirstOrDefault(b => b.Length > 0 && b != "Unknown")
+              ?? string.Empty;
+        string kind = bus.Length == 0 || bus == "Unknown"
+            ? media
+            : media.Length > 0 ? $"{media} ({bus})" : bus;
+        if (kind.Length > 0)
+        {
+            parts.Add(kind);
         }
 
-        PhysicalDisk? physical = detail.Disk;
-        if (physical is null)
+        if (physical is { Gb: > 0 })
         {
-            yield break;
+            parts.Add($"{physical.Gb:F1} GB");
         }
+        parts.Add(physical is null || physical.Online ? _lang["online"] : _lang["offline"]);
 
-        yield return new DeviceFact { Name = _lang["physical_disk"], Value = physical.Title };
-        var hardware = new List<string>();
-        if (physical.Media.Length > 0)
+        if (physical is { UnallocatedGb: > 0.05 })
         {
-            hardware.Add(physical.Media);
+            parts.Add($"{physical.UnallocatedGb:F1} GB {_lang["unallocated"]}");
         }
-        if (physical.Bus.Length > 0)
+        return string.Join("  \u00b7  ", parts);
+    }
+
+    /// <summary>
+    /// What a single drive says under its name on a disk's panel: filesystem,
+    /// how full it is, and the read and write rates behind the graph.
+    /// </summary>
+    private string DriveLine(Disk disk)
+    {
+        var parts = new List<string>();
+        if (disk.Detail is { FileSystem.Length: > 0 })
         {
-            hardware.Add(physical.Bus);
+            parts.Add(disk.Detail.FileSystem);
         }
-        if (physical.Rpm > 0)
-        {
-            hardware.Add($"{physical.Rpm} rpm");
-        }
-        if (physical.PartitionStyle.Length > 0)
-        {
-            hardware.Add(physical.PartitionStyle);
-        }
-        if (hardware.Count > 0)
-        {
-            yield return new DeviceFact { Name = "Hardware", Value = string.Join("  ·  ", hardware) };
-        }
-        if (physical.Serial.Length > 0)
-        {
-            yield return new DeviceFact { Name = "Serial", Value = physical.Serial };
-        }
-        if (physical.Firmware.Length > 0)
-        {
-            yield return new DeviceFact { Name = "Firmware", Value = physical.Firmware };
-        }
-        if (physical.PartitionCount > 0)
-        {
-            yield return new DeviceFact
-            {
-                Name = _lang["partitions"],
-                Value = physical.PartitionCount.ToString(),
-            };
-        }
+        parts.Add($"{disk.UsedGb:F1} GB / {disk.TotalGb:F1} GB  ({disk.Usage}%)");
+        parts.Add(SpeedText(disk.ReadMb, disk.WriteMb));
         if (disk.Temp is int temp)
         {
-            yield return new DeviceFact
-            {
-                Name = _lang["temp_label"],
-                Value = Palette.TempText(temp, disk.Estimated),
-            };
+            parts.Add(Palette.TempText(temp, disk.Estimated));
         }
+        return string.Join("  \u00b7  ", parts);
+    }
+
+    /// <summary>
+    /// What the adapter is using, in the one line the rail has for it.
+    ///
+    /// An integrated adapter has no dedicated memory of its own and borrows
+    /// system memory instead, so whichever figure exists is the one shown and
+    /// a machine with both gets both.
+    /// </summary>
+    private string GpuMemory(Gpu gpu)
+    {
+        var parts = new List<string>();
+        if (gpu.DedicatedGb > 0.01)
+        {
+            parts.Add($"{gpu.DedicatedGb:F1} GB {_lang["dedicated"]}");
+        }
+        if (gpu.SharedGb > 0.01)
+        {
+            parts.Add($"{gpu.SharedGb:F1} GB {_lang["shared"]}");
+        }
+        return string.Join("  \u00b7  ", parts);
+    }
+
+    /// <summary>The drive as the rail names it: "C: (Windows)".</summary>
+    private static string DriveName(Disk disk) =>
+        disk.Letter + ":" + (disk.Label.Length > 0 ? $" ({disk.Label})" : string.Empty);
+
+    /// <summary>
+    /// What kind of drive this is, with its temperature where there is a
+    /// sensor: "NTFS · SSD (NVMe) · 41°C".
+    ///
+    /// All of it on one rail line, because the panel beside it no longer has a
+    /// facts box to put any of this in.
+    /// </summary>
+    private static string DriveType(Disk disk)
+    {
+        DriveDetail? detail = disk.Detail;
+        PhysicalDisk? physical = detail?.Disk;
+
+        var parts = new List<string>();
+        if (detail is { FileSystem.Length: > 0 })
+        {
+            parts.Add(detail.FileSystem);
+        }
+
+        string media = physical?.Media.Length > 0 ? physical.Media : disk.Media;
+        string bus = physical?.Bus.Length > 0 ? physical.Bus : disk.Bus;
+        string kind = bus.Length == 0 || bus == "Unknown"
+            ? media
+            : media.Length > 0 ? $"{media} ({bus})" : bus;
+        if (kind.Length > 0)
+        {
+            parts.Add(kind);
+        }
+
+        if (disk.Temp is int temp)
+        {
+            parts.Add(Palette.TempText(temp, disk.Estimated));
+        }
+        return string.Join("  ·  ", parts);
     }
 
     /// <summary>What a tab should hold this tick, before it exists.</summary>
     private sealed class PlannedTab
     {
-        public PlannedTab(string key, string title, string summary)
+        public PlannedTab(string key, string title, string summary,
+                          string detail = "", string hardware = "")
         {
             Key = key;
             Title = title;
             Summary = summary;
+            Detail = detail;
+            Hardware = hardware;
         }
 
         public string Key { get; }
         public string Title { get; }
         public string Summary { get; }
+
+        /// <summary>What the device is, shown on the rail under its name.</summary>
+        public string Detail { get; }
+
+        /// <summary>The make and model, shown beside the name on the panel.</summary>
+        public string Hardware { get; }
         public List<Planned> Cards { get; } = new();
         public List<DeviceFact> Facts { get; } = new();
     }
@@ -816,40 +1061,48 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
                 Tabs.Insert(Math.Min(i, Tabs.Count), tab);
             }
             tab.Title = plan.Title;
+            tab.Detail = plan.Detail;
+            tab.Hardware = plan.Hardware;
             tab.Summary = plan.Summary;
 
-            Fill(tab, plan.Cards);
+            Fill(tab.Cards, tab.Key, plan.Cards.Where(c => !c.Small).ToList());
+            Fill(tab.Cores, tab.Key, plan.Cards.Where(c => c.Small).ToList());
             FillFacts(tab, plan.Facts);
         }
 
-        // Something has to be selected, and the first tab is the CPU.
+        // Something has to be selected. The tab the user was last on wins if
+        // it is still here: the view is often opened before the first sample
+        // has landed, so there were no tabs to restore the choice onto at the
+        // moment the view asked for it, and this is where they arrive.
         if (Tabs.Count > 0 && !Tabs.Any(t => t.Selected))
         {
-            Select(Tabs[0].Key);
+            string remembered = _config.FullTab;
+            Select(Tabs.Any(t => t.Key == remembered) ? remembered : Tabs[0].Key);
         }
     }
 
-    private void Fill(DeviceTab tab, List<Planned> cards)
+    private void Fill(ObservableCollection<ChartCard> target, string group,
+                      List<Planned> cards)
     {
-        foreach (ChartCard stale in tab.Cards.Where(c => cards.All(p => p.Key != c.Key)).ToList())
+        foreach (ChartCard stale in target.Where(c => cards.All(p => p.Key != c.Key)).ToList())
         {
-            tab.Cards.Remove(stale);
+            target.Remove(stale);
         }
 
         for (int i = 0; i < cards.Count; i++)
         {
             Planned plan = cards[i];
-            ChartCard? card = tab.Cards.FirstOrDefault(c => c.Key == plan.Key);
+            ChartCard? card = target.FirstOrDefault(c => c.Key == plan.Key);
             if (card is null)
             {
                 card = new ChartCard
                 {
                     Key = plan.Key,
-                    Group = tab.Key,
+                    Group = group,
                     Small = plan.Small,
                     Unit = plan.Unit,
                 };
-                tab.Cards.Insert(Math.Min(i, tab.Cards.Count), card);
+                target.Insert(Math.Min(i, target.Count), card);
             }
             card.Title = plan.Title;
             card.Value = plan.Value;
@@ -908,6 +1161,7 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
     {
         "cpu" => _lang["cpu"],
         "ram" => _lang["memory"],
+        "gpu" => _lang["gpu"],
         "net" => _lang["network"],
         _ => _lang["disk"],
     };
@@ -927,10 +1181,12 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
     }
 
     private void Meter(MeterRow row, string title, double percent, Color accent,
-                       string detail, int? temp, bool estimated, bool compact = false)
+                       string detail, int? temp, bool estimated, bool compact = false,
+                       bool showTemp = true)
     {
         row.Title = title;
         row.Compact = compact;
+        row.ShowTemp = showTemp;
         row.Percent = percent;
         row.ValueText = $"{percent:F0}%";
         row.Detail = detail;

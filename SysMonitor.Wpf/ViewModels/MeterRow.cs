@@ -27,6 +27,7 @@ public sealed class MeterRow : INotifyPropertyChanged
     private Brush _tempBack = Brushes.Transparent;
     private bool _hot;
     private bool _compact;
+    private bool _showTemp = true;
 
     public string Title
     {
@@ -102,6 +103,30 @@ public sealed class MeterRow : INotifyPropertyChanged
     /// <summary>"n/a" where no sensor exists; "~" marks a modelled value.</summary>
     public string TempText => Palette.TempText(_temp, _estimated);
 
+    /// <summary>
+    /// Whether this row has a temperature worth a badge.
+    ///
+    /// Different from having no reading: a drive with no sensor still earns
+    /// an "n/a", because the question "how warm is it" makes sense and the
+    /// answer is that nothing measured it. A single core has no badge at all,
+    /// because the chip has one sensor and it belongs to the whole package --
+    /// a badge per core would claim sixteen readings where there is one.
+    /// </summary>
+    public bool ShowTemp
+    {
+        get => _showTemp;
+        set
+        {
+            if (Set(ref _showTemp, value))
+            {
+                OnPropertyChanged(nameof(TempHidden));
+            }
+        }
+    }
+
+    /// <summary>True when the badge should not be drawn, for either reason.</summary>
+    public bool TempHidden => _compact || !_showTemp;
+
     public Brush TempFore
     {
         get => _tempFore;
@@ -128,7 +153,13 @@ public sealed class MeterRow : INotifyPropertyChanged
     public bool Compact
     {
         get => _compact;
-        set => Set(ref _compact, value);
+        set
+        {
+            if (Set(ref _compact, value))
+            {
+                OnPropertyChanged(nameof(TempHidden));
+            }
+        }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

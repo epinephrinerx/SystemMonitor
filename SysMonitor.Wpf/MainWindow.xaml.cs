@@ -16,6 +16,9 @@ public partial class MainWindow : Window
     private const double ShadowPad = WindowGeometry.ShadowPad;
     private const double SnapMargin = 25;
 
+    /// <summary>How far the pointer moves before a press counts as a drag.</summary>
+    private const double DragThreshold = 4;
+
     private static readonly TimeSpan Tick = TimeSpan.FromMilliseconds(400);
     private static readonly TimeSpan RotateEvery = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan Heartbeat = TimeSpan.FromMinutes(10);
@@ -29,24 +32,31 @@ public partial class MainWindow : Window
     private DateTime _lastRotate = DateTime.UtcNow;
     private Snapshot? _shown;
     private readonly TrayIcon _tray = new();
-    private Mode _mode = Mode.Mini;
+    private Mode _mode = Mode.Widget;
     private bool _exiting;
     private Rect _beforeFull;
     private bool _closing;
 
-    /// <summary>Mini rotates, expanded lists, full graphs.</summary>
+    /// <summary>The widget rotates, overall lists, full graphs.</summary>
     private enum Mode
     {
-        Mini,
-        Expanded,
+        Widget,
+        Overall,
         Full,
     }
 
-    private bool _expanded => _mode == Mode.Expanded;
+    private bool _isOverall => _mode == Mode.Overall;
 
     private Point _dragOrigin;
     private Point _windowOrigin;
     private bool _dragging;
+
+    /// <summary>
+    /// Where the pointer went down, while it is still unclear whether this is
+    /// a drag or just a click. Null when nothing is pending.
+    /// </summary>
+    private Point? _pendingDrag;
+
     private Edge _resizing = Edge.None;
 
     /// <summary>
@@ -81,13 +91,13 @@ public partial class MainWindow : Window
         BuildSidebar();
 
         CloseButton.Click += (_, _) => Close();
-        CollapseButton.Click += (_, _) => SetMode(Mode.Mini);
+        CollapseButton.Click += (_, _) => SetMode(Mode.Widget);
         FullScreenButton.Click += (_, _) => SetMode(Mode.Full);
-        MiniCloseButton.Click += (_, _) => Close();
-        MiniPrevButton.Click += (_, _) => Step(-1);
-        MiniNextButton.Click += (_, _) => Step(1);
+        WidgetCloseButton.Click += (_, _) => Close();
+        WidgetPrevButton.Click += (_, _) => Step(-1);
+        WidgetNextButton.Click += (_, _) => Step(1);
         FullCloseButton.Click += (_, _) => Close();
-        FullCollapseButton.Click += (_, _) => SetMode(Mode.Expanded);
+        FullCollapseButton.Click += (_, _) => SetMode(Mode.Overall);
         KeyDown += OnKeyDown;
 
         _timer.Interval = Tick;
@@ -125,9 +135,9 @@ public partial class MainWindow : Window
         // and asking for the DPI of a window that has no handle yet answers
         // for the primary monitor at best.
         Mode start = args is not null && args.Contains("--full") ? Mode.Full
-            : args is not null && args.Contains("--expanded") ? Mode.Expanded
-            : Mode.Mini;
-        if (start != Mode.Mini)
+            : args is not null && args.Contains("--expanded") ? Mode.Overall
+            : Mode.Widget;
+        if (start != Mode.Widget)
         {
             Loaded += (_, _) => SetMode(start);
         }
@@ -163,23 +173,20 @@ public partial class MainWindow : Window
     {
         if (_mode == Mode.Full)
         {
-            // A window, not an OS full-screen mode: it fills the work area the
-            // first time and is a normal resizable window after that, so the
-            // taskbar stays reachable and the size is the user's to keep.
+            // A window, not an OS full-screen mode. It opens at its smallest
+            // and is enlarged by whoever wants it bigger, rather than taking
+            // the screen from them and making them give it back.
             if (_config.FullW <= 0 || _config.FullH <= 0)
             {
-                Rect area = WorkArea(Left + Width / 2, Top + Height / 2);
-                _config.FullW = Math.Max(AppConfig.MinFull.W, area.Width - ShadowPad * 2);
-                _config.FullH = Math.Max(AppConfig.MinFull.H, area.Height - ShadowPad * 2);
-                Left = area.Left;
-                Top = area.Top;
+                _config.FullW = AppConfig.MinFull.W;
+                _config.FullH = AppConfig.MinFull.H;
             }
             Width = _config.FullW + ShadowPad * 2;
             Height = _config.FullH + ShadowPad * 2;
             return;
         }
-        Width = (_expanded ? _config.ExpW : _config.MiniW) + ShadowPad * 2;
-        Height = (_expanded ? _config.ExpH : _config.MiniH) + ShadowPad * 2;
+        Width = (_isOverall ? _config.OverallW : _config.WidgetW) + ShadowPad * 2;
+        Height = (_isOverall ? _config.OverallH : _config.WidgetH) + ShadowPad * 2;
     }
 
     /// <summary>The monitor's full bounds, taskbar included, in DIPs.</summary>
@@ -239,7 +246,7 @@ public partial class MainWindow : Window
             Snapshot snap = _sampler.Current;
             if (!snap.Ready)
             {
-                _model.UpdateMini(snap);
+                _model.UpdateWidget(snap);
                 return;
             }
 
@@ -253,7 +260,7 @@ public partial class MainWindow : Window
             // a per-pixel-alpha window is composited in software, so an
             // unchanged frame still costs a full redraw.
             bool fresh = !ReferenceEquals(snap, _shown);
-            bool rotate = _mode == Mode.Mini && _model.ViewCount > 1
+            bool rotate = _mode == Mode.Widget && _model.ViewCount > 1
                           && DateTime.UtcNow - _lastRotate >= RotateEvery;
             if (!fresh && !rotate)
             {
@@ -277,9 +284,9 @@ public partial class MainWindow : Window
             {
                 return;
             }
-            if (_expanded)
+            if (_isOverall)
             {
-                _model.UpdateExpanded(snap);
+                _model.UpdateOverall(snap);
                 return;
             }
 
@@ -288,7 +295,7 @@ public partial class MainWindow : Window
                 _lastRotate = DateTime.UtcNow;
                 _model.ViewIndex = (_model.ViewIndex + 1) % _model.ViewCount;
             }
-            _model.UpdateMini(snap);
+            _model.UpdateWidget(snap);
         }
         catch (Exception error)
         {
@@ -310,7 +317,7 @@ public partial class MainWindow : Window
         }
         _model.ViewIndex = (_model.ViewIndex + by + _model.ViewCount) % _model.ViewCount;
         _lastRotate = DateTime.UtcNow;
-        _model.UpdateMini(_sampler.Current);
+        _model.UpdateWidget(_sampler.Current);
     }
 
     // ----------------------------------------------------------- mode switch
@@ -334,8 +341,8 @@ public partial class MainWindow : Window
         }
 
         _mode = mode;
-        MiniView.Visibility = mode == Mode.Mini ? Visibility.Visible : Visibility.Collapsed;
-        ExpandedView.Visibility = mode == Mode.Expanded ? Visibility.Visible : Visibility.Collapsed;
+        WidgetView.Visibility = mode == Mode.Widget ? Visibility.Visible : Visibility.Collapsed;
+        OverallView.Visibility = mode == Mode.Overall ? Visibility.Visible : Visibility.Collapsed;
         FullView.Visibility = mode == Mode.Full ? Visibility.Visible : Visibility.Collapsed;
         Panel.CornerRadius = new CornerRadius(mode == Mode.Full ? 0 : 14);
         Grip.Visibility = mode == Mode.Full ? Visibility.Collapsed : Visibility.Visible;
@@ -349,8 +356,9 @@ public partial class MainWindow : Window
         Snapshot snap = _sampler.Current;
         switch (mode)
         {
-            case Mode.Expanded:
-                _model.UpdateExpanded(snap);
+            case Mode.Overall:
+                _model.UpdateOverall(snap);
+                FitOverallToContent();
                 break;
             case Mode.Full:
                 FullTitle.Text = new Lang(_config.Lang)["full_data"];
@@ -362,7 +370,7 @@ public partial class MainWindow : Window
                 break;
             default:
                 _model.RebuildViews(snap);
-                _model.UpdateMini(snap);
+                _model.UpdateWidget(snap);
                 break;
         }
     }
@@ -372,7 +380,7 @@ public partial class MainWindow : Window
     {
         if (e.Key == Key.F11)
         {
-            SetMode(_mode == Mode.Full ? Mode.Expanded : Mode.Full);
+            SetMode(_mode == Mode.Full ? Mode.Overall : Mode.Full);
             e.Handled = true;
             return;
         }
@@ -380,16 +388,64 @@ public partial class MainWindow : Window
         {
             return;
         }
-        SetMode(_mode == Mode.Full ? Mode.Expanded : Mode.Mini);
+        SetMode(_mode == Mode.Full ? Mode.Overall : Mode.Widget);
         e.Handled = true;
+    }
+
+    /// <summary>
+    /// Shrink the expanded window onto its contents.
+    ///
+    /// A fixed size is wrong for somebody: the room needed depends on how many
+    /// cores, drives and adapters the machine has and on the font scale. The
+    /// content is measured with no constraint and the window takes exactly
+    /// that, held between its minimum and the screen it is on.
+    ///
+    /// Skipped once the user has dragged an edge: their size wins from then
+    /// on, and "reset window size" is how they hand it back.
+    /// </summary>
+    private void FitOverallToContent()
+    {
+        if (_config.OverallSized)
+        {
+            return;
+        }
+
+        // Layout has to have run at least once for the measure to mean
+        // anything, and on the first entry it has not.
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
+        {
+            if (_mode != Mode.Overall || _config.OverallSized)
+            {
+                return;
+            }
+
+            OverallView.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            Size wanted = OverallView.DesiredSize;
+            if (wanted.Width <= 0 || wanted.Height <= 0)
+            {
+                return;
+            }
+
+            Rect area = WorkArea(Left + Width / 2, Top + Height / 2);
+            _config.OverallW = Math.Clamp(Math.Ceiling(wanted.Width),
+                                      AppConfig.MinOverall.W, area.Width - ShadowPad * 2);
+            _config.OverallH = Math.Clamp(Math.Ceiling(wanted.Height),
+                                      AppConfig.MinOverall.H, area.Height - ShadowPad * 2);
+            Width = _config.OverallW + ShadowPad * 2;
+            Height = _config.OverallH + ShadowPad * 2;
+            KeepOnScreen();
+        });
     }
 
     private void ResetSize()
     {
-        _config.MiniW = 270;
-        _config.MiniH = 90;
-        _config.ExpW = 630;
-        _config.ExpH = 480;
+        _config.OverallSized = false;
+        _config.FullW = 0;
+        _config.FullH = 0;
+        _config.WidgetW = 270;
+        _config.WidgetH = 90;
+        _config.OverallW = 630;
+        _config.OverallH = 480;
         ApplyPanelSize();
         KeepOnScreen();
         _config.Save();
@@ -429,8 +485,18 @@ public partial class MainWindow : Window
         Edge edge = WindowGeometry.HitTest(point, Width, Height);
         if (edge == Edge.None)
         {
+            // Not an edge, so it may be a drag of the window. Remember where
+            // it started but let the click through: the full view is covered
+            // by scroll viewers, and ScrollViewer marks MouseLeftButtonDown
+            // handled to take focus, so the window's own handler never sees a
+            // press over its contents. Claiming it here instead would take the
+            // click away from everything inside.
+            _pendingDrag = point;
+            _windowOrigin = new Point(Left, Top);
+            _dragDpi = VisualTreeHelper.GetDpi(this);
             return;
         }
+        _pendingDrag = null;
         _dragOrigin = PointToScreen(point);
         _resizeOrigin = new Rect(Left, Top, Width, Height);
         _dragDpi = VisualTreeHelper.GetDpi(this);
@@ -445,8 +511,8 @@ public partial class MainWindow : Window
         if (e.ClickCount == 2)
         {
             // Mini opens, expanded fills the screen, full comes back to mini.
-            SetMode(_mode == Mode.Mini ? Mode.Expanded
-                    : _mode == Mode.Expanded ? Mode.Full : Mode.Mini);
+            SetMode(_mode == Mode.Widget ? Mode.Overall
+                    : _mode == Mode.Overall ? Mode.Full : Mode.Widget);
             return;
         }
 
@@ -455,10 +521,39 @@ public partial class MainWindow : Window
             return;     // nothing to drag or resize when it fills the screen
         }
 
-        // An edge was already claimed in the preview pass.
-        _dragOrigin = PointToScreen(e.GetPosition(this));
-        _windowOrigin = new Point(Left, Top);
-        _dragDpi = VisualTreeHelper.GetDpi(this);
+        // Edges and drags are both settled in the preview pass: this view is
+        // covered by controls that would otherwise swallow the press.
+    }
+
+    /// <summary>
+    /// Turn a pending press into a drag once the pointer has actually moved.
+    ///
+    /// The threshold is what separates dragging the window from clicking
+    /// something on it: a press that never moves stays a click and reaches
+    /// whatever was under it.
+    /// </summary>
+    protected override void OnPreviewMouseMove(MouseEventArgs e)
+    {
+        base.OnPreviewMouseMove(e);
+        if (_pendingDrag is not Point origin || _dragging || _resizing != Edge.None)
+        {
+            return;
+        }
+        if (e.LeftButton != MouseButtonState.Pressed)
+        {
+            _pendingDrag = null;
+            return;
+        }
+
+        Point now = e.GetPosition(this);
+        if (Math.Abs(now.X - origin.X) < DragThreshold
+            && Math.Abs(now.Y - origin.Y) < DragThreshold)
+        {
+            return;
+        }
+
+        _dragOrigin = PointToScreen(origin);
+        _pendingDrag = null;
         _dragging = true;
         CaptureMouse();
     }
@@ -505,6 +600,7 @@ public partial class MainWindow : Window
         }
         _dragging = false;
         _resizing = Edge.None;
+        _pendingDrag = null;
         ReleaseMouseCapture();
         // Position as well as size: dragging a left or top edge moves the
         // window, and the two have to be remembered together or it jumps back
@@ -531,6 +627,12 @@ public partial class MainWindow : Window
         return false;
     }
 
+    protected override void OnPreviewMouseLeftButtonUp(MouseButtonEventArgs e)
+    {
+        base.OnPreviewMouseLeftButtonUp(e);
+        _pendingDrag = null;
+    }
+
     private static Cursor CursorFor(Edge edge) => edge switch
     {
         Edge.Left or Edge.Right => Cursors.SizeWE,
@@ -550,12 +652,12 @@ public partial class MainWindow : Window
         if (_mode == Mode.Full)
         {
             Rect wanted = WindowGeometry.Resize(_resizeOrigin, _resizing, delta,
-                                                AppConfig.MinExp, max);
+                                                AppConfig.MinOverall, max);
             Size panelSize = WindowGeometry.Panel(wanted.Width, wanted.Height);
             if (WindowGeometry.TooSmallForFull(panelSize.Width, panelSize.Height))
             {
                 _config.FullW = 0;      // it will fill the work area next time
-                SetMode(Mode.Expanded);
+                SetMode(Mode.Overall);
                 _resizeOrigin = new Rect(Left, Top, Width, Height);
                 return;
             }
@@ -574,13 +676,14 @@ public partial class MainWindow : Window
                 _config.FullW = panel.Width;
                 _config.FullH = panel.Height;
                 break;
-            case Mode.Expanded:
-                _config.ExpW = panel.Width;
-                _config.ExpH = panel.Height;
+            case Mode.Overall:
+                _config.OverallW = panel.Width;
+                _config.OverallH = panel.Height;
+                _config.OverallSized = true;
                 break;
             default:
-                _config.MiniW = panel.Width;
-                _config.MiniH = panel.Height;
+                _config.WidgetW = panel.Width;
+                _config.WidgetH = panel.Height;
                 break;
         }
     }
@@ -588,8 +691,8 @@ public partial class MainWindow : Window
     private static WindowGeometry.View ViewOf(Mode mode) => mode switch
     {
         Mode.Full => WindowGeometry.View.Full,
-        Mode.Expanded => WindowGeometry.View.Expanded,
-        _ => WindowGeometry.View.Mini,
+        Mode.Overall => WindowGeometry.View.Overall,
+        _ => WindowGeometry.View.Widget,
     };
 
     /// <summary>A tab was clicked; show it and remember which.</summary>
@@ -641,15 +744,15 @@ public partial class MainWindow : Window
         var reset = new MenuItem { Header = new Lang(_config.Lang)["reset_size"] };
         var close = new MenuItem { Header = new Lang(_config.Lang)["close"] };
 
-        toggle.Click += (_, _) => SetMode(_expanded ? Mode.Mini : Mode.Expanded);
-        full.Click += (_, _) => SetMode(_mode == Mode.Full ? Mode.Expanded : Mode.Full);
+        toggle.Click += (_, _) => SetMode(_isOverall ? Mode.Widget : Mode.Overall);
+        full.Click += (_, _) => SetMode(_mode == Mode.Full ? Mode.Overall : Mode.Full);
         reset.Click += (_, _) => ResetSize();
         close.Click += (_, _) => Close();
 
         menu.Opened += (_, _) =>
         {
             var lang = new Lang(_config.Lang);
-            toggle.Header = _expanded ? lang["collapse"] : lang["expand_hint"];
+            toggle.Header = _isOverall ? lang["collapse"] : lang["expand_hint"];
             full.Header = _mode == Mode.Full ? lang["exit_fullscreen"] : lang["fullscreen"];
             reset.Header = lang["reset_size"];
             close.Header = lang["close"];
@@ -773,6 +876,12 @@ public partial class MainWindow : Window
             _sampler.Nudge();
             Refresh();
         }));
+        Sidebar.Children.Add(Check(lang["show_gpu"], _config.ShowGpu, value =>
+        {
+            _config.ShowGpu = value;
+            _sampler.Nudge();
+            Refresh();
+        }));
         Sidebar.Children.Add(Check(lang["show_network"], _config.ShowNetwork, value =>
         {
             _config.ShowNetwork = value;
@@ -824,13 +933,13 @@ public partial class MainWindow : Window
     {
         Snapshot snap = _sampler.Current;
         _model.RebuildViews(snap);
-        if (_expanded)
+        if (_isOverall)
         {
-            _model.UpdateExpanded(snap);
+            _model.UpdateOverall(snap);
         }
         else
         {
-            _model.UpdateMini(snap);
+            _model.UpdateWidget(snap);
         }
         _config.Save();
     }

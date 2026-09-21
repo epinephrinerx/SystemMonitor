@@ -15,7 +15,7 @@ public class WindowGeometryTests
     private static readonly Rect Origin = new(100, 200, 500, 400);
 
     private static Rect Drag(Edge edge, double dx, double dy,
-                             WindowGeometry.View view = WindowGeometry.View.Expanded)
+                             WindowGeometry.View view = WindowGeometry.View.Overall)
     {
         (var min, var max) = WindowGeometry.Limits(view);
         return WindowGeometry.Resize(Origin, edge, new Vector(dx, dy), min, max);
@@ -97,7 +97,7 @@ public class WindowGeometryTests
         // Clamping is where an incremental implementation drifts: the size
         // stops but the window keeps sliding.
         Rect result = Drag(Edge.Left, 5000, 0);
-        Assert.AreEqual(AppConfig.MinExp.W + Pad, result.Width);
+        Assert.AreEqual(AppConfig.MinOverall.W + Pad, result.Width);
         Assert.AreEqual(Origin.Right, result.Right,
             "the right edge must not move once the width has stopped shrinking");
     }
@@ -106,7 +106,7 @@ public class WindowGeometryTests
     public void A_top_edge_pushed_past_the_minimum_still_pins_the_bottom()
     {
         Rect result = Drag(Edge.Top, 0, 5000);
-        Assert.AreEqual(AppConfig.MinExp.H + Pad, result.Height);
+        Assert.AreEqual(AppConfig.MinOverall.H + Pad, result.Height);
         Assert.AreEqual(Origin.Bottom, result.Bottom);
     }
 
@@ -131,11 +131,11 @@ public class WindowGeometryTests
     [TestMethod]
     public void The_mini_strip_stays_capped_while_the_panel_does_not()
     {
-        (var miniMin, var miniMax) = WindowGeometry.Limits(WindowGeometry.View.Mini);
-        Assert.AreEqual(AppConfig.MinMini, miniMin);
-        Assert.AreEqual(AppConfig.MaxMini, miniMax);
+        (var miniMin, var miniMax) = WindowGeometry.Limits(WindowGeometry.View.Widget);
+        Assert.AreEqual(AppConfig.MinWidget, miniMin);
+        Assert.AreEqual(AppConfig.MaxWidget, miniMax);
 
-        (_, var expandedMax) = WindowGeometry.Limits(WindowGeometry.View.Expanded);
+        (_, var expandedMax) = WindowGeometry.Limits(WindowGeometry.View.Overall);
         Assert.IsTrue(expandedMax.W >= 3840, $"width cap {expandedMax.W} is below 4K");
         Assert.IsTrue(expandedMax.H >= 2160, $"height cap {expandedMax.H} is below 4K");
     }
@@ -154,7 +154,7 @@ public class WindowGeometryTests
     public void A_resize_round_trips_through_the_panel_size()
     {
         // What the config stores has to be what restores the same window.
-        (var min, var max) = WindowGeometry.Limits(WindowGeometry.View.Expanded);
+        (var min, var max) = WindowGeometry.Limits(WindowGeometry.View.Overall);
         Rect window = WindowGeometry.Resize(Origin, Edge.Right | Edge.Bottom,
                                             new Vector(120, 80), min, max);
         Size panel = WindowGeometry.Panel(window.Width, window.Height);

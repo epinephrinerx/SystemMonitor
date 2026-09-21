@@ -22,6 +22,26 @@ internal static class MemoryModules
         "SMBIOSMemoryType, Manufacturer, PartNumber FROM Win32_PhysicalMemory";
 
     private static List<Module>? _cached;
+    private static int _slots;
+
+    /// <summary>
+    /// How many slots the board has in total, not how many are filled.
+    ///
+    /// Win32_PhysicalMemory lists occupied slots only, so it can say "2
+    /// modules" but never "2 of 4". The array class is the one that knows how
+    /// many devices the board was built with. Zero when it will not say.
+    /// </summary>
+    public static int Slots
+    {
+        get
+        {
+            if (_cached is null)
+            {
+                Read();
+            }
+            return _slots;
+        }
+    }
 
     public static IReadOnlyList<Module> Read()
     {
@@ -57,6 +77,17 @@ internal static class MemoryModules
                 PartNumber = Text(row.GetValueOrDefault("PartNumber")),
             });
         }
+
+        foreach (var row in Wmi.Query(Namespace,
+                     "SELECT MemoryDevices FROM Win32_PhysicalMemoryArray",
+                     "MemoryDevices"))
+        {
+            _slots += (int)(ToDouble(row.GetValueOrDefault("MemoryDevices")) ?? 0);
+        }
+
+        // A board that will not report its array still has at least the slots
+        // we can see filled.
+        _slots = Math.Max(_slots, modules.Count);
 
         _cached = modules.OrderBy(m => m.Slot, StringComparer.OrdinalIgnoreCase).ToList();
         return _cached;
