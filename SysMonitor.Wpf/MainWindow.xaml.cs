@@ -643,26 +643,19 @@ public partial class MainWindow : Window
         _ => Cursors.Arrow,
     };
 
+    /// <summary>
+    /// Resize the window, and nothing else.
+    ///
+    /// Dragging the full view below the size its tabs need used to switch it
+    /// to the overall view, which meant a drag could change what you were
+    /// looking at: you reached for a corner to make the window a little
+    /// smaller and the contents were replaced under your hand. Which view is
+    /// showing is a decision only a button makes now, and a drag that runs out
+    /// of room simply stops at the view's own minimum.
+    /// </summary>
     private void Resize(Vector delta)
     {
         (var min, var max) = WindowGeometry.Limits(ViewOf(_mode));
-
-        // Dragged below what the tabs need, the full view steps back to the
-        // expanded one rather than showing something cramped. Its own minimum
-        // is smaller, so the drag carries on from there.
-        if (_mode == Mode.Full)
-        {
-            Rect wanted = WindowGeometry.Resize(_resizeOrigin, _resizing, delta,
-                                                AppConfig.MinOverall, max);
-            Size panelSize = WindowGeometry.Panel(wanted.Width, wanted.Height);
-            if (WindowGeometry.TooSmallForFull(panelSize.Width, panelSize.Height))
-            {
-                _config.FullW = 0;      // it will fill the work area next time
-                SetMode(Mode.Overall);
-                _resizeOrigin = new Rect(Left, Top, Width, Height);
-                return;
-            }
-        }
 
         Rect window = WindowGeometry.Resize(_resizeOrigin, _resizing, delta, min, max);
         Left = window.Left;
@@ -743,11 +736,13 @@ public partial class MainWindow : Window
         var toggle = new MenuItem();
         var full = new MenuItem();
         var reset = new MenuItem { Header = new Lang(_config.Lang)["reset_size"] };
+        var restart = new MenuItem { Header = new Lang(_config.Lang)["restart"] };
         var close = new MenuItem { Header = new Lang(_config.Lang)["close"] };
 
         toggle.Click += (_, _) => SetMode(_isOverall ? Mode.Widget : Mode.Overall);
         full.Click += (_, _) => SetMode(_mode == Mode.Full ? Mode.Overall : Mode.Full);
         reset.Click += (_, _) => ResetSize();
+        restart.Click += (_, _) => Restart();
         close.Click += (_, _) => Close();
 
         menu.Opened += (_, _) =>
@@ -756,12 +751,14 @@ public partial class MainWindow : Window
             toggle.Header = _isOverall ? lang["collapse"] : lang["expand_hint"];
             full.Header = _mode == Mode.Full ? lang["exit_fullscreen"] : lang["fullscreen"];
             reset.Header = lang["reset_size"];
+            restart.Header = lang["restart"];
             close.Header = lang["close"];
         };
 
         menu.Items.Add(toggle);
         menu.Items.Add(full);
         menu.Items.Add(reset);
+        menu.Items.Add(restart);
         menu.Items.Add(new Separator());
         menu.Items.Add(close);
         ContextMenu = menu;
@@ -938,6 +935,15 @@ public partial class MainWindow : Window
 
         Sidebar.Children.Add(Heading(lang["updates"]));
         Sidebar.Children.Add(BuildUpdatePanel(lang));
+
+        var restart = new Button
+        {
+            Content = lang["restart"],
+            Style = (Style)FindResource("SidebarButton"),
+            Margin = new Thickness(0, 10, 0, 0),
+        };
+        restart.Click += (_, _) => Restart();
+        Sidebar.Children.Add(restart);
     }
 
     // --------------------------------------------------------------- updates
@@ -1174,6 +1180,47 @@ public partial class MainWindow : Window
             panel.Children.Add(button);
         }
         return panel;
+    }
+
+    /// <summary>
+    /// Start a fresh copy and stand down.
+    ///
+    /// Settings are written first, so the new process reads the state this one
+    /// was in rather than whatever was last saved. There is no single-instance
+    /// lock to trip over, but the two do overlap for a moment, which is why
+    /// the old one shuts down immediately afterwards rather than waiting to be
+    /// closed.
+    /// </summary>
+    private void Restart()
+    {
+        if (Environment.ProcessPath is not string exe)
+        {
+            return;     // a hosted run has no executable of its own to start
+        }
+
+        SavePlacement();
+        _config.Save();
+        Diag.Write("restarting");
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(exe)
+            {
+                UseShellExecute = true,
+                // Fully qualified: an unqualified Path here is
+                // System.Windows.Shapes.Path, which the resize grip uses.
+                WorkingDirectory = System.IO.Path.GetDirectoryName(exe) ?? string.Empty,
+            });
+        }
+        catch (Exception error)
+        {
+            // Nothing started, so there is nothing to hand over to: stay up.
+            Diag.ReportException("Restart", error);
+            return;
+        }
+
+        _closing = true;        // skip the close-to-tray path on the way out
+        Application.Current.Shutdown();
     }
 
     // ----------------------------------------------------------------- tray

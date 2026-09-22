@@ -149,6 +149,26 @@ first. The directory goes only if it ends up empty.
 shortcut "SysMonitor (.NET)". Both are called SysMonitor and both install
 per-user, so sharing any of those names would overwrite a working application.
 
+**Beside it also means both start every morning.** The user reported the screen
+had "reverted to version 2.0"; it had not, it *was* version 2.0 -- the Python
+build, still installed, still in the Run key, its window landing on top of the
+newer one. Nothing in the C# code could have explained it, and a process list
+settled it in one command. `Legacy.Find()` now looks for the old build on every
+install and offers to remove it.
+
+**The Python uninstaller deletes the whole of `%APPDATA%\SysMonitor`.** That
+directory holds both builds' settings, so removing the old build takes
+`config.wpf.json` and the log with it -- which it did, silently, on the user's
+own machine. `Legacy.Remove` copies the directory out before calling that
+uninstaller and puts back anything it destroyed. Back the file up before
+letting that uninstaller anywhere near it.
+
+**Resizing must never change which view is showing.** The full view used to
+step back to the overall one when dragged below 640x480, so reaching for a
+corner could replace the contents of the window under your hand. Views change
+by button only; a drag runs out of room at `Limits(view).Min` instead.
+`RestartAndViewTests` asserts that the old size threshold is gone.
+
 **Measure memory before believing it.** A ten-minute run reporting 108 MB
 looked like a leak; the managed heap was 4–9 MB and sawtoothing normally, so
 those were pages the GC had freed and Windows had not reclaimed. The heartbeat

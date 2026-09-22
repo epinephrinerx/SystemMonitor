@@ -111,14 +111,17 @@ public class WindowGeometryTests
     }
 
     [TestMethod]
-    public void The_full_view_will_not_go_below_the_size_its_tabs_need()
+    public void The_full_view_stops_at_its_minimum_rather_than_changing_view()
     {
-        // Dragged smaller than this the window steps back to the middle view
-        // rather than showing a tab strip with nowhere to put a graph.
-        Assert.IsTrue(WindowGeometry.TooSmallForFull(639, 480));
-        Assert.IsTrue(WindowGeometry.TooSmallForFull(640, 479));
-        Assert.IsFalse(WindowGeometry.TooSmallForFull(640, 480));
-        Assert.IsFalse(WindowGeometry.TooSmallForFull(1200, 900));
+        // It used to step back to the overall view when dragged below the size
+        // its tabs need, which meant a resize could replace what you were
+        // looking at. The drag stops instead, and only a button changes view.
+        (var min, _) = WindowGeometry.Limits(WindowGeometry.View.Full);
+        Assert.AreEqual(AppConfig.MinFull, min);
+
+        Rect result = Drag(Edge.Right | Edge.Bottom, -5000, -5000, WindowGeometry.View.Full);
+        Assert.AreEqual(AppConfig.MinFull.W + Pad, result.Width);
+        Assert.AreEqual(AppConfig.MinFull.H + Pad, result.Height);
     }
 
     [TestMethod]

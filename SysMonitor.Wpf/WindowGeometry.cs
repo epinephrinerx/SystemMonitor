@@ -152,14 +152,4 @@ internal static class WindowGeometry
         View.Overall => (AppConfig.MinOverall, (4000.0, 3000.0)),
         _ => (AppConfig.MinWidget, AppConfig.MaxWidget),
     };
-
-    /// <summary>
-    /// Has the full view been dragged below the size its tabs need?
-    ///
-    /// Asked of the panel size, not the window: the shadow margin is not part
-    /// of what the user is sizing, and the threshold in the requirement is
-    /// about what is visible.
-    /// </summary>
-    public static bool TooSmallForFull(double panelWidth, double panelHeight) =>
-        panelWidth < AppConfig.MinFull.W || panelHeight < AppConfig.MinFull.H;
 }

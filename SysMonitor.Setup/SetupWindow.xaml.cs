@@ -15,6 +15,10 @@ public partial class SetupWindow : Window
     private readonly CheckBox _autostart = new() { Content = "เปิดพร้อม Windows" };
     private readonly CheckBox _launch = new() { Content = "เปิดโปรแกรมหลังติดตั้ง", IsChecked = true };
     private readonly CheckBox _removeSettings = new() { Content = "ลบการตั้งค่าและ log ด้วย" };
+    private readonly CheckBox _removeLegacy = new() { IsChecked = true };
+
+    /// <summary>The retired Python build, if it is still installed.</summary>
+    private Legacy.Install? _legacy;
 
     public SetupWindow(bool uninstalling)
     {
@@ -54,10 +58,23 @@ public partial class SetupWindow : Window
         // who turned it off would have it turned back on by every update.
         _autostart.IsChecked = update ? Installer.AutostartEnabled() : true;
 
+        // The old build installs alongside this one and starts itself too, so
+        // a machine with both opens two widgets every morning and the older
+        // window lands on top. Every install looks for it.
+        _legacy = Legacy.Find();
+        if (_legacy is not null)
+        {
+            _removeLegacy.Content = $"ถอนรุ่นเก่า (เวอร์ชัน {_legacy.Version}) ออกด้วย";
+        }
+
         Options.Children.Add(_desktop);
         Options.Children.Add(_startMenu);
         Options.Children.Add(_autostart);
         Options.Children.Add(_launch);
+        if (_legacy is not null)
+        {
+            Options.Children.Add(_removeLegacy);
+        }
 
         if (!Installer.HasDesktopRuntime())
         {
@@ -92,6 +109,17 @@ public partial class SetupWindow : Window
             Installer.Install(_desktop.IsChecked == true,
                               _startMenu.IsChecked == true,
                               _autostart.IsChecked == true);
+
+            // After this build is in place, so a failure here leaves a working
+            // installation behind rather than neither.
+            if (_legacy is not null && _removeLegacy.IsChecked == true)
+            {
+                Status.Text = "กำลังถอนรุ่นเก่า...";
+                if (!Legacy.Remove(_legacy))
+                {
+                    Status.Text = "ถอนรุ่นเก่าไม่สำเร็จ — ถอนเองได้จาก Apps & features";
+                }
+            }
 
             if (_launch.IsChecked == true)
             {
