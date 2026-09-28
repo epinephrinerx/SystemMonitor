@@ -1,0 +1,561 @@
+<Window x:Class="SysMonitor.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:SysMonitor.ViewModels"
+        xmlns:ctl="clr-namespace:SysMonitor.Controls"
+        Title="SysMonitor"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        SnapsToDevicePixels="True"
+        UseLayoutRounding="True"
+        Width="294" Height="114">
+
+    <Window.Resources>
+
+        <!-- The thermometer that labels every temperature reading, so "n/a"
+             is obviously a missing sensor rather than a missing number. -->
+        <Geometry x:Key="Thermometer">
+            M 3.1,0.6 A 1.4,1.4 0 0 1 5.9,0.6 L 5.9,6.2 A 2.6,2.6 0 1 1 3.1,6.2 Z
+        </Geometry>
+
+        <Style x:Key="BadgeText" TargetType="TextBlock" BasedOn="{StaticResource Body}">
+            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+
+        <!-- A temperature badge.  Blinks only while the reading is hot. -->
+        <DataTemplate x:Key="TempBadge">
+            <Border Background="{Binding TempBack}" CornerRadius="6"
+                    Padding="5,1,6,2" VerticalAlignment="Center">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding Hot}" Value="True">
+                                <DataTrigger.EnterActions>
+                                    <BeginStoryboard Name="Pulse">
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                             From="1.0" To="0.35" Duration="0:0:0.6"
+                                                             AutoReverse="True"
+                                                             RepeatBehavior="Forever"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </DataTrigger.EnterActions>
+                                <DataTrigger.ExitActions>
+                                    <StopStoryboard BeginStoryboardName="Pulse"/>
+                                </DataTrigger.ExitActions>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <StackPanel Orientation="Horizontal">
+                    <Path Data="{StaticResource Thermometer}"
+                          Fill="{Binding TempFore}"
+                          Width="9" Height="11" Stretch="Uniform"
+                          VerticalAlignment="Center" Margin="0,0,4,0"/>
+                    <TextBlock Style="{StaticResource BadgeText}"
+                               Text="{Binding TempText}"
+                               Foreground="{Binding TempFore}"/>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+
+        <!-- One meter: label, bar, value, optional temperature badge. A row
+             carrying only facts (an installed memory module) drops the bar
+             rather than drawing a number nobody measured. -->
+        <DataTemplate DataType="{x:Type vm:MeterRow}">
+            <Grid Margin="0,2,6,2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" MinWidth="0"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Row="0" Grid.Column="0" Style="{StaticResource Body}"
+                           Text="{Binding Title}"
+                           Foreground="{Binding DataContext.MutedBrush,
+                                        RelativeSource={RelativeSource AncestorType=Window}}"
+                           TextTrimming="CharacterEllipsis"
+                           VerticalAlignment="Center" Margin="0,0,8,0"
+                           MinWidth="0" MaxWidth="150"/>
+
+                <!-- The fill is a star column, so the layout system does the
+                     arithmetic and a resize needs no recalculation here. -->
+                <Grid Grid.Row="0" Grid.Column="1" Height="10" VerticalAlignment="Center"
+>
+                    <Border Background="{Binding Empty}" CornerRadius="5"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="{Binding FillStar}"/>
+                            <ColumnDefinition Width="{Binding RestStar}"/>
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Background="{Binding Accent}" CornerRadius="5"/>
+                    </Grid>
+                </Grid>
+
+                <TextBlock Grid.Row="0" Grid.Column="2" Style="{StaticResource Body}"
+                           Visibility="{Binding Compact, Converter={StaticResource BoolToCollapsed}}"
+                           Text="{Binding ValueText}"
+                           Foreground="{Binding DataContext.TextBrush,
+                                        RelativeSource={RelativeSource AncestorType=Window}}"
+                           VerticalAlignment="Center" Margin="8,0,0,0"
+                           MinWidth="34" TextAlignment="Right"/>
+
+                <ContentControl Grid.Row="0" Grid.Column="3" Content="{Binding}"
+                                ContentTemplate="{StaticResource TempBadge}"
+                                Visibility="{Binding TempHidden, Converter={StaticResource BoolToCollapsed}}"
+                                Margin="8,0,0,0"/>
+
+                <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="4"
+                           Style="{StaticResource Body}" FontSize="{DynamicResource FontSmall}"
+                           Text="{Binding Detail}"
+                           Visibility="{Binding Detail, Converter={StaticResource EmptyToCollapsed}}"
+                           Foreground="{Binding DataContext.LabelBrush,
+                                        RelativeSource={RelativeSource AncestorType=Window}}"
+                           TextTrimming="CharacterEllipsis" Margin="0,1,0,3"/>
+            </Grid>
+        </DataTemplate>
+
+        <!-- A single logical processor in the full view: a square box with
+             its name and load on one line and the plot filling the rest. The
+             boxes flow into as many columns as the window is wide. -->
+        <DataTemplate x:Key="CoreCard" DataType="{x:Type vm:ChartCard}">
+            <Border Background="{Binding DataContext.ControlBrush,
+                                 RelativeSource={RelativeSource AncestorType=Window}}"
+                    CornerRadius="8" Padding="7,5,7,6" Margin="0,0,8,8"
+                    Width="{Binding CardWidth}" Height="{Binding CardHeight}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <Grid Grid.Row="0" Margin="0,0,0,4">
+                        <TextBlock Style="{StaticResource Body}"
+                                   FontSize="{DynamicResource FontSmall}"
+                                   Text="{Binding Title}"
+                                   Foreground="{Binding DataContext.LabelBrush,
+                                                RelativeSource={RelativeSource AncestorType=Window}}"
+                                   HorizontalAlignment="Left"/>
+                        <TextBlock Style="{StaticResource Body}" FontWeight="SemiBold"
+                                   FontSize="{DynamicResource FontSmall}"
+                                   Text="{Binding Value}"
+                                   Foreground="{Binding DataContext.TextBrush,
+                                                RelativeSource={RelativeSource AncestorType=Window}}"
+                                   HorizontalAlignment="Right"/>
+                    </Grid>
+                    <ctl:Chart Grid.Row="1"
+                               Series="{Binding Series}"
+                               Revision="{Binding Revision}"
+                               Maximum="{Binding Maximum}"
+                               Accent="{Binding Accent}"
+                               PlotBrush="{Binding DataContext.PlotBrush,
+                                           RelativeSource={RelativeSource AncestorType=Window}}"
+                               GridBrush="{Binding DataContext.GridBrush,
+                                           RelativeSource={RelativeSource AncestorType=Window}}"
+                               FrameBrush="{Binding DataContext.EdgeBrush,
+                                            RelativeSource={RelativeSource AncestorType=Window}}"/>
+                </Grid>
+            </Border>
+        </DataTemplate>
+
+        <!-- One device in the full-screen view, laid out like Task Manager:
+             name and reading, then the axis caption, then the framed plot. -->
+        <DataTemplate DataType="{x:Type vm:ChartCard}">
+            <Border Background="{Binding DataContext.ControlBrush,
+                                 RelativeSource={RelativeSource AncestorType=Window}}"
+                    CornerRadius="10" Padding="12,10,12,11" Margin="0,0,0,10"
+                    MinHeight="{Binding CardHeight}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <Grid Grid.Row="0">
+                        <TextBlock Style="{StaticResource Label}"
+                                   Text="{Binding Title}"
+                                   Foreground="{Binding DataContext.TextBrush,
+                                                RelativeSource={RelativeSource AncestorType=Window}}"
+                                   TextTrimming="CharacterEllipsis"
+                                   HorizontalAlignment="Left" VerticalAlignment="Center"
+                                   Margin="0,0,66,0"/>
+                        <TextBlock Style="{StaticResource Body}" FontWeight="SemiBold"
+                                   Text="{Binding Value}"
+                                   Foreground="{Binding DataContext.TextBrush,
+                                                RelativeSource={RelativeSource AncestorType=Window}}"
+                                   HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                    </Grid>
+
+                    <TextBlock Grid.Row="1" Style="{StaticResource Body}" FontSize="{DynamicResource FontSmall}"
+                               Text="{Binding Detail}"
+                               Visibility="{Binding Detail, Converter={StaticResource EmptyToCollapsed}}"
+                               Foreground="{Binding DataContext.LabelBrush,
+                                            RelativeSource={RelativeSource AncestorType=Window}}"
+                               TextTrimming="CharacterEllipsis" Margin="0,1,0,0"/>
+
+                    <!-- What the vertical axis counts, and where its top is. -->
+                    <Grid Grid.Row="2" Margin="0,6,0,2">
+                        <TextBlock Style="{StaticResource Body}" FontSize="{DynamicResource FontTiny}"
+                                   Text="{Binding Unit}"
+                                   Foreground="{Binding DataContext.LabelBrush,
+                                                RelativeSource={RelativeSource AncestorType=Window}}"
+                                   HorizontalAlignment="Left"/>
+                        <TextBlock Style="{StaticResource Body}" FontSize="{DynamicResource FontTiny}"
+                                   Text="{Binding Ceiling}"
+                                   Foreground="{Binding DataContext.LabelBrush,
+                                                RelativeSource={RelativeSource AncestorType=Window}}"
+                                   HorizontalAlignment="Right"/>
+                    </Grid>
+
+                    <ctl:Chart Grid.Row="3" MinHeight="40"
+                               Series="{Binding Series}"
+                               Revision="{Binding Revision}"
+                               Maximum="{Binding Maximum}"
+                               Accent="{Binding Accent}"
+                               PlotBrush="{Binding DataContext.PlotBrush,
+                                           RelativeSource={RelativeSource AncestorType=Window}}"
+                               GridBrush="{Binding DataContext.GridBrush,
+                                           RelativeSource={RelativeSource AncestorType=Window}}"
+                               FrameBrush="{Binding DataContext.EdgeBrush,
+                                            RelativeSource={RelativeSource AncestorType=Window}}"/>
+                </Grid>
+            </Border>
+        </DataTemplate>
+
+    </Window.Resources>
+
+    <!-- The margin is the drop shadow's room.  Unlike the Tk build, these
+         pixels are genuinely transparent rather than a colour key, so nothing
+         here is accidentally click-through. -->
+    <Grid Background="Transparent">
+        <Border x:Name="Panel" Margin="12"
+                CornerRadius="14"
+                Background="{Binding PanelBrush}"
+                BorderBrush="{Binding EdgeBrush}"
+                BorderThickness="1">
+
+            <Grid>
+                <!-- Mini view: the rotating one-metric summary. -->
+                <Grid x:Name="WidgetView" Margin="12">
+                    <Button x:Name="WidgetCloseButton" Content="&#xE8BB;"
+                            FontFamily="Segoe MDL2 Assets"
+                            FontSize="{DynamicResource FontTiny}"
+                            Width="18" Height="18" Panel.ZIndex="2"
+                            HorizontalAlignment="Right" VerticalAlignment="Top"
+                            Margin="0,-4,-4,0"
+                            Style="{StaticResource HoverIconButton}"/>
+
+                    <!-- Step through the rotation rather than waiting for it. -->
+                    <Button x:Name="WidgetPrevButton" Content="&#xE76B;"
+                            FontFamily="Segoe MDL2 Assets"
+                            FontSize="{DynamicResource FontTiny}"
+                            Width="18" Height="18" Panel.ZIndex="2"
+                            HorizontalAlignment="Left" VerticalAlignment="Center"
+                            Margin="-10,0,0,0"
+                            Style="{StaticResource HoverIconButton}"/>
+                    <Button x:Name="WidgetNextButton" Content="&#xE76C;"
+                            FontFamily="Segoe MDL2 Assets"
+                            FontSize="{DynamicResource FontTiny}"
+                            Width="18" Height="18" Panel.ZIndex="2"
+                            HorizontalAlignment="Right" VerticalAlignment="Center"
+                            Margin="0,0,-10,0"
+                            Style="{StaticResource HoverIconButton}"/>
+
+                    <TextBlock Style="{StaticResource Body}"
+                               Text="{Binding Message}"
+                               Foreground="{Binding LabelBrush}"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                               Visibility="{Binding ShowMessage,
+                                            Converter={StaticResource BoolToVisible}}"/>
+
+                    <StackPanel VerticalAlignment="Center"
+                                Visibility="{Binding ShowMessage,
+                                             Converter={StaticResource BoolToCollapsed}}">
+                        <Grid Margin="0,0,0,4">
+                            <TextBlock Style="{StaticResource Label}"
+                                       Text="{Binding WidgetTitle}"
+                                       Foreground="{Binding LabelBrush}"
+                                       TextTrimming="CharacterEllipsis"
+                                       HorizontalAlignment="Left" VerticalAlignment="Center"
+                                       Margin="0,0,96,0"/>
+                            <StackPanel Orientation="Horizontal"
+                                        HorizontalAlignment="Right" VerticalAlignment="Center">
+                                <ContentControl Content="{Binding WidgetHeader}"
+                                                ContentTemplate="{StaticResource TempBadge}"
+                                                Margin="0,0,8,0"/>
+                                <TextBlock Style="{StaticResource Value}"
+                                           Text="{Binding WidgetValue}"
+                                           Foreground="{Binding TextBrush}"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Grid>
+                        <ItemsControl ItemsSource="{Binding WidgetRows}" x:Name="WidgetItems">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <UniformGrid Columns="{Binding DataContext.WidgetColumns,
+                                                 RelativeSource={RelativeSource AncestorType=Window}}"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                        </ItemsControl>
+
+                        <TextBlock Style="{StaticResource Body}" FontSize="{DynamicResource FontSmall}"
+                                   Text="{Binding WidgetDetail}"
+                                   Visibility="{Binding WidgetDetail,
+                                                Converter={StaticResource EmptyToCollapsed}}"
+                                   Foreground="{Binding MutedBrush}"
+                                   TextTrimming="CharacterEllipsis"
+                                   Margin="0,4,0,0"/>
+                    </StackPanel>
+                </Grid>
+
+                <!-- Expanded view: settings sidebar plus every metric. -->
+                <Grid x:Name="OverallView" Visibility="Collapsed">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="196"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- The settings list is taller than a short window, and a
+                         setting you cannot scroll to is a setting you do not
+                         have. -->
+                    <Border Grid.Column="0" Background="{Binding SidebarBrush}"
+                            CornerRadius="14,0,0,14">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled">
+                            <StackPanel x:Name="Sidebar" Margin="16"/>
+                        </ScrollViewer>
+                    </Border>
+
+                    <Grid Grid.Column="1" Margin="16,14,14,12">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <StackPanel Grid.Row="0" Orientation="Horizontal"
+                                    HorizontalAlignment="Right">
+                            <Button x:Name="FullScreenButton" Content="&#xE740;"
+                                    FontFamily="Segoe MDL2 Assets"
+                                    FontSize="{DynamicResource FontBody}"
+                                    Width="26" Height="26" Margin="0,0,8,0"
+                                    Style="{StaticResource IconButton}"/>
+                            <Button x:Name="CollapseButton" Content="&#xE921;"
+                                    FontFamily="Segoe MDL2 Assets" FontSize="{DynamicResource FontBody}"
+                                    Width="26" Height="26" Margin="0,0,8,0"
+                                    Style="{StaticResource IconButton}"/>
+                            <Button x:Name="CloseButton" Content="&#xE8BB;"
+                                    FontFamily="Segoe MDL2 Assets" FontSize="{DynamicResource FontBody}"
+                                    Width="26" Height="26"
+                                    Style="{StaticResource IconButton}"/>
+                        </StackPanel>
+
+                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      Margin="0,4,0,0">
+                            <ItemsControl ItemsSource="{Binding Sections}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:Section}">
+                                        <Border Background="{Binding DataContext.ControlBrush,
+                                                             RelativeSource={RelativeSource AncestorType=Window}}"
+                                                CornerRadius="10" Padding="12,10,12,10"
+                                                Margin="0,0,0,10">
+                                            <StackPanel>
+                                                <Grid Margin="0,0,0,6">
+                                                    <TextBlock Style="{StaticResource Label}"
+                                                               Text="{Binding Title}"
+                                                               Foreground="{Binding DataContext.LabelBrush,
+                                                                            RelativeSource={RelativeSource AncestorType=Window}}"
+                                                               TextWrapping="Wrap"
+                                                               HorizontalAlignment="Left"/>
+                                                    <TextBlock Style="{StaticResource Body}"
+                                                               FontSize="{DynamicResource FontSmall}"
+                                                               Text="{Binding Note}"
+                                                               Visibility="{Binding Note,
+                                                                            Converter={StaticResource EmptyToCollapsed}}"
+                                                               Foreground="{Binding DataContext.LabelBrush,
+                                                                            RelativeSource={RelativeSource AncestorType=Window}}"
+                                                               HorizontalAlignment="Right"
+                                                               VerticalAlignment="Center"/>
+                                                </Grid>
+                                                <!-- Sixteen cores or seven drives read far better
+                                                     side by side than as one long column. -->
+                                                <ItemsControl ItemsSource="{Binding Rows}">
+                                                    <ItemsControl.ItemsPanel>
+                                                        <ItemsPanelTemplate>
+                                                            <UniformGrid Columns="{Binding Columns}"/>
+                                                        </ItemsPanelTemplate>
+                                                    </ItemsControl.ItemsPanel>
+                                                </ItemsControl>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+
+                        <TextBlock Grid.Row="2" Style="{StaticResource Body}"
+                                   FontSize="{DynamicResource FontSmall}"
+                                   Text="{Binding TempLegend}"
+                                   Foreground="{Binding LabelBrush}"
+                                   TextWrapping="Wrap" Margin="0,6,0,0"/>
+                    </Grid>
+                </Grid>
+                <!-- Full screen: every device as a graph. -->
+                <!-- Full view: one tab per device, its graphs stacked down
+                     the page with the facts about it alongside. -->
+                <!-- Full view: a rail of devices down the left, the one that
+                     is selected on the right. The rail is vertical because a
+                     machine with a dozen drives and adapters has more names
+                     than fit across a 640-wide window. -->
+                <Grid x:Name="FullView" Visibility="Collapsed" Margin="14,12,14,12">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Grid Grid.Row="0" Grid.ColumnSpan="2" Margin="0,0,0,8">
+                        <TextBlock x:Name="FullTitle" Style="{StaticResource Value}"
+                                   FontSize="{DynamicResource FontHeading}"
+                                   Foreground="{Binding TextBrush}"
+                                   HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button x:Name="FullCollapseButton" Content="&#xE73F;"
+                                    FontFamily="Segoe MDL2 Assets"
+                                    FontSize="{DynamicResource FontBody}"
+                                    Width="26" Height="26" Margin="0,0,8,0"
+                                    Style="{StaticResource IconButton}"/>
+                            <Button x:Name="FullCloseButton" Content="&#xE8BB;"
+                                    FontFamily="Segoe MDL2 Assets"
+                                    FontSize="{DynamicResource FontBody}"
+                                    Width="26" Height="26"
+                                    Style="{StaticResource IconButton}"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <ScrollViewer Grid.Row="1" Grid.Column="0"
+                                  VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  Margin="0,0,12,0">
+                        <ItemsControl ItemsSource="{Binding Tabs}" MinWidth="128">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:DeviceTab}">
+                                    <Button Style="{StaticResource DeviceTabButton}"
+                                            Tag="{Binding Key}"
+                                            Click="OnTabClick">
+                                        <StackPanel>
+                                            <TextBlock Style="{StaticResource Label}"
+                                                       Text="{Binding Title}"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Style="{StaticResource Body}"
+                                                       FontSize="{DynamicResource FontSmall}"
+                                                       Text="{Binding Detail}"
+                                                       Opacity="0.7" Margin="0,1,0,0"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       Visibility="{Binding Detail,
+                                                                    Converter={StaticResource EmptyToCollapsed}}"/>
+                                            <TextBlock Style="{StaticResource Body}"
+                                                       FontSize="{DynamicResource FontSmall}"
+                                                       Text="{Binding Summary}"
+                                                       Opacity="0.85" Margin="0,1,0,0"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+
+                    <!-- The selected device: what it is across the top, then
+                         its graphs down the page. -->
+                    <ScrollViewer Grid.Row="1" Grid.Column="1"
+                                  VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  DataContext="{Binding SelectedTab}">
+                        <StackPanel>
+                            <Grid Margin="2,0,2,8">
+                                <TextBlock Style="{StaticResource Value}"
+                                           FontSize="{DynamicResource FontHeading}"
+                                           Text="{Binding Title}"
+                                           HorizontalAlignment="Left"
+                                           Foreground="{Binding DataContext.TextBrush,
+                                                        RelativeSource={RelativeSource AncestorType=Window}}"/>
+                                <TextBlock Style="{StaticResource Body}"
+                                           Text="{Binding Hardware}"
+                                           HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                           MaxWidth="360" TextTrimming="CharacterEllipsis"
+                                           Foreground="{Binding DataContext.LabelBrush,
+                                                        RelativeSource={RelativeSource AncestorType=Window}}"/>
+                            </Grid>
+
+                            <Border CornerRadius="10" Padding="12,10,12,4" Margin="0,0,0,10"
+                                    Background="{Binding DataContext.ControlBrush,
+                                                 RelativeSource={RelativeSource AncestorType=Window}}"
+                                    Visibility="{Binding Facts.Count,
+                                                 Converter={StaticResource ZeroToCollapsed}}">
+                                <ItemsControl ItemsSource="{Binding Facts}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <WrapPanel Orientation="Horizontal"/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type vm:DeviceFact}">
+                                            <StackPanel Margin="0,0,24,8" MaxWidth="280">
+                                                <TextBlock Style="{StaticResource Label}"
+                                                           Text="{Binding Name}"
+                                                           Foreground="{Binding DataContext.LabelBrush,
+                                                                        RelativeSource={RelativeSource AncestorType=Window}}"/>
+                                                <TextBlock Style="{StaticResource Body}"
+                                                           Text="{Binding Value}"
+                                                           TextWrapping="Wrap"
+                                                           Foreground="{Binding DataContext.TextBrush,
+                                                                        RelativeSource={RelativeSource AncestorType=Window}}"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </Border>
+
+                            <ItemsControl ItemsSource="{Binding Cards}"/>
+
+                            <ItemsControl ItemsSource="{Binding Cores}"
+                                          ItemTemplate="{StaticResource CoreCard}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel Orientation="Horizontal"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                            </ItemsControl>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+            </Grid>
+        </Border>
+
+        <!-- The resize corner.  In the Tk build this sat on colour-keyed
+             pixels and swallowed its own clicks; here it is a real element. -->
+        <Path x:Name="Grip"
+              Data="M 0,14 L 14,0 M 5,14 L 14,5 M 10,14 L 14,10"
+              Stroke="{Binding LabelBrush}" StrokeThickness="1.4"
+              Width="14" Height="14" Margin="0,0,15,15"
+              IsHitTestVisible="False"
+              HorizontalAlignment="Right" VerticalAlignment="Bottom"
+              Opacity="0.65"/>
+    </Grid>
+</Window>

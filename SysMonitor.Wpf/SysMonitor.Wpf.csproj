@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <!-- For NotifyIcon only. Part of the desktop framework, not a package. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <!-- WFAC010 wants DPI configured through Application.SetHighDpiMode. That
+         is for a Windows Forms UI; ours is WPF, which reads per-monitor-v2
+         from the manifest before the first window exists. The manifest stays. -->
+    <NoWarn>$(NoWarn);WFAC010</NoWarn>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>SysMonitor</AssemblyName>
+    <RootNamespace>SysMonitor</RootNamespace>
+    <Version>3.3.0</Version>
+    <FileVersion>3.3.0.0</FileVersion>
+    <Company>SysMonitor</Company>
+    <Product>SysMonitor</Product>
+    <Description>System resource monitor widget</Description>
+    <!-- Per-monitor-v2 DPI, declared before any window exists. -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\SysMonitor.ico</ApplicationIcon>
+    <!-- InvariantGlobalization must stay off: WPF data binding asks for the
+         specific culture behind en-US and throws without ICU data. -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <!-- Turning on Windows Forms adds System.Drawing and System.Windows.Forms to
+       the implicit usings, where Brush, Color, Point, Size, CheckBox and half
+       a dozen event args collide with their WPF namesakes in every file. Only
+       TrayIcon.cs wants them, and it says so itself. -->
+  <ItemGroup>
+    <Using Remove="System.Drawing" />
+    <Using Remove="System.Windows.Forms" />
+  </ItemGroup>
+
+  <!-- No package references: the same stdlib-only rule the Python port kept. -->
+
+</Project>

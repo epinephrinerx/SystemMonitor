@@ -1,27 +1,14 @@
-# .NET build output
+__pycache__/
+*.pyc
+build/
+dist/
+*.spec
+
+# .NET / WPF port
 bin/
 obj/
-out/
-publish/
+dist-wpf/
+SysMonitor.Setup/payload/
 
-# IDE / editor
-.vs/
-.vscode/
-.idea/
-*.user
-*.suo
-
-# Test results
-TestResults/
-*.trx
-coverage/
-*.coverage
-
-# Secrets / env
-.env
-*.pfx
-*.snk
-
-# OS
-Thumbs.db
-.DS_Store
+# editor backups
+*.bak
