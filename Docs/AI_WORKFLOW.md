@@ -12,10 +12,10 @@
 - Package/runtime หลัก: C# / .NET 8 (LTS)
 - Package manager: dotnet CLI / NuGet
 - Coding Owner : Claude Code
-- Writing Owner : Codex
-- Writing Model : GPT-5-Codex (ค่าเริ่มต้น ปรับได้)
-- Writing Effort : high
-- Reviwer Model : Claude (Claude Code default)
+- Writing Owner : ZCode / GLM
+- Writing Model : GLM (รุ่นเดียวกับ session ปัจจุบัน)
+- Writing Effort : medium
+- Reviwer Model : Claude Opus
 - Reviewer EFfort : high
 
 ## 2. ลำดับความสำคัญของข้อมูล
