@@ -104,4 +104,52 @@ public class ConfigMigrationTests
         Assert.AreEqual("exit", Load("""{ "close_action": "exit" }""").CloseAction,
             "an answer already saved is left alone");
     }
+
+    [TestMethod]
+    public void The_pre_4_0_config_is_carried_into_the_new_profile_folder()
+    {
+        string root = Path.Combine(Path.GetTempPath(),
+            "sysmon-migrate-" + Guid.NewGuid().ToString("N"));
+        string oldPath = Path.Combine(root, "old", "config.wpf.json");
+        string newPath = Path.Combine(root, "new", "config.wpf.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(oldPath)!);
+        File.WriteAllText(oldPath, """{ "lang": "th" }""");
+        try
+        {
+            AppConfig.CarryOverLegacyConfig(newPath, oldPath);
+
+            Assert.IsTrue(File.Exists(newPath), "the old settings move across");
+            Assert.AreEqual("th", AppConfig.LoadFrom(newPath).Lang);
+
+            // A new config the user has already written is never overwritten.
+            File.WriteAllText(newPath, """{ "lang": "en" }""");
+            AppConfig.CarryOverLegacyConfig(newPath, oldPath);
+            Assert.AreEqual("en", AppConfig.LoadFrom(newPath).Lang);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void A_missing_legacy_config_is_not_an_error()
+    {
+        string newPath = Path.Combine(Path.GetTempPath(),
+            "sysmon-migrate-" + Guid.NewGuid().ToString("N"), "config.wpf.json");
+        try
+        {
+            AppConfig.CarryOverLegacyConfig(newPath,
+                                            newPath.Replace("config.wpf.json", "absent.json"));
+            Assert.IsFalse(File.Exists(newPath));
+        }
+        finally
+        {
+            string? folder = Path.GetDirectoryName(newPath);
+            if (Directory.Exists(folder))
+            {
+                Directory.Delete(folder, recursive: true);
+            }
+        }
+    }
 }

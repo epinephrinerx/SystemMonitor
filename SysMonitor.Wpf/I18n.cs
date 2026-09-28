@@ -7,7 +7,7 @@ public sealed class Lang
     {
         ["th"] = new()
         {
-            ["title"] = "SysMonitor",
+            ["title"] = "System Monitor",
             ["connecting"] = "กำลังอ่านข้อมูลฮาร์ดแวร์...",
             ["no_data"] = "กรุณาเลือกข้อมูลที่จะแสดงผล",
             ["window_settings"] = "การตั้งค่าหน้าต่าง",
@@ -108,7 +108,7 @@ public sealed class Lang
         },
         ["en"] = new()
         {
-            ["title"] = "SysMonitor",
+            ["title"] = "System Monitor",
             ["connecting"] = "Reading hardware...",
             ["no_data"] = "Select something to display",
             ["window_settings"] = "Window",

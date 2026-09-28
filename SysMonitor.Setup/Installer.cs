@@ -18,18 +18,19 @@ namespace SysMonitor.Setup;
 /// </summary>
 public static class Installer
 {
-    public const string AppName = "SysMonitor";
+    public const string AppName = "SystemMonitor";
 
     /// <summary>
-    /// Everything this build owns is named apart from the Python build's:
+    /// Everything this build owns is named apart from the retired Python
+    /// build ("SysMonitor") and the pre-4.0 C# build ("SysMonitor.NET"):
     /// its install directory, its Run value, its uninstall key and its
-    /// shortcuts. Both are called SysMonitor and both install per-user, so
-    /// sharing any of those names would mean this installer overwriting a
-    /// working application and its uninstaller claiming the other's files.
+    /// shortcuts. Sharing any of those names would mean this installer
+    /// overwriting a working application and its uninstaller claiming the
+    /// other's files.
     /// </summary>
-    public const string Key = "SysMonitor.NET";
+    public const string Key = "SystemMonitor";
 
-    public const string DisplayName = "SysMonitor (.NET)";
+    public const string DisplayName = "System Monitor";
     /// <summary>
     /// Read from this assembly rather than written down.
     ///
@@ -43,12 +44,12 @@ public static class Installer
         typeof(Installer).Assembly.GetName().Version is System.Version version
             ? $"{version.Major}.{version.Minor}.{version.Build}"
             : "0.0.0";
-    public const string Publisher = "SysMonitor";
-    public const string ExeName = "SysMonitor.exe";
+    public const string Publisher = "System Monitor";
+    public const string ExeName = "SystemMonitor.exe";
     public const string UninstallName = "uninstall.exe";
 
     private const string UninstallKey =
-        @"Software\Microsoft\Windows\CurrentVersion\Uninstall\SysMonitor.NET";
+        @"Software\Microsoft\Windows\CurrentVersion\Uninstall\SystemMonitor";
     private const string RunKey =
         @"Software\Microsoft\Windows\CurrentVersion\Run";
 
@@ -271,7 +272,7 @@ public static class Installer
     private static void WritePayload(string destination)
     {
         using Stream? source = Assembly.GetExecutingAssembly()
-            .GetManifestResourceStream("SysMonitor.exe")
+            .GetManifestResourceStream("SystemMonitor.exe")
             ?? throw new InvalidOperationException(
                 "This setup was built without the application payload.");
         using var target = new FileStream(destination, FileMode.Create, FileAccess.Write);
@@ -281,7 +282,7 @@ public static class Installer
     /// <summary>A running copy holds its own file open; ask it to go first.</summary>
     private static void StopRunningApp()
     {
-        foreach (Process process in Process.GetProcessesByName("SysMonitor"))
+        foreach (Process process in Process.GetProcessesByName("SystemMonitor"))
         {
             try
             {

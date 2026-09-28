@@ -5,57 +5,70 @@ using Microsoft.Win32;
 namespace SysMonitor.Setup;
 
 /// <summary>
-/// The retired Python/Tk build, which installs beside this one rather than
-/// over it.
+/// The builds that install beside this one rather than over it: the retired
+/// Python/Tk build ("SysMonitor") and the pre-4.0 C# build ("SysMonitor.NET",
+/// this project before it took the name System Monitor).
 ///
-/// Both are called SysMonitor, both install per-user, and both put themselves
-/// in the Run key -- so a machine with both starts two widgets every morning
-/// and the older window lands on top of the newer one. It took a process list
-/// to work out that a screen "reverted to version 2.0" was version 2.0, still
-/// installed and still starting itself.
+/// All of them install per-user and all put themselves in the Run key -- so a
+/// machine with two of them starts two widgets every morning and the older
+/// window lands on top of the newer one. It took a process list to work out
+/// that a screen "reverted to version 2.0" was version 2.0, still installed
+/// and still starting itself.
 /// </summary>
 public static class Legacy
 {
-    /// <summary>
-    /// The old build's own keys. Deliberately not the ones this installer
-    /// uses: "SysMonitor" and "SysMonitor.NET" are different products as far
-    /// as Windows is concerned, which is the whole reason they coexist.
-    /// </summary>
-    private const string UninstallKey =
-        @"Software\Microsoft\Windows\CurrentVersion\Uninstall\SysMonitor";
     private const string RunKey =
         @"Software\Microsoft\Windows\CurrentVersion\Run";
-    private const string RunValue = "SysMonitor";
+
+    /// <summary>
+    /// The old builds' own keys. Deliberately not the ones this installer
+    /// uses: "SysMonitor", "SysMonitor.NET" and "SystemMonitor" are different
+    /// products as far as Windows is concerned, which is the whole reason
+    /// they coexist until this installer offers to clean them up.
+    /// </summary>
+    private static readonly (string UninstallKey, string RunValue)[] Identities =
+    {
+        (@"Software\Microsoft\Windows\CurrentVersion\Uninstall\SysMonitor",
+         "SysMonitor"),
+        (@"Software\Microsoft\Windows\CurrentVersion\Uninstall\SysMonitor.NET",
+         "SysMonitor.NET"),
+    };
 
     /// <summary>What was found, or null when the old build is not installed.</summary>
-    public sealed record Install(string Version, string Location, string UninstallCommand);
+    public sealed record Install(string Version, string Location, string UninstallCommand,
+                                 string RunValue, string UninstallKey);
 
-    public static Install? Find()
+    public static List<Install> Find()
     {
-        try
+        List<Install> found = new();
+        foreach ((string keyName, string runValue) in Identities)
         {
-            using RegistryKey? key = Registry.CurrentUser.OpenSubKey(UninstallKey);
-            if (key is null)
+            try
             {
-                return null;
-            }
+                using RegistryKey? key = Registry.CurrentUser.OpenSubKey(keyName);
+                if (key is null)
+                {
+                    continue;
+                }
 
-            string command = key.GetValue("QuietUninstallString") as string
-                             ?? key.GetValue("UninstallString") as string
-                             ?? string.Empty;
-            if (command.Length == 0)
-            {
-                return null;
+                string command = key.GetValue("QuietUninstallString") as string
+                                 ?? key.GetValue("UninstallString") as string
+                                 ?? string.Empty;
+                if (command.Length == 0)
+                {
+                    continue;
+                }
+                found.Add(new Install(
+                    key.GetValue("DisplayVersion") as string ?? "?",
+                    key.GetValue("InstallLocation") as string ?? string.Empty,
+                    command, runValue, keyName));
             }
-            return new Install(
-                key.GetValue("DisplayVersion") as string ?? "?",
-                key.GetValue("InstallLocation") as string ?? string.Empty,
-                command);
+            catch (Exception)
+            {
+                // a registry we cannot read is one we leave alone
+            }
         }
-        catch (Exception)
-        {
-            return null;    // a registry we cannot read is one we leave alone
-        }
+        return found;
     }
 
     /// <summary>
@@ -97,11 +110,11 @@ public static class Legacy
             // Whatever it left behind in the Run key goes too: a startup entry
             // pointing at a program that is gone is a silent failure at boot.
             using RegistryKey? run = Registry.CurrentUser.OpenSubKey(RunKey, writable: true);
-            if (run?.GetValue(RunValue) is not null)
+            if (run?.GetValue(install.RunValue) is not null)
             {
-                run.DeleteValue(RunValue, throwOnMissingValue: false);
+                run.DeleteValue(install.RunValue, throwOnMissingValue: false);
             }
-            return Find() is null;
+            return !Find().Any(found => found.UninstallKey == install.UninstallKey);
         }
         catch (Exception)
         {

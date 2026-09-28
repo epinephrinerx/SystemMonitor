@@ -90,22 +90,27 @@ public class InstallerSafetyTests
     }
 
     [TestMethod]
-    public void This_build_installs_beside_the_python_one_not_over_it()
+    public void This_build_installs_beside_the_older_ones_not_over_them()
     {
-        // Both are called SysMonitor and both install per-user. If they shared
-        // a directory, installing this one would overwrite a working
-        // application; if they shared a Run value or an uninstall key, either
-        // uninstaller would claim the other's.
-        string python = Path.Combine(
+        // The Python build and the pre-4.0 C# build are called SysMonitor and
+        // SysMonitor.NET and all install per-user. If they shared a directory,
+        // installing this one would overwrite a working application; if they
+        // shared a Run value or an uninstall key, either uninstaller would
+        // claim the other's.
+        string localPrograms = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Programs", "SysMonitor");
+            "Programs");
 
-        Assert.AreNotEqual(python.ToLowerInvariant(),
-                           Installer.InstallDir.ToLowerInvariant());
-        Assert.AreNotEqual("SysMonitor", Installer.Key);
+        foreach (string legacy in new[] { "SysMonitor", "SysMonitor.NET" })
+        {
+            string legacyDir = Path.Combine(localPrograms, legacy);
+            Assert.AreNotEqual(legacyDir.ToLowerInvariant(),
+                               Installer.InstallDir.ToLowerInvariant());
+            Assert.AreNotEqual(legacy, Installer.Key);
+        }
         Assert.IsFalse(Installer.DesktopShortcut.EndsWith(@"\SysMonitor.lnk",
                                                           StringComparison.OrdinalIgnoreCase));
-        Assert.IsFalse(Installer.StartMenuShortcut.EndsWith(@"\SysMonitor.lnk",
+        Assert.IsFalse(Installer.StartMenuShortcut.EndsWith(@"\SysMonitor (.NET).lnk",
                                                             StringComparison.OrdinalIgnoreCase));
     }
 

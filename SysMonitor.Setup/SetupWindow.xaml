@@ -1,7 +1,7 @@
 <Window x:Class="SysMonitor.Setup.SetupWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="SysMonitor"
+        Title="System Monitor"
         Width="460" Height="360"
         WindowStartupLocation="CenterScreen"
         ResizeMode="NoResize"

@@ -61,22 +61,22 @@ public class LegacyBuildTests
     [TestMethod]
     public void Looking_for_it_never_throws_whatever_the_machine_holds()
     {
-        // On this machine it may or may not be installed; either answer is
+        // On this machine they may or may not be installed; either answer is
         // correct and neither may be an exception, because this runs inside
         // the installer before anything else has happened.
-        Legacy.Install? found = Legacy.Find();
-        if (found is not null)
+        foreach (Legacy.Install found in Legacy.Find())
         {
             Assert.AreNotEqual(string.Empty, found.UninstallCommand);
         }
     }
 
     [TestMethod]
-    public void The_two_builds_do_not_share_a_single_registry_name()
+    public void No_build_shares_a_single_registry_name()
     {
         // Sharing any of these would mean one uninstaller removing the other's
         // working installation.
-        Assert.AreEqual("SysMonitor.NET", Installer.Key);
+        Assert.AreEqual("SystemMonitor", Installer.Key);
         Assert.AreNotEqual("SysMonitor", Installer.Key);
+        Assert.AreNotEqual("SysMonitor.NET", Installer.Key);
     }
 }

@@ -7,13 +7,13 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
-    <AssemblyName>SysMonitor-Setup</AssemblyName>
+    <AssemblyName>SystemMonitor-Setup</AssemblyName>
     <RootNamespace>SysMonitor.Setup</RootNamespace>
-    <Version>3.3.0</Version>
-    <FileVersion>3.3.0.0</FileVersion>
-    <Company>SysMonitor</Company>
-    <Product>SysMonitor</Product>
-    <Description>SysMonitor installer</Description>
+    <Version>4.0.0</Version>
+    <FileVersion>4.0.0.0</FileVersion>
+    <Company>System Monitor</Company>
+    <Product>System Monitor</Product>
+    <Description>System Monitor installer</Description>
     <ApplicationManifest>..\SysMonitor.Wpf\app.manifest</ApplicationManifest>
     <ApplicationIcon>..\SysMonitor.ico</ApplicationIcon>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
@@ -22,8 +22,8 @@
   <!-- The application to install, embedded so the setup is one file.
        build-wpf.cmd publishes SysMonitor.Wpf and drops the result here. -->
   <ItemGroup>
-    <EmbeddedResource Include="payload\SysMonitor.exe" LogicalName="SysMonitor.exe"
-                      Condition="Exists('payload\SysMonitor.exe')" />
+    <EmbeddedResource Include="payload\SystemMonitor.exe" LogicalName="SystemMonitor.exe"
+                      Condition="Exists('payload\SystemMonitor.exe')" />
   </ItemGroup>
 
 </Project>

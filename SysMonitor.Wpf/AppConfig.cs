@@ -140,9 +140,51 @@ public sealed class AppConfig
     public static string Path =>
         System.IO.Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "SystemMonitor", "config.wpf.json");
+
+    /// <summary>
+    /// Where builds before 4.0 kept their settings. Those builds shared the
+    /// "SysMonitor" folder with the Python one, so the folder name has to move
+    /// with the rename -- but the settings themselves are the user's, and an
+    /// upgrade must not open with the window back at its default size.
+    /// </summary>
+    public static string LegacyPath =>
+        System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "SysMonitor", "config.wpf.json");
 
-    public static AppConfig Load() => LoadFrom(Path);
+    public static AppConfig Load()
+    {
+        CarryOverLegacyConfig(Path, LegacyPath);
+        return LoadFrom(Path);
+    }
+
+    /// <summary>
+    /// Copy the pre-4.0 config into the new profile folder when the new one
+    /// has nothing yet. Separate from <see cref="Load"/> so the copy can be
+    /// tested without touching the real profile.
+    /// </summary>
+    public static void CarryOverLegacyConfig(string newPath, string oldPath)
+    {
+        try
+        {
+            if (File.Exists(newPath) || !File.Exists(oldPath))
+            {
+                return;
+            }
+            string? folder = System.IO.Path.GetDirectoryName(newPath);
+            if (folder is null)
+            {
+                return;
+            }
+            Directory.CreateDirectory(folder);
+            File.Copy(oldPath, newPath);
+        }
+        catch (Exception)
+        {
+            // A config we cannot carry over is one we start without.
+        }
+    }
 
     /// <summary>
     /// Load from a named file. Separate from <see cref="Load"/> so the

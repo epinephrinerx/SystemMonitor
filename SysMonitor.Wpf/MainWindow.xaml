@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="clr-namespace:SysMonitor.ViewModels"
         xmlns:ctl="clr-namespace:SysMonitor.Controls"
-        Title="SysMonitor"
+        Title="System Monitor"
         WindowStyle="None"
         AllowsTransparency="True"
         Background="Transparent"

@@ -44,7 +44,7 @@ internal static class Updater
         var client = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
         // The GitHub API rejects a request with no user agent outright.
         client.DefaultRequestHeaders.UserAgent.Add(
-            new ProductInfoHeaderValue("SysMonitor", Current.ToString()));
+            new ProductInfoHeaderValue("SystemMonitor", Current.ToString()));
         client.DefaultRequestHeaders.Accept.Add(
             new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         return client;
@@ -96,7 +96,7 @@ internal static class Updater
                 // The installer, not the bare executable: replacing a running
                 // program's own file is what the installer knows how to do.
                 if (file is null || url is null
-                    || !file.StartsWith("SysMonitor-Setup-", StringComparison.OrdinalIgnoreCase)
+                    || !file.StartsWith("SystemMonitor-Setup-", StringComparison.OrdinalIgnoreCase)
                     || !file.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
                     || !IsAllowed(url))
                 {
@@ -152,7 +152,7 @@ internal static class Updater
         }
 
         string path = Path.Combine(Path.GetTempPath(),
-            $"SysMonitor-Setup-{release.Version}.exe");
+            $"SystemMonitor-Setup-{release.Version}.exe");
         try
         {
             using HttpResponseMessage response = await Http
