@@ -1,5 +1,93 @@
 # Change log
 
+## v4.0.0 — 2026-09-28 — the software is called System Monitor
+
+The product's name is **System Monitor**, and from this release every
+user-visible place agrees with that. The installer lays down
+`SystemMonitor.exe` into `%LOCALAPPDATA%\Programs\SystemMonitor`, the Run
+value and the uninstall key become `SystemMonitor`, the shortcuts are named
+"System Monitor", and so are the window titles and the setup wizard. The
+distributed files are `SystemMonitor-4.0.0.exe` and
+`SystemMonitor-Setup-4.0.0.exe`; the updater looks for the new installer
+name from this release on.
+
+**Old builds are found and offered removal.** Until now the setup only
+looked for the retired Python build. It now also recognises the pre-4.0
+C# build (`SysMonitor.NET` in Add/Remove Programs) and offers to uninstall
+each of them, the same way: through their own uninstallers, with the
+settings backed up first.
+
+**Settings move with the name.** The config folder becomes
+`%APPDATA%\SystemMonitor`. On first run the pre-4.0 `config.wpf.json` is
+copied across, and an existing new config is never overwritten -- an
+upgrade still opens with the window the size the user left it.
+
+**The Python build is out of the repository.** Its source, scripts, tests
+and version stamp go; the requirement always said to keep only the C#
+build. The installer's legacy-detection code stays, because installed
+copies still need to be removable. 198 tests.
+
+## v3.3.0 — 2026-09-22 — resizing stays resizing
+
+**A resize is a resize.** Dragging the window below the size its tabs need
+used to step back to the overall view; now it stops at the view's own
+minimum, and only a button changes the displayed view.
+
+**A restart command.** Under Settings and in the context menu. It saves the
+window position first, so the new copy opens where the old one stood.
+
+**The old build gets an exit.** Every install detects the retired Python
+build and offers to remove it through its own uninstaller. (Manual removal
+deletes all of `%APPDATA%\SysMonitor`, which both builds share -- the
+installer backs up this build's settings around it, but manual removal does
+not. From 4.0 the settings folder is this build's own, and the problem is
+gone.)
+
+## v3.2.1 — 2026-09-21 — the missing drives, and the way back from the tray
+
+**Network drives are found.** Mapped drives (L:, N:, P:) were filtered out
+of the enumeration; they now appear under their own "Network drives"
+heading, with a new "Show network drives" setting. Shares are probed with
+longer timeouts, because an offline host can block SMB.
+
+**The tray icon is reachable.** The close-to-tray setting stayed "exit" on
+machines with older settings files, so the icon logic never ran; and
+Windows 11 hid the icon behind the overflow arrow. The app now promotes its
+icon out of the overflow once and remembers; drag it back and it stays.
+
+**An updates page.** Settings → Updates shows the current version and
+checks GitHub; one button downloads and launches the installer. Downloads
+are limited to GitHub hosts over HTTPS.
+
+**The installer reports its real version.** `Installer.Version` was a
+constant that went stale at 3.1.0 while the app moved on, so 3.2.0
+registered itself as 3.1.0. It is read from the assembly now. Also: the
+installer matches the app's light theme, and the settings list scrolls.
+
+## v3.2.0 — 2026-09-21 — the three views get their names, the full view gets real hardware
+
+The views are named **widget / overall / full** in code, settings keys and
+conversation; the old key names carry over on upgrade.
+
+The full view's left rail follows Task Manager's shape -- device name, type,
+reading -- so the facts panel only says what the rail does not: CPU model,
+cores/threads, virtualization, L2/L3; RAM modules by slot and slot count;
+disks grouped by physical device with type, size, bus and status, drives
+without hardware under "Virtual drives". **A GPU section arrives**: overall
+load, per-engine, adapter, driver, graphics memory. Per-core graphs become
+square tiles that reflow with the window.
+
+Temperatures get honest: the per-core badges go (one sensor, so the values
+were the package repeated), the package temperature shows once on the CPU
+heading and rail, and no GPU temperature is claimed -- Windows needs an
+undocumented driver call, which is why Task Manager says N/A too.
+
+Fresh installs start not-always-on-top, English, full opacity, closing to
+tray, every section shown, with "Start with Windows" on. Fixed: the full
+window is draggable from anywhere again; disks were missing entirely
+because `MSFT_Partition.DriveLetter` returns a signed Int16; and
+virtualization read "disabled" under a hypervisor.
+
 ## v3.1.0 — 2026-09-21 — the full view becomes a tabbed one
 
 Six requirements, all in `requirements.md`.

@@ -1,8 +1,9 @@
-# SysMonitor 3.0 — the WPF port
+# System Monitor (C# / WPF) — engineering notes
 
-C# / .NET 8 / WPF rewrite of the widget, on the `C_Sharp` branch. The goal is
-an executable with no Tcl/Tk in the process at all, keeping the 1.0.5 feature
-set. The Python build stays on `main` and is not touched.
+C# / .NET 8 / WPF build of the widget. The goal was an executable with no
+Tcl/Tk in the process at all, keeping the 1.0.5 feature set; that port is
+done, and since 4.0 the product is named System Monitor. The Python build
+this document originally accompanied left the repository in 4.0.
 
 ## Status
 

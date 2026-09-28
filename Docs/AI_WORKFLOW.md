@@ -5,7 +5,7 @@
 ## 1. ข้อมูลโครงการ
 
 - ชื่อโครงการ: SystemMonitor4.0
-- เป้าหมาย: ระบบตรวจสอบสถานะระบบคอมพิวเตอร์ (System Monitor) รุ่นที่ 4 — สรุปเป้าหมายฉบับสมบูรณ์จะสรุปจาก `Requirements.md` เมื่อเก็บ requirement ชุดแรกแล้ว
+- เป้าหมาย: System Monitor — Windows desktop widget แสดงสถานะ CPU/RAM/Disk/GPU/Network แบบ native (C#/.NET 8 WPF) ต่อยอดจาก https://github.com/epinephrinerx/SystemMonitor โดยเริ่มจาก branch C_Sharp v4.0.0 เปลี่ยนชื่อผลิตภัณฑ์จาก SysMonitor เป็น System Monitor พร้อม retire Python build
 - เจ้าของโครงการ: ผู้ดูแล repository นี้ (ระบุชื่อ/ทีมภายหลัง)
 - Production URL: N/A (ยังไม่มี)
 - Repository: local — `D:\Dev\Apps\SystemMonitor4.0` (ยังไม่มี remote)
