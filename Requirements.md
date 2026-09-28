@@ -19,7 +19,7 @@
 
 | | |
 |---|---|
-| สถานะ | ✅ ตกลงแล้ว |
+| สถานะ | 🧪 รอตรวจรับ |
 | วันที่ | 2026-09-28 |
 | แตะส่วนไหน | โค้ดจาก https://github.com/epinephrinerx/SystemMonitor tag `v3.3.0` (SysMonitor.Wpf, SysMonitor.Setup, SysMonitor.Tests, เอกสาร) |
 | เกี่ยวกับ | — |
@@ -44,8 +44,12 @@
 - ไม่แก้ upstream repo บน GitHub — ทำงานในเครื่องนี้เท่านั้น
 
 **ตรวจรับเมื่อ:**
-- [ ] ยืนยัน scope ข้อ 1–3 ข้างบน (หรือแก้ไข) ก่อนเริ่ม
-- [ ] `dotnet build` + test suite ทั้งหมดผ่านบนโค้ดหลังเก็บกวาด
-- [ ] เอกสาร (README/CHANGELOG/NEXT_STEPS) สะท้อนสถานะจริงของ C# build
-- [ ] Python source ถูกจัดการตามทางเลือกที่ยืนยัน (ลบ / ย้าย archive) และ C# build ยังทำงานได้ครบ
+- [x] ยืนยัน scope ข้อ 1–3 ข้างบน (หรือแก้ไข) ก่อนเริ่ม — ผู้ใช้รับรองครบ รวม rename เป็น "System Monitor" (2026-09-28)
+- [x] `dotnet build` + test suite ทั้งหมดผ่านบนโค้ดหลังเก็บกวาด — `dotnet test` ผ่าน 198/198 (รวม test ใหม่ 3 ตัว) และ `build-wpf.cmd` ผ่านทั้ง 4 ขั้น (tests → publish → installer → collect)
+- [x] เอกสาร (README/CHANGELOG/NEXT_STEPS) สะท้อนสถานะจริงของ C# build — CHANGELOG เติม v3.2.0/v3.2.1/v3.3.0/v4.0.0, README ใหม่, NEXT_STEPS แทนด้วยงานค้างจริง
+- [x] Python source ถูกจัดการตามทางเลือกที่ยืนยัน (ลบ / ย้าย archive) และ C# build ยังทำงานได้ครบ — ลบตาม requirement ข้อ 6 เดิม; release build ผ่าน
+
+**ผลที่ทำแล้ว (รอผู้ใช้ตรวจรับ):**
+- ไฟล์ที่ได้: `dist-wpf\SystemMonitor-4.0.0.exe` และ `dist-wpf\SystemMonitor-Setup-4.0.0.exe`
+- สิ่งที่ยังต้องตรวจบนเครื่องจริง (ทำเองไม่ได้): ติดตั้งทับเครื่องที่มี v3.x/Python เดิมเพื่อพิสูจน์ legacy removal + config migration, startup/tray/autostart, soak test
 
