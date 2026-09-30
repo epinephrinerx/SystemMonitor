@@ -33,6 +33,8 @@ public partial class MainWindow : Window
     private DateTime _lastRotate = DateTime.UtcNow;
     private bool _rotationPaused;
     private Rect _dragWorkArea;
+    private readonly ScaleTransform _contentTransform = new(1, 1);
+    private readonly ScaleTransform _badgeTransform = new(1, 1);
     private Snapshot? _shown;
     private readonly TrayIcon _tray = new();
     private Mode _mode = Mode.Widget;
@@ -200,7 +202,9 @@ public partial class MainWindow : Window
     /// reference is the default widget, so a bigger widget draws everything
     /// bigger and a smaller one everything smaller, while the buttons keep
     /// their fixed size outside the scaled layer. The paused badge rides
-    /// inside the layer, so it counter-scales to stay readable.
+    /// inside the layer, so it counter-scales to stay readable -- which also
+    /// means the title's reserved space for it and the side margins are
+    /// written in screen pixels and divided by the scale here.
     /// </summary>
     private void ApplyWidgetScale()
     {
@@ -211,8 +215,36 @@ public partial class MainWindow : Window
         double scale = WindowGeometry.ContentScale(
             WindowGeometry.Panel(Width, Height),
             WindowGeometry.WidgetReference);
-        WidgetContentHost.LayoutTransform = new ScaleTransform(scale, scale);
-        RotationPausedBadge.LayoutTransform = new ScaleTransform(1 / scale, 1 / scale);
+        _contentTransform.ScaleX = _contentTransform.ScaleY = scale;
+        _badgeTransform.ScaleX = _badgeTransform.ScaleY = 1 / scale;
+        WidgetContentHost.LayoutTransform = _contentTransform;
+        RotationPausedBadge.LayoutTransform = _badgeTransform;
+        UpdateWidgetTitleMargin(scale);
+        UpdateWidgetSideMargins(scale);
+    }
+
+    private double CurrentWidgetScale() =>
+        WindowGeometry.ContentScale(WindowGeometry.Panel(Width, Height),
+                                    WindowGeometry.WidgetReference);
+
+    /// <summary>Screen-constant space for the screen-constant badge.</summary>
+    private void UpdateWidgetTitleMargin(double scale)
+    {
+        WidgetTitle.Margin = _rotationPaused
+            ? new Thickness(72 / scale, 0, 96, 0)
+            : new Thickness(0, 0, 96, 0);
+    }
+
+    /// <summary>
+    /// The step buttons' chips reach a fixed 14px into the content area;
+    /// the content's side margin is written in scaled units, so it is
+    /// widened by the scale to keep its 16 screen pixels.
+    /// </summary>
+    private void UpdateWidgetSideMargins(double scale)
+    {
+        var side = new Thickness(16 / scale, 0, 16 / scale, 0);
+        WidgetMessage.Margin = side;
+        WidgetContentPanel.Margin = side;
     }
 
     /// <summary>The monitor's full bounds, taskbar included, in DIPs.</summary>
@@ -385,8 +417,7 @@ public partial class MainWindow : Window
         RotationPausedBadge.Text = lang["paused"];
         RotationPausedBadge.Visibility = _rotationPaused ? Visibility.Visible
                                                          : Visibility.Collapsed;
-        WidgetTitle.Margin = _rotationPaused ? new Thickness(72, 0, 96, 0)
-                                             : new Thickness(0, 0, 96, 0);
+        UpdateWidgetTitleMargin(CurrentWidgetScale());
     }
 
     // ----------------------------------------------------------- mode switch

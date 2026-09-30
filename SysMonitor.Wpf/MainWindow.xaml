@@ -295,7 +295,7 @@
                     <!-- The step buttons' chips reach 14px into the content
                          area on each side; this margin keeps every row and
                          message clear of them. -->
-                    <TextBlock Style="{StaticResource Body}"
+                    <TextBlock x:Name="WidgetMessage" Style="{StaticResource Body}"
                                Text="{Binding Message}"
                                Foreground="{Binding LabelBrush}"
                                HorizontalAlignment="Center" VerticalAlignment="Center"
@@ -303,7 +303,7 @@
                                Visibility="{Binding ShowMessage,
                                             Converter={StaticResource BoolToVisible}}"/>
 
-                    <StackPanel Margin="16,0,16,0"
+                    <StackPanel x:Name="WidgetContentPanel" Margin="16,0,16,0"
                                 Visibility="{Binding ShowMessage,
                                              Converter={StaticResource BoolToCollapsed}}">
                         <Grid Margin="0,0,0,4">
