@@ -248,12 +248,16 @@
             <Grid>
                 <!-- Mini view: the rotating one-metric summary. -->
                 <Grid x:Name="WidgetView" Margin="12">
+                    <!-- Both corner buttons sit at the same top level, their
+                         glyphs inside the top gutter: the pause glyph must
+                         clear the title row's value, and the close button
+                         keeps it company at that height. -->
                     <Button x:Name="WidgetCloseButton" Content="&#xE8BB;"
                             FontFamily="Segoe MDL2 Assets"
                             FontSize="{DynamicResource FontTiny}"
                             Width="18" Height="18" Panel.ZIndex="2"
                             HorizontalAlignment="Right" VerticalAlignment="Top"
-                            Margin="0,-4,-4,0"
+                            Margin="0,-12,-4,0"
                             Style="{StaticResource HoverIconButton}"/>
                     <!-- The pause button lives entirely in the top gutter so
                          its glyph never crosses the value text below: an
