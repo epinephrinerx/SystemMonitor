@@ -703,7 +703,12 @@ public partial class MainWindow : Window
     {
         (var min, var max) = WindowGeometry.Limits(ViewOf(_mode));
 
-        Rect window = WindowGeometry.Resize(_resizeOrigin, _resizing, delta, min, max);
+        Rect window = _mode == Mode.Widget
+            ? WindowGeometry.ResizeWidget(
+                  _resizeOrigin, _resizing, delta, min, max,
+                  WorkArea(_resizeOrigin.Left + _resizeOrigin.Width / 2,
+                           _resizeOrigin.Top + _resizeOrigin.Height / 2).Bottom)
+            : WindowGeometry.Resize(_resizeOrigin, _resizing, delta, min, max);
         Left = window.Left;
         Top = window.Top;
         Width = window.Width;

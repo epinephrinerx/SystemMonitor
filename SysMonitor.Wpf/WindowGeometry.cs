@@ -130,6 +130,100 @@ internal static class WindowGeometry
         new(width - ShadowPad * 2, height - ShadowPad * 2);
 
     /// <summary>
+    /// Where the widget ends up when an edge is dragged with its shape locked.
+    ///
+    /// The widget is the one view whose proportions are part of how it reads,
+    /// so a drag scales the whole panel rather than moving one edge: pulling
+    /// a side drives the scale and the other dimension follows, pulling a
+    /// corner scales along whichever axis the pointer moved relatively
+    /// further, and pulling the top or bottom edge widens the panel around
+    /// its middle.
+    ///
+    /// The scale is clamped so both dimensions stay inside the widget's own
+    /// limits, which is what keeps the ratio through a clamp: both axes move
+    /// by the same factor. A panel that starts outside those limits (a config
+    /// edited by hand, an older build's size) has an empty feasible range;
+    /// the fallback then picks the closest end rather than producing a
+    /// negative or runaway size.
+    ///
+    /// A horizontal drag makes the panel grow downwards, keeping its top --
+    /// unless that would push it past the bottom of the work area, in which
+    /// case it grows upwards and keeps its bottom instead.
+    /// </summary>
+    public static Rect ResizeWidget(Rect origin, Edge edge, Vector delta,
+                                    (double W, double H) min, (double W, double H) max,
+                                    double workBottom)
+    {
+        double panelW = origin.Width - ShadowPad * 2;
+        double panelH = origin.Height - ShadowPad * 2;
+        if (panelW <= 0 || panelH <= 0 || edge == Edge.None)
+        {
+            return origin;
+        }
+
+        // The feasible scale keeps the panel inside both limits at once.
+        double sMin = Math.Max(min.W / panelW, min.H / panelH);
+        double sMax = Math.Min(max.W / panelW, max.H / panelH);
+        if (sMin > sMax)
+        {
+            sMin = sMax;
+        }
+
+        double sX = edge.HasFlag(Edge.Right) ? (panelW + delta.X) / panelW
+                  : edge.HasFlag(Edge.Left) ? (panelW - delta.X) / panelW
+                  : 1.0;
+        double sY = edge.HasFlag(Edge.Bottom) ? (panelH + delta.Y) / panelH
+                  : edge.HasFlag(Edge.Top) ? (panelH - delta.Y) / panelH
+                  : 1.0;
+
+        bool corner = edge.HasFlag(Edge.Left) || edge.HasFlag(Edge.Right);
+        corner = corner && (edge.HasFlag(Edge.Top) || edge.HasFlag(Edge.Bottom));
+        double s = corner ? (Math.Abs(sX - 1) >= Math.Abs(sY - 1) ? sX : sY)
+                  : sX != 1.0 ? sX
+                  : sY;
+        s = Math.Clamp(s, sMin, sMax);
+
+        double width = panelW * s + ShadowPad * 2;
+        double height = panelH * s + ShadowPad * 2;
+
+        double left, top;
+        if (edge.HasFlag(Edge.Left))
+        {
+            left = origin.Right - width;
+        }
+        else if (edge.HasFlag(Edge.Right))
+        {
+            left = origin.Left;
+        }
+        else
+        {
+            // A vertical drag widens around the middle, so the panel keeps
+            // looking at the same spot.
+            left = origin.Left + (origin.Width - width) / 2;
+        }
+
+        if (edge.HasFlag(Edge.Top))
+        {
+            top = origin.Bottom - height;
+        }
+        else if (edge.HasFlag(Edge.Bottom))
+        {
+            top = origin.Top;
+        }
+        else
+        {
+            // A horizontal drag grows downwards unless there is no room left
+            // below, in which case it grows upwards off the same bottom edge.
+            // The shadow pad is not visible, so the work area is judged on
+            // the panel's bottom edge.
+            bool fitsDown = origin.Top + height - ShadowPad <= workBottom + 0.5;
+            top = fitsDown ? origin.Top : origin.Bottom - height;
+        }
+
+        return new Rect(left, top, width, height);
+    }
+
+    /// <summary>
     /// Which of the three views a size is being judged against.
     ///
     /// The names are the ones used in conversation about this app: the widget
