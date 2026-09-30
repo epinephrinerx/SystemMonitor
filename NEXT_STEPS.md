@@ -17,10 +17,7 @@ v3.0 แล้ว จึงถูกแทนด้วยสถานะปั�
 
 ## งานที่เหลือ
 
-1. **Release v4.0.0**: `build-wpf.cmd`, smoke test บนเครื่องจริง
-   (ติดตั้งทับเครื่องที่มี v3.x / Python build เดิม → ตรวจว่า legacy removal
-   และ config migration ทำงาน, ตรวจ startup/close/restart, tray, autostart),
-   tag และ publish release พร้อม artifact hash — ต้องได้คำสั่งก่อน
+1. ~~Release v4.0.0~~ — **เสร็จแล้ว (2026-09-30)**: tag `v4.0.0` push บน branch `v4.0.0` และ release พร้อม assets อยู่ที่ https://github.com/epinephrinerx/SystemMonitor/releases/tag/v4.0.0 (ตัวติดตั้งทับเครื่องที่มี v3.x/Python เดิมยังควรทดสอบจริงอีกครั้งเมื่อมีเครื่องเป้าหมาย)
 2. **Soak test ตามปกติใช้งาน**: วัด RSS/log ขณะ widget และ full view เป็นระยะ
    ห้ามสร้าง load ขึ้นมาทดสอบ
 3. **Repo name**: repository บน GitHub ยังชื่อ `SystemMonitor` (ติดกัน)
