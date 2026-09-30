@@ -923,6 +923,7 @@ public partial class MainWindow : Window
                         FontFamily = new FontFamily("Segoe UI, Leelawadee UI, Tahoma"),
                         FontSize = 12,
                         VerticalAlignment = VerticalAlignment.Center,
+                        TextWrapping = TextWrapping.Wrap,
                     },
                 },
             },
@@ -1060,7 +1061,11 @@ public partial class MainWindow : Window
 
         var restart = new Button
         {
-            Content = lang["restart"],
+            Content = new TextBlock
+            {
+                Text = lang["restart"],
+                TextWrapping = TextWrapping.Wrap,
+            },
             Style = (Style)FindResource("SidebarButton"),
             Margin = new Thickness(0, 10, 0, 0),
         };
@@ -1086,6 +1091,7 @@ public partial class MainWindow : Window
             Foreground = _model.MutedBrush,
             FontFamily = new FontFamily("Segoe UI, Leelawadee UI, Tahoma"),
             FontSize = 11,
+            TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 6),
         });
 
@@ -1099,12 +1105,14 @@ public partial class MainWindow : Window
             Visibility = Visibility.Collapsed,
         };
 
+        var buttonLabel = new TextBlock { TextWrapping = TextWrapping.Wrap };
         var button = new Button
         {
-            Content = lang["check_updates"],
+            Content = buttonLabel,
             Style = (Style)FindResource("SidebarButton"),
         };
-        button.Click += async (_, _) => await RunUpdateStep(button, status, lang);
+        buttonLabel.Text = lang["check_updates"];
+        button.Click += async (_, _) => await RunUpdateStep(button, status, lang, buttonLabel);
 
         panel.Children.Add(button);
         panel.Children.Add(status);
@@ -1114,7 +1122,8 @@ public partial class MainWindow : Window
     /// <summary>The release the last check found, waiting to be downloaded.</summary>
     private Updater.Release? _pendingUpdate;
 
-    private async Task RunUpdateStep(Button button, TextBlock status, Lang lang)
+    private async Task RunUpdateStep(Button button, TextBlock status, Lang lang,
+                                     TextBlock buttonLabel)
     {
         button.IsEnabled = false;
         status.Visibility = Visibility.Visible;
@@ -1138,7 +1147,7 @@ public partial class MainWindow : Window
                 {
                     _pendingUpdate = release;
                     status.Text = $"{lang["update_found"]} {release.Version}";
-                    button.Content = lang["download_install"];
+                    buttonLabel.Text = lang["download_install"];
                 }
                 return;
             }
@@ -1152,7 +1161,7 @@ public partial class MainWindow : Window
             {
                 status.Text = lang["download_failed"];
                 _pendingUpdate = null;
-                button.Content = lang["check_updates"];
+                buttonLabel.Text = lang["check_updates"];
                 return;
             }
 
@@ -1264,13 +1273,21 @@ public partial class MainWindow : Window
         Style = (Style)FindResource("Label"),
         Foreground = _model.LabelBrush,
         Margin = new Thickness(0, 10, 0, 6),
+        TextWrapping = TextWrapping.Wrap,
     };
 
     private CheckBox Check(string text, bool value, Action<bool> onChange)
     {
         var box = new CheckBox
         {
-            Content = text,
+            // A TextBlock rather than a plain string: the check box's own
+            // presenter never wraps, and Thai labels run past the sidebar's
+            // fixed width.
+            Content = new TextBlock
+            {
+                Text = text,
+                TextWrapping = TextWrapping.Wrap,
+            },
             IsChecked = value,
             Foreground = _model.MutedBrush,
             FontFamily = new FontFamily("Segoe UI, Leelawadee UI, Tahoma"),
@@ -1285,7 +1302,10 @@ public partial class MainWindow : Window
     private UIElement Choice((string Key, string Text)[] options, string selected,
                              Action<string> onChange)
     {
-        var panel = new StackPanel { Orientation = Orientation.Horizontal };
+        // A wrap panel, not a stack: a row of Thai option labels is wider
+        // than the sidebar at the default width, and a stack panel would let
+        // it run straight out of the column.
+        var panel = new WrapPanel { Orientation = Orientation.Horizontal };
         foreach ((string key, string text) in options)
         {
             var button = new RadioButton
