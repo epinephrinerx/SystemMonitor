@@ -94,6 +94,8 @@ public partial class MainWindow : Window
         ApplyFontScale();
         ApplyPanelSize();
         RestorePosition();
+        // The widget's own remembered spot beats the legacy global one.
+        RestoreViewPosition(Mode.Widget);
         BuildSidebar();
 
         CloseButton.Click += (_, _) => Close();
@@ -454,6 +456,10 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Each view keeps its own spot: note where this one sits before the
+        // window changes size or shape for the next view.
+        SavePlacement();
+
         // Leaving full screen has to put the window back where it was; the
         // config only knows panel sizes, not the position it was dragged to.
         if (_mode == Mode.Full)
@@ -474,7 +480,13 @@ public partial class MainWindow : Window
         Grip.Visibility = mode == Mode.Full ? Visibility.Collapsed : Visibility.Visible;
 
         ApplyPanelSize();
-        if (mode != Mode.Full)
+
+        // Each view returns to its own remembered spot, so a bigger view
+        // closing last never drags the widget from where the user put it.
+        // The full-screen exit's _beforeFull fallback applies when the view
+        // has never been placed.
+        bool restored = RestoreViewPosition(mode);
+        if (mode != Mode.Full || restored)
         {
             KeepOnScreen();
         }
@@ -546,7 +558,13 @@ public partial class MainWindow : Window
             }
 
             OverallView.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-            Size wanted = OverallView.DesiredSize;
+            // DesiredSize carries the layout transform: divide it back out,
+            // or the fitted size compounds the scale every time the view
+            // opens and the window drifts a little more each round.
+            double scale = WindowGeometry.ContentScale(
+                WindowGeometry.Panel(Width, Height), WindowGeometry.OverallReference);
+            Size wanted = new(OverallView.DesiredSize.Width / scale,
+                              OverallView.DesiredSize.Height / scale);
             if (wanted.Width <= 0 || wanted.Height <= 0)
             {
                 return;
@@ -559,6 +577,7 @@ public partial class MainWindow : Window
                                       AppConfig.MinOverall.H, area.Height - ShadowPad * 2);
             Width = _config.OverallW + ShadowPad * 2;
             Height = _config.OverallH + ShadowPad * 2;
+            ApplyOverallScale();
             KeepOnScreen();
         });
     }
@@ -570,8 +589,8 @@ public partial class MainWindow : Window
         _config.FullH = 0;
         _config.WidgetW = WindowGeometry.WidgetReference.Width;
         _config.WidgetH = WindowGeometry.WidgetReference.Height;
-        _config.OverallW = 630;
-        _config.OverallH = 480;
+        _config.OverallW = WindowGeometry.OverallReference.Width;
+        _config.OverallH = WindowGeometry.OverallReference.Height;
         ApplyPanelSize();
         KeepOnScreen();
         _config.Save();
@@ -858,9 +877,47 @@ public partial class MainWindow : Window
 
     private void SavePlacement()
     {
+        // The view's own spot first: switching views, or closing from one,
+        // must not drag the other views' remembered places around.
+        switch (_mode)
+        {
+            case Mode.Widget:
+                _config.WidgetPosX = Left;
+                _config.WidgetPosY = Top;
+                break;
+            case Mode.Overall:
+                _config.OverallPosX = Left;
+                _config.OverallPosY = Top;
+                break;
+            case Mode.Full:
+                _config.FullPosX = Left;
+                _config.FullPosY = Top;
+                break;
+        }
         _config.PosX = Left;
         _config.PosY = Top;
         _config.Save();
+    }
+
+    /// <summary>
+    /// Put the window back where this view was last seen. False when the
+    /// view has no remembered spot, leaving whatever placement is current.
+    /// </summary>
+    private bool RestoreViewPosition(Mode mode)
+    {
+        (double? X, double? Y) pos = mode switch
+        {
+            Mode.Widget => (_config.WidgetPosX, _config.WidgetPosY),
+            Mode.Overall => (_config.OverallPosX, _config.OverallPosY),
+            _ => (_config.FullPosX, _config.FullPosY),
+        };
+        if (pos.X is double x && pos.Y is double y)
+        {
+            Left = x;
+            Top = y;
+            return true;
+        }
+        return false;
     }
 
     // -------------------------------------------------------- context menu

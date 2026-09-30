@@ -85,6 +85,17 @@ public sealed class AppConfig
     public double? PosX { get; set; }
     public double? PosY { get; set; }
 
+    // Each view remembers its own last top-left, so closing from a bigger
+    // view never moves the widget out of the spot the user put it in. Null
+    // means that view has not been placed yet, and the legacy PosX/PosY (or
+    // the first-run default) applies.
+    public double? WidgetPosX { get; set; }
+    public double? WidgetPosY { get; set; }
+    public double? OverallPosX { get; set; }
+    public double? OverallPosY { get; set; }
+    public double? FullPosX { get; set; }
+    public double? FullPosY { get; set; }
+
     // Panel sizes in device-independent px; WPF applies DPI scaling on top.
     public double WidgetW { get; set; } = 270;
     public double WidgetH { get; set; } = 104;   // four core bars plus the heading
