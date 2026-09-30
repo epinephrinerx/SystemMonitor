@@ -31,6 +31,7 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _heartbeat = new();
 
     private DateTime _lastRotate = DateTime.UtcNow;
+    private bool _rotationPaused;
     private Snapshot? _shown;
     private readonly TrayIcon _tray = new();
     private Mode _mode = Mode.Widget;
@@ -95,6 +96,7 @@ public partial class MainWindow : Window
         WidgetButton.Click += (_, _) => SetMode(Mode.Widget);
         FullScreenButton.Click += (_, _) => SetMode(Mode.Full);
         WidgetCloseButton.Click += (_, _) => Close();
+        WidgetPauseButton.Click += (_, _) => ToggleRotationPause();
         WidgetPrevButton.Click += (_, _) => Step(-1);
         WidgetNextButton.Click += (_, _) => Step(1);
         FullCloseButton.Click += (_, _) => Close();
@@ -262,8 +264,9 @@ public partial class MainWindow : Window
             // a per-pixel-alpha window is composited in software, so an
             // unchanged frame still costs a full redraw.
             bool fresh = !ReferenceEquals(snap, _shown);
-            bool rotate = _mode == Mode.Widget && _model.ViewCount > 1
-                          && DateTime.UtcNow - _lastRotate >= RotateEvery;
+            bool rotate = ShouldRotate(_mode == Mode.Widget, _model.ViewCount,
+                                       _rotationPaused, _lastRotate,
+                                       DateTime.UtcNow, RotateEvery);
             if (!fresh && !rotate)
             {
                 return;
@@ -320,6 +323,44 @@ public partial class MainWindow : Window
         _model.ViewIndex = (_model.ViewIndex + by + _model.ViewCount) % _model.ViewCount;
         _lastRotate = DateTime.UtcNow;
         _model.UpdateWidget(_sampler.Current);
+    }
+
+    /// <summary>
+    /// Whether this tick should advance the widget's rotation. Kept static
+    /// and pure so the pause rules can be tested with invented times rather
+    /// than a live clock: a paused widget holds its page however long the
+    /// user stares at it, and stepping while paused changes the page without
+    /// ending the pause.
+    /// </summary>
+    internal static bool ShouldRotate(bool inWidgetMode, int viewCount, bool paused,
+                                      DateTime lastRotate, DateTime now, TimeSpan every)
+    {
+        return !paused && inWidgetMode && viewCount > 1 && now - lastRotate >= every;
+    }
+
+    private void ToggleRotationPause()
+    {
+        _rotationPaused = !_rotationPaused;
+        if (!_rotationPaused)
+        {
+            // Resuming starts the interval over: the stale _lastRotate would
+            // otherwise jump the page on the very next tick, straight after
+            // the user asked to keep looking at this one.
+            _lastRotate = DateTime.UtcNow;
+        }
+        ApplyRotationPauseState();
+    }
+
+    /// <summary>Icon, tooltip and badge follow the pause state and language.</summary>
+    private void ApplyRotationPauseState()
+    {
+        var lang = new Lang(_config.Lang);
+        WidgetPauseButton.Content = _rotationPaused ? "\uE768" : "\uE769";
+        WidgetPauseButton.ToolTip = _rotationPaused ? lang["resume_rotation"]
+                                                    : lang["pause_rotation"];
+        RotationPausedBadge.Text = lang["paused"];
+        RotationPausedBadge.Visibility = _rotationPaused ? Visibility.Visible
+                                                         : Visibility.Collapsed;
     }
 
     // ----------------------------------------------------------- mode switch
@@ -790,6 +831,7 @@ public partial class MainWindow : Window
         var lang = new Lang(_config.Lang);
         Sidebar.Children.Clear();
         UpdateHeaderTooltips(lang);
+        ApplyRotationPauseState();
 
         // Above the settings, because it is the way into the full view and
         // not a setting: F11 and a double-click are invisible to anyone who
