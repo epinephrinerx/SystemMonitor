@@ -22,6 +22,13 @@ settings backed up first.
 copied across, and an existing new config is never overwritten -- an
 upgrade still opens with the window the size the user left it.
 
+**The widget's contents follow its size.** The widget keeps its shape as
+it is resized, and its text, values and bars scale with it: the default
+widget draws exactly as before, a bigger one draws everything bigger.
+Someone whose saved widget is larger than the default will see larger
+text after upgrading -- drag it smaller or use the font-size slider if
+that is not wanted. Reset Size returns to the default 270×104.
+
 **The Python build is out of the repository.** Its source, scripts, tests
 and version stamp go; the requirement always said to keep only the C#
 build. The installer's legacy-detection code stays, because installed

@@ -192,6 +192,27 @@ public partial class MainWindow : Window
         }
         Width = (_isOverall ? _config.OverallW : _config.WidgetW) + ShadowPad * 2;
         Height = (_isOverall ? _config.OverallH : _config.WidgetH) + ShadowPad * 2;
+        ApplyWidgetScale();
+    }
+
+    /// <summary>
+    /// The widget's content draws at whatever size the panel dictates: the
+    /// reference is the default widget, so a bigger widget draws everything
+    /// bigger and a smaller one everything smaller, while the buttons keep
+    /// their fixed size outside the scaled layer. The paused badge rides
+    /// inside the layer, so it counter-scales to stay readable.
+    /// </summary>
+    private void ApplyWidgetScale()
+    {
+        if (_mode != Mode.Widget)
+        {
+            return;
+        }
+        double scale = WindowGeometry.ContentScale(
+            WindowGeometry.Panel(Width, Height),
+            WindowGeometry.WidgetReference);
+        WidgetContentHost.LayoutTransform = new ScaleTransform(scale, scale);
+        RotationPausedBadge.LayoutTransform = new ScaleTransform(1 / scale, 1 / scale);
     }
 
     /// <summary>The monitor's full bounds, taskbar included, in DIPs.</summary>
@@ -490,8 +511,8 @@ public partial class MainWindow : Window
         _config.OverallSized = false;
         _config.FullW = 0;
         _config.FullH = 0;
-        _config.WidgetW = 270;
-        _config.WidgetH = 90;
+        _config.WidgetW = WindowGeometry.WidgetReference.Width;
+        _config.WidgetH = WindowGeometry.WidgetReference.Height;
         _config.OverallW = 630;
         _config.OverallH = 480;
         ApplyPanelSize();
@@ -734,6 +755,7 @@ public partial class MainWindow : Window
                 _config.WidgetH = panel.Height;
                 break;
         }
+        ApplyWidgetScale();
     }
 
     private static WindowGeometry.View ViewOf(Mode mode) => mode switch

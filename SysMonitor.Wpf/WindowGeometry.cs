@@ -129,6 +129,29 @@ internal static class WindowGeometry
     public static Size Panel(double width, double height) =>
         new(width - ShadowPad * 2, height - ShadowPad * 2);
 
+    /// <summary>The panel size at which widget content draws at scale 1.</summary>
+    public static Size WidgetReference => new(270, 104);
+
+    /// <summary>
+    /// How large the widget's content draws inside a panel.
+    ///
+    /// The reference is the widget's default size: at it the content draws
+    /// exactly as it always has. A bigger panel scales the content up by the
+    /// scarcer dimension, so both text and bars grow together, and a smaller
+    /// one scales it down. The result depends only on the panel -- the
+    /// font-size slider multiplies on top of this independently.
+    /// </summary>
+    public static double ContentScale(Size panel, Size reference)
+    {
+        if (panel.Width <= 0 || panel.Height <= 0
+            || reference.Width <= 0 || reference.Height <= 0)
+        {
+            return 1.0;
+        }
+        return Math.Min(panel.Width / reference.Width,
+                        panel.Height / reference.Height);
+    }
+
     /// <summary>
     /// Where the widget ends up when an edge is dragged with its shape locked.
     ///
