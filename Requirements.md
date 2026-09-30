@@ -51,7 +51,7 @@
 
 | | |
 |---|---|
-| สถานะ | 🔨 กำลังแก้ — ผู้ใช้ตรวจไม่ผ่าน 1 จุด (2026-09-30): ปุ่ม Pause กับปุ่มปิดระดับเหลื่อมกัน |
+| สถานะ | 🧪 รอตรวจรับ — แก้ระดับปุ่มเรียบร้อย (commit 3403d6f, PASS review) |
 | วันที่ | 2026-09-30 |
 | แตะส่วนไหน | SysMonitor.Wpf: MainWindow.xaml (WidgetView ปุ่มใหม่) · MainWindow.xaml.cs (ตัวจับเวลาหมุน) · I18n.cs (tooltip) · App.xaml (สไตล์ปุ่ม) |
 | ทำแล้ว | เฟส 3: ปุ่ม pause/play + badge in-flow ในแถวหัวข้อ + ShouldRotate (pure, 7 tests เวลาคงที่) — PASS review รอบ 2 (แก้ F1 ปุ่มทับค่า, F2 badge ทับ title) |
