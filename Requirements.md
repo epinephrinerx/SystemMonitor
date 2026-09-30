@@ -151,6 +151,7 @@
 | วันที่ | 2026-09-28 |
 | แตะส่วนไหน | SysMonitor.Wpf/MainWindow.xaml (ส่วนหัวหน้า FullView) · MainWindow.xaml.cs · I18n.cs · tests |
 | เกี่ยวกับ | [[R-001]] โครงสร้าง 3 view (widget/overall/full) |
+| ทำแล้ว | เฟส 1: ปุ่ม [ไปหน้ารวม E80F] [เปิดเป็น Widget E745] [ปิด] บน Full + [Full E740] [Widget E745] [ปิด] บน Overall, tooltip สองภาษารีเฟรชตามภาษา, 4 tests — PASS review รอบ 2 (แก้ F1 test ผ่านเสมอ) + N1; เกณฑ์ Close Action (จาก R-005) ยังผ่านเพราะ OnClosing ไม่ถูกแตะ |
 
 **คุณระบุ:**
 > Requirement ที่ 2 ครับ สร้าง Icon ของหน้า Full Detail คือ ไปหน้ารวม กับ เปิดเป็น Widget
