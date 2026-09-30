@@ -358,9 +358,13 @@ public partial class MainWindow : Window
         WidgetPauseButton.Content = _rotationPaused ? "\uE768" : "\uE769";
         WidgetPauseButton.ToolTip = _rotationPaused ? lang["resume_rotation"]
                                                     : lang["pause_rotation"];
+        // The badge lives inside the title row, so it takes real space when
+        // shown: the title steps right rather than being drawn over.
         RotationPausedBadge.Text = lang["paused"];
         RotationPausedBadge.Visibility = _rotationPaused ? Visibility.Visible
                                                          : Visibility.Collapsed;
+        WidgetTitle.Margin = _rotationPaused ? new Thickness(72, 0, 96, 0)
+                                             : new Thickness(0, 0, 96, 0);
     }
 
     // ----------------------------------------------------------- mode switch
