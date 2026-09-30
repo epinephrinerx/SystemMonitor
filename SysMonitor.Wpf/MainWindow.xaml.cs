@@ -32,6 +32,7 @@ public partial class MainWindow : Window
 
     private DateTime _lastRotate = DateTime.UtcNow;
     private bool _rotationPaused;
+    private Rect _dragWorkArea;
     private Snapshot? _shown;
     private readonly TrayIcon _tray = new();
     private Mode _mode = Mode.Widget;
@@ -546,6 +547,10 @@ public partial class MainWindow : Window
         _pendingDrag = null;
         _dragOrigin = PointToScreen(point);
         _resizeOrigin = new Rect(Left, Top, Width, Height);
+        // The work area is judged once per drag, not per frame: the widget
+        // grows against the screen it started on even if the pointer crosses
+        // to another monitor mid-drag.
+        _dragWorkArea = WorkArea(Left + Width / 2, Top + Height / 2);
         _dragDpi = VisualTreeHelper.GetDpi(this);
         _resizing = edge;
         CaptureMouse();
@@ -705,9 +710,7 @@ public partial class MainWindow : Window
 
         Rect window = _mode == Mode.Widget
             ? WindowGeometry.ResizeWidget(
-                  _resizeOrigin, _resizing, delta, min, max,
-                  WorkArea(_resizeOrigin.Left + _resizeOrigin.Width / 2,
-                           _resizeOrigin.Top + _resizeOrigin.Height / 2).Bottom)
+                  _resizeOrigin, _resizing, delta, min, max, _dragWorkArea)
             : WindowGeometry.Resize(_resizeOrigin, _resizing, delta, min, max);
         Left = window.Left;
         Top = window.Top;

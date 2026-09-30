@@ -142,17 +142,18 @@ internal static class WindowGeometry
     /// The scale is clamped so both dimensions stay inside the widget's own
     /// limits, which is what keeps the ratio through a clamp: both axes move
     /// by the same factor. A panel that starts outside those limits (a config
-    /// edited by hand, an older build's size) has an empty feasible range;
-    /// the fallback then picks the closest end rather than producing a
-    /// negative or runaway size.
+    /// edited by hand, an older build's extreme shape) has an empty feasible
+    /// range; the fallback then keeps the scale nearest to where the panel
+    /// already was, rather than jumping to an arbitrary end.
     ///
-    /// A horizontal drag makes the panel grow downwards, keeping its top --
-    /// unless that would push it past the bottom of the work area, in which
-    /// case it grows upwards and keeps its bottom instead.
+    /// The work area bounds the result: a horizontal drag grows downwards
+    /// until the panel's bottom edge reaches the bottom of the work area and
+    /// then grows upwards off that same edge, and widening around the middle
+    /// is pulled back so both side edges stay on the screen.
     /// </summary>
     public static Rect ResizeWidget(Rect origin, Edge edge, Vector delta,
                                     (double W, double H) min, (double W, double H) max,
-                                    double workBottom)
+                                    Rect workArea)
     {
         double panelW = origin.Width - ShadowPad * 2;
         double panelH = origin.Height - ShadowPad * 2;
@@ -166,7 +167,16 @@ internal static class WindowGeometry
         double sMax = Math.Min(max.W / panelW, max.H / panelH);
         if (sMin > sMax)
         {
-            sMin = sMax;
+            // No scale fits both limits -- the start is already outside them.
+            // Stay as close to the starting size as the nearer end allows.
+            if (Math.Abs(1 - sMin) >= Math.Abs(1 - sMax))
+            {
+                sMin = sMax;
+            }
+            else
+            {
+                sMax = sMin;
+            }
         }
 
         double sX = edge.HasFlag(Edge.Right) ? (panelW + delta.X) / panelW
@@ -176,11 +186,13 @@ internal static class WindowGeometry
                   : edge.HasFlag(Edge.Top) ? (panelH - delta.Y) / panelH
                   : 1.0;
 
-        bool corner = edge.HasFlag(Edge.Left) || edge.HasFlag(Edge.Right);
-        corner = corner && (edge.HasFlag(Edge.Top) || edge.HasFlag(Edge.Bottom));
-        double s = corner ? (Math.Abs(sX - 1) >= Math.Abs(sY - 1) ? sX : sY)
-                  : sX != 1.0 ? sX
-                  : sY;
+        bool horizontal = edge.HasFlag(Edge.Left) || edge.HasFlag(Edge.Right);
+        bool vertical = edge.HasFlag(Edge.Top) || edge.HasFlag(Edge.Bottom);
+        double s = horizontal && vertical
+                   ? (Math.Abs(sX - 1) >= Math.Abs(sY - 1) ? sX : sY)
+                   : horizontal ? sX
+                   : vertical ? sY
+                   : 1.0;
         s = Math.Clamp(s, sMin, sMax);
 
         double width = panelW * s + ShadowPad * 2;
@@ -198,8 +210,12 @@ internal static class WindowGeometry
         else
         {
             // A vertical drag widens around the middle, so the panel keeps
-            // looking at the same spot.
+            // looking at the same spot -- but both edges stay on the screen.
             left = origin.Left + (origin.Width - width) / 2;
+            double minLeft = workArea.Left - ShadowPad;
+            double maxLeft = workArea.Right + ShadowPad - width;
+            left = minLeft <= maxLeft ? Math.Clamp(left, minLeft, maxLeft)
+                                      : workArea.Left + (workArea.Width - width) / 2;
         }
 
         if (edge.HasFlag(Edge.Top))
@@ -212,12 +228,12 @@ internal static class WindowGeometry
         }
         else
         {
-            // A horizontal drag grows downwards unless there is no room left
-            // below, in which case it grows upwards off the same bottom edge.
-            // The shadow pad is not visible, so the work area is judged on
-            // the panel's bottom edge.
-            bool fitsDown = origin.Top + height - ShadowPad <= workBottom + 0.5;
-            top = fitsDown ? origin.Top : origin.Bottom - height;
+            // A horizontal drag grows downwards until the panel's bottom
+            // reaches the work area and then grows upwards off that same
+            // edge -- one continuous rule, so the window never jumps
+            // mid-drag. The shadow pad is invisible; the work area is judged
+            // on the panel's bottom edge.
+            top = Math.Min(origin.Top, workArea.Bottom + ShadowPad - height);
         }
 
         return new Rect(left, top, width, height);

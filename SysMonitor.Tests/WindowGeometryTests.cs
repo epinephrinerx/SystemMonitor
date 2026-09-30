@@ -180,13 +180,13 @@ public class WidgetRatioResizeTests
     private static readonly (double W, double H) Min = AppConfig.MinWidget;
     private static readonly (double W, double H) Max = AppConfig.MaxWidget;
     private static readonly Rect Origin = new(100, 200, 500, 250);
-    private const double WorkBottom = 1200;
+    private static readonly Rect WorkArea = new(0, 0, 4000, 3000);
 
     private static Rect Drag(Edge edge, double dx, double dy,
-                             Rect? origin = null, double? workBottom = null)
+                             Rect? origin = null, Rect? workArea = null)
     {
         return WindowGeometry.ResizeWidget(origin ?? Origin, edge, new Vector(dx, dy),
-                                           Min, Max, workBottom ?? WorkBottom);
+                                           Min, Max, workArea ?? WorkArea);
     }
 
     private static double PanelRatio(Rect window)
@@ -244,6 +244,16 @@ public class WidgetRatioResizeTests
     }
 
     [TestMethod]
+    public void A_tied_corner_scales_both_axes_by_the_same_factor()
+    {
+        // |dX|/panelW == |dY|/panelH -- either axis may lead, but the result
+        // is the same scale on both.
+        Rect result = Drag(Edge.Right | Edge.Bottom, 47.6, 22.6);
+        Assert.AreEqual((Origin.Width - Pad) * 1.1 + Pad, result.Width, 0.5);
+        Assert.AreEqual((Origin.Height - Pad) * 1.1 + Pad, result.Height, 0.5);
+    }
+
+    [TestMethod]
     public void The_sides_opposite_the_drag_stay_exactly_where_they_were()
     {
         Rect right = Drag(Edge.Right, 70, 0);
@@ -256,18 +266,47 @@ public class WidgetRatioResizeTests
         Rect top = Drag(Edge.Top, 0, 40);
         Assert.AreEqual(Origin.Bottom, top.Bottom);
 
-        Rect corner = Drag(Edge.Right | Edge.Bottom, 70, 40);
-        Assert.AreEqual(Origin.Left, corner.Left);
-        Assert.AreEqual(Origin.Top, corner.Top);
+        Rect bottom = Drag(Edge.Bottom, 0, 40);
+        Assert.AreEqual(Origin.Top, bottom.Top);
+
+        foreach (var (edge, name) in new[]
+                 {
+                     (Edge.Right | Edge.Bottom, "right/bottom"),
+                     (Edge.Left | Edge.Bottom, "left/bottom"),
+                     (Edge.Right | Edge.Top, "right/top"),
+                     (Edge.Left | Edge.Top, "left/top"),
+                 })
+        {
+            Rect corner = Drag(edge, 70, 40);
+            if (edge.HasFlag(Edge.Left))
+            {
+                Assert.AreEqual(Origin.Right, corner.Right, 0.5, $"{name}: right moved");
+            }
+            else
+            {
+                Assert.AreEqual(Origin.Left, corner.Left, 0.5, $"{name}: left moved");
+            }
+            if (edge.HasFlag(Edge.Top))
+            {
+                Assert.AreEqual(Origin.Bottom, corner.Bottom, 0.5, $"{name}: bottom moved");
+            }
+            else
+            {
+                Assert.AreEqual(Origin.Top, corner.Top, 0.5, $"{name}: top moved");
+            }
+        }
     }
 
     [TestMethod]
     public void A_vertical_drag_widens_around_the_middle()
     {
-        Rect bottom = Drag(Edge.Bottom, 0, 50);
-        double centreBefore = Origin.Left + Origin.Width / 2;
-        double centreAfter = bottom.Left + bottom.Width / 2;
-        Assert.AreEqual(centreBefore, centreAfter, 0.5);
+        foreach (var (edge, dy) in new[] { (Edge.Bottom, 50.0), (Edge.Top, -50.0) })
+        {
+            Rect result = Drag(edge, 0, dy);
+            double centreBefore = Origin.Left + Origin.Width / 2;
+            double centreAfter = result.Left + result.Width / 2;
+            Assert.AreEqual(centreBefore, centreAfter, 0.5, $"{edge} drifted sideways");
+        }
     }
 
     [TestMethod]
@@ -289,18 +328,33 @@ public class WidgetRatioResizeTests
     }
 
     [TestMethod]
-    public void A_panel_outside_the_limits_never_goes_negative_or_runaway()
+    public void A_panel_outside_the_limits_stays_nearest_its_own_size()
     {
-        // A config written by hand could hold a size the widget no longer
-        // allows. The drag still ends with a sane window.
-        Rect invalid = new(100, 200, 300, 300);      // 276x276 panel, ratio 1
+        // A panel 1000x50 has ratio 20, which no widget size may have
+        // (900/64 is the widest the limits allow) -- no scale fits both
+        // limits, so the fallback keeps the scale nearest to 1: the result
+        // respects the maximum width and keeps the extreme shape.
+        Rect invalid = new(100, 200, 1024, 74);      // 1000x50 panel, ratio 20
         Rect result = Drag(Edge.Right, 40, 0, invalid);
         Size panel = WindowGeometry.Panel(result.Width, result.Height);
 
         Assert.IsTrue(panel.Width > 0 && panel.Height > 0);
-        Assert.IsTrue(panel.Width <= Max.W + 0.5 && panel.Height <= Max.H + 0.5);
-        Assert.AreEqual(1.0, panel.Width / panel.Height, 0.5 / 100,
+        Assert.IsTrue(panel.Width <= Max.W + 0.5, "the width ran past the maximum");
+        Assert.AreEqual(20.0, panel.Width / panel.Height, 0.5 / 100,
             "even an invalid start keeps its own shape");
+    }
+
+    [TestMethod]
+    public void What_the_config_would_store_matches_the_panel_that_came_out()
+    {
+        // MainWindow writes Panel(window) into the config and builds the
+        // window back from those values; the two representations must agree.
+        Rect result = Drag(Edge.Right, 60, 0);
+        Size panel = WindowGeometry.Panel(result.Width, result.Height);
+        double panelW = Origin.Width - Pad, panelH = Origin.Height - Pad;
+
+        Assert.AreEqual(panelW + 60, panel.Width, 0.5);
+        Assert.AreEqual(panelH + 60 * panelH / panelW, panel.Height, 0.5);
     }
 
     [TestMethod]
@@ -316,14 +370,48 @@ public class WidgetRatioResizeTests
     public void A_horizontal_drag_grows_upwards_at_the_bottom_of_the_screen()
     {
         // The widget sits just above the taskbar: growing down would push it
-        // off the work area, so it grows up off the same bottom edge instead.
+        // off the work area, so it grows up, leaving the panel's visible
+        // bottom edge resting exactly on the work area's bottom.
         double panelW = Origin.Width - Pad, panelH = Origin.Height - Pad;
-        double workBottom = Origin.Bottom - WindowGeometry.ShadowPad + 20;
-        Rect result = Drag(Edge.Right, 60, 0, workBottom: workBottom);
+        Rect tight = new(0, 0, 4000, Origin.Bottom - WindowGeometry.ShadowPad + 20);
+        Rect result = Drag(Edge.Right, 60, 0, workArea: tight);
 
-        Assert.AreEqual(Origin.Bottom, result.Bottom, 0.5,
-            "the bottom edge stays put at the screen's bottom");
+        double visibleBottom = result.Top + result.Height - WindowGeometry.ShadowPad;
+        Assert.AreEqual(tight.Bottom, visibleBottom, 0.5,
+            "the panel's bottom rests on the work area's bottom");
+        Assert.IsTrue(result.Top < Origin.Top, "the growth went upwards");
         Assert.AreEqual(Origin.Height + 60 * panelH / panelW,
                         result.Height, 0.5);
+    }
+
+    [TestMethod]
+    public void Growing_up_at_the_bottom_is_continuous_not_a_jump()
+    {
+        // Twenty pixels of room below: growth up to those twenty happens
+        // with the top pinned, and only the remainder lifts the panel's
+        // bottom edge, which then rests exactly on the work area's bottom.
+        Rect tight = new(0, 0, 4000, Origin.Bottom - WindowGeometry.ShadowPad + 20);
+        Rect small = Drag(Edge.Right, 10, 0, workArea: tight);
+        Assert.AreEqual(Origin.Top, small.Top, "the first stretch still grows down");
+
+        Rect large = Drag(Edge.Right, 200, 0, workArea: tight);
+        double visibleBottom = large.Top + large.Height - WindowGeometry.ShadowPad;
+        Assert.AreEqual(tight.Bottom, visibleBottom, 0.5,
+            "the panel's bottom rests on the work area, not past it");
+        Assert.IsTrue(large.Top < Origin.Top, "the rest of the growth went upwards");
+    }
+
+    [TestMethod]
+    public void A_vertical_drag_stays_on_the_screen_at_the_screen_edge()
+    {
+        // A widget near the right edge of a narrow screen widens around its
+        // middle when its bottom edge is dragged; the clamp pulls it back
+        // rather than letting it spill off the screen.
+        Rect narrow = new(0, 0, 1200, 3000);
+        Rect result = Drag(Edge.Bottom, 0, 200, workArea: narrow);
+        Assert.IsTrue(result.Left >= narrow.Left - WindowGeometry.ShadowPad - 0.5,
+            "the window spilled off the left of the screen");
+        Assert.IsTrue(result.Right <= narrow.Right + WindowGeometry.ShadowPad + 0.5,
+            "the window spilled off the right of the screen");
     }
 }
