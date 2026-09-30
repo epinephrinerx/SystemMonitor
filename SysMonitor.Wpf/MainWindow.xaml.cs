@@ -92,13 +92,14 @@ public partial class MainWindow : Window
         BuildSidebar();
 
         CloseButton.Click += (_, _) => Close();
-        CollapseButton.Click += (_, _) => SetMode(Mode.Widget);
+        WidgetButton.Click += (_, _) => SetMode(Mode.Widget);
         FullScreenButton.Click += (_, _) => SetMode(Mode.Full);
         WidgetCloseButton.Click += (_, _) => Close();
         WidgetPrevButton.Click += (_, _) => Step(-1);
         WidgetNextButton.Click += (_, _) => Step(1);
         FullCloseButton.Click += (_, _) => Close();
-        FullCollapseButton.Click += (_, _) => SetMode(Mode.Overall);
+        FullOverallButton.Click += (_, _) => SetMode(Mode.Overall);
+        FullWidgetButton.Click += (_, _) => SetMode(Mode.Widget);
         KeyDown += OnKeyDown;
 
         _timer.Interval = Tick;
@@ -766,6 +767,19 @@ public partial class MainWindow : Window
 
     // ------------------------------------------------------------- sidebar
     /// <summary>
+    /// The header icons say where they go only through their tooltips, and
+    /// the language can change under them, so the text is (re)set wherever
+    /// the sidebar is rebuilt -- on startup and on every language change.
+    /// </summary>
+    private void UpdateHeaderTooltips(Lang lang)
+    {
+        FullScreenButton.ToolTip = lang["full_data"];
+        WidgetButton.ToolTip = lang["open_widget"];
+        FullOverallButton.ToolTip = lang["go_overall"];
+        FullWidgetButton.ToolTip = lang["open_widget"];
+    }
+
+    /// <summary>
     /// The settings column of the expanded view.  Built in code rather than
     /// XAML because every control writes straight back into the config and
     /// then nudges the sampler; a binding layer would add indirection without
@@ -775,6 +789,7 @@ public partial class MainWindow : Window
     {
         var lang = new Lang(_config.Lang);
         Sidebar.Children.Clear();
+        UpdateHeaderTooltips(lang);
 
         // Above the settings, because it is the way into the full view and
         // not a setting: F11 and a double-click are invisible to anyone who

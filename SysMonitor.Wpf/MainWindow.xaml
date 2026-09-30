@@ -351,7 +351,7 @@
                                     FontSize="{DynamicResource FontBody}"
                                     Width="26" Height="26" Margin="0,0,8,0"
                                     Style="{StaticResource IconButton}"/>
-                            <Button x:Name="CollapseButton" Content="&#xE921;"
+                            <Button x:Name="WidgetButton" Content="&#xE745;"
                                     FontFamily="Segoe MDL2 Assets" FontSize="{DynamicResource FontBody}"
                                     Width="26" Height="26" Margin="0,0,8,0"
                                     Style="{StaticResource IconButton}"/>
@@ -435,7 +435,12 @@
                                    Foreground="{Binding TextBrush}"
                                    HorizontalAlignment="Left" VerticalAlignment="Center"/>
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                            <Button x:Name="FullCollapseButton" Content="&#xE73F;"
+                            <Button x:Name="FullOverallButton" Content="&#xE80F;"
+                                    FontFamily="Segoe MDL2 Assets"
+                                    FontSize="{DynamicResource FontBody}"
+                                    Width="26" Height="26" Margin="0,0,8,0"
+                                    Style="{StaticResource IconButton}"/>
+                            <Button x:Name="FullWidgetButton" Content="&#xE745;"
                                     FontFamily="Segoe MDL2 Assets"
                                     FontSize="{DynamicResource FontBody}"
                                     Width="26" Height="26" Margin="0,0,8,0"
