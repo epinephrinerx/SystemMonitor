@@ -20,9 +20,10 @@
 
 | | |
 |---|---|
-| สถานะ | ✅ ตกลงแล้ว (ยืนยัน 2026-09-30 — รวมการแสดงสถานะหยุดด้วยคำ ไม่ใช้สี) |
+| สถานะ | ✅ ตกลงแล้ว (ยืนยัน 2026-09-30 — รวมการแสดงสถานะหยุดด้วยคำ ไม่ใช้สี) → 🧪 รอตรวจรับ |
 | วันที่ | 2026-09-30 |
 | แตะส่วนไหน | SysMonitor.Wpf: MainWindow.xaml (WidgetView ปุ่มใหม่) · MainWindow.xaml.cs (ตัวจับเวลาหมุน) · I18n.cs (tooltip) · App.xaml (สไตล์ปุ่ม) |
+| ทำแล้ว | เฟส 3: ปุ่ม pause/play + badge in-flow ในแถวหัวข้อ + ShouldRotate (pure, 7 tests เวลาคงที่) — PASS review รอบ 2 (แก้ F1 ปุ่มทับค่า, F2 badge ทับ title) |
 | เกี่ยวกับ | [[R-004]] ปุ่มเลื่อนซ้าย/ขวา |
 
 **คุณระบุ:**
@@ -90,9 +91,10 @@
 
 | | |
 |---|---|
-| สถานะ | ✅ ตกลงแล้ว (ยืนยัน 2026-09-30) |
+| สถานะ | ✅ ตกลงแล้ว (ยืนยัน 2026-09-30) → 🧪 รอตรวจรับ |
 | วันที่ | 2026-09-28 |
 | แตะส่วนไหน | SysMonitor.Wpf/MainWindow.xaml (WidgetPrevButton/WidgetNextButton) · App.xaml (HoverIconButton) |
+| ทำแล้ว | เฟส 2: WidgetStepButton style (ชัดตลอด, chip ผูกธีม, margin −6 ในขอบ panel) — PASS review รอบ 2 (แก้ F1 chip บังเนื้อหาด้วย margin 16) |
 | เกี่ยวกับ | [[R-002]] |
 
 **คุณระบุ:**
@@ -117,9 +119,10 @@
 
 | | |
 |---|---|
-| สถานะ | ✅ ตกลงแล้ว (ยืนยัน 2026-09-30) |
+| สถานะ | ✅ ตกลงแล้ว (ยืนยัน 2026-09-30) → 🧪 รอตรวจรับ |
 | วันที่ | 2026-09-28 |
 | แตะส่วนไหน | SysMonitor.Wpf: MainWindow.xaml.cs (resize) · WindowGeometry.cs · AppConfig.cs (WidgetW/WidgetH, FontScale) |
+| ทำแล้ว | เฟส 4a: ResizeWidget (ratio ล็อกระดับ panel, clamp/fallback, work-area bound) — PASS review รอบ 3 · เฟส 4b: ContentScale + LayoutTransform layer (reference 270×104, ResetSize กลับ default, badge counter-scale, margins หน่วย screen) — PASS review รอบ 2 · ตรวจมือบนจอ (ลากจริง, FontScale ร่วม) รอผู้ใช้ |
 | เกี่ยวกับ | [[R-001]] |
 
 **คุณระบุ:**
@@ -144,7 +147,7 @@
 
 | | |
 |---|---|
-| สถานะ | ✅ ตกลงแล้ว — ยังไม่เริ่มทำ (โค้ดที่ลงมือก่อนเวลา 2026-09-28 ถูกคืนทั้งหมด; รอ handoff ไป Coding Owner วางแผน) |
+| สถานะ | 🧪 รอตรวจรับ — implement ครบ 5 เฟส ผ่าน Reviewer (Opus 5.5) ทุกเฟส |
 | วันที่ | 2026-09-28 |
 | แตะส่วนไหน | SysMonitor.Wpf/MainWindow.xaml (ส่วนหัวหน้า FullView) · MainWindow.xaml.cs · I18n.cs · tests |
 | เกี่ยวกับ | [[R-001]] โครงสร้าง 3 view (widget/overall/full) |
