@@ -84,6 +84,22 @@
             </Style.Triggers>
         </Style>
 
+        <!-- The widget's step (prev/next) buttons. Unlike the close button
+             these are always fully visible: they are the widget's only
+             navigation, and grey-on-panel at 35% opacity vanished against
+             both themes. The chip behind the glyph is the theme's own chip
+             colour, so it reads on light and dark without a new palette
+             entry. -->
+        <Style x:Key="WidgetStepButton" TargetType="Button"
+               BasedOn="{StaticResource IconButton}">
+            <Setter Property="Foreground"
+                    Value="{Binding DataContext.MutedBrush,
+                                    RelativeSource={RelativeSource AncestorType=Window}}"/>
+            <Setter Property="Background"
+                    Value="{Binding DataContext.ChipBrush,
+                                    RelativeSource={RelativeSource AncestorType=Window}}"/>
+        </Style>
+
         <!-- A full-width button in the settings sidebar. -->
         <Style x:Key="SidebarButton" TargetType="Button">
             <Setter Property="Cursor" Value="Hand"/>

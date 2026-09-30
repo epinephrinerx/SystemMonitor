@@ -256,21 +256,24 @@
                             Margin="0,-4,-4,0"
                             Style="{StaticResource HoverIconButton}"/>
 
-                    <!-- Step through the rotation rather than waiting for it. -->
+                    <!-- Step through the rotation rather than waiting for it.
+                         Six pixels of the panel gutter are kept clear of the
+                         window edge, and the chip overlaps the content area's
+                         first pixels rather than hanging outside the panel. -->
                     <Button x:Name="WidgetPrevButton" Content="&#xE76B;"
                             FontFamily="Segoe MDL2 Assets"
-                            FontSize="{DynamicResource FontTiny}"
-                            Width="18" Height="18" Panel.ZIndex="2"
+                            FontSize="{DynamicResource FontSmall}"
+                            Width="20" Height="20" Panel.ZIndex="2"
                             HorizontalAlignment="Left" VerticalAlignment="Center"
-                            Margin="-10,0,0,0"
-                            Style="{StaticResource HoverIconButton}"/>
+                            Margin="-6,0,0,0"
+                            Style="{StaticResource WidgetStepButton}"/>
                     <Button x:Name="WidgetNextButton" Content="&#xE76C;"
                             FontFamily="Segoe MDL2 Assets"
-                            FontSize="{DynamicResource FontTiny}"
-                            Width="18" Height="18" Panel.ZIndex="2"
+                            FontSize="{DynamicResource FontSmall}"
+                            Width="20" Height="20" Panel.ZIndex="2"
                             HorizontalAlignment="Right" VerticalAlignment="Center"
-                            Margin="0,0,-10,0"
-                            Style="{StaticResource HoverIconButton}"/>
+                            Margin="0,0,-6,0"
+                            Style="{StaticResource WidgetStepButton}"/>
 
                     <TextBlock Style="{StaticResource Body}"
                                Text="{Binding Message}"
