@@ -20,7 +20,8 @@
 
 | | |
 |---|---|
-| สถานะ | 🔨 กำลังทำ — ผู้ใช้ยืนยัน "010 = 1" (เจอกรณีตำแหน่งไม่ถูกเก็บจริง, ยังไม่มี step reproduce) |
+| สถานะ | 🧪 รอตรวจรับ — implement + PASS review รอบ 2 (commit 4ee5587 + 2111940) |
+| ทำแล้ว | ตำแหน่งราย view: config จำ top-left ของ widget/overall/full แยกกัน (fallback PosX/PosY เดิม), save ครบทุกเส้นทาง (ลากจบ/สลับหน้า/ซ่อน tray/ปิด/session end) และ restore ตอนเข้า view + ตอน startup — แก้สาเหตุจริงที่ Reviewer ชี้: ปิดจาก Overall แล้ว widget ถูกลากไปอยู่ตรง Overall · ถ้ายังเจอตำแหน่งหาย ให้จด step reproduce ใต้ข้อนี้ |
 | วันที่ | 2026-09-30 |
 | แตะส่วนไหน | SysMonitor.Wpf: MainWindow.xaml.cs (SavePlacement/RestorePosition/ปลายทางการลาก/OnClosing) |
 | เกี่ยวกับ | [[R-003]] |
@@ -49,7 +50,8 @@
 
 | | |
 |---|---|
-| สถานะ | 🔨 กำลังทำ — ผู้ใช้ยืนยัน "009 = 1" (สเกลทั้งหน้า Overall แบบเดียวกับ widget) |
+| สถานะ | 🧪 รอตรวจรับ — implement + PASS review รอบ 2 (commit dc0df05 + 2111940) |
+| ทำแล้ว | สเกลทั้งหน้า Overall ตามตัวเลือก (ก): OverallReference 630×480 + ApplyOverallScale (LayoutTransform บน root view — sidebar/ปุ่ม/เนื้อหาโตพร้อมกัน), แก้ drift ของ FitOverallToContent (วัด natural size ไม่รวม scale), ResetSize ใช้ OverallReference; หน้า Full ยังไม่สเกลตามข้อ "ไม่รวม" |
 
 **คุณระบุ:**
 > เมื่อปรับขนาดแล้ว ตัวอักษรในฝั่ง sidebar ไม่ได้ปรับเพิ่มขึ้นครับ
