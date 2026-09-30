@@ -167,8 +167,11 @@ internal static class WindowGeometry
         double sMax = Math.Min(max.W / panelW, max.H / panelH);
         if (sMin > sMax)
         {
-            // No scale fits both limits -- the start is already outside them.
-            // Stay as close to the starting size as the nearer end allows.
+            // No scale satisfies both limits -- the start is already outside
+            // them (a hand-edited config, an older build's extreme shape).
+            // Stay on whichever end of the broken range sits nearest the
+            // starting size; keeping the shape matters more than either
+            // single limit, so one dimension may stay outside the limits.
             if (Math.Abs(1 - sMin) >= Math.Abs(1 - sMax))
             {
                 sMin = sMax;
@@ -193,6 +196,23 @@ internal static class WindowGeometry
                    : horizontal ? sX
                    : vertical ? sY
                    : 1.0;
+
+        if (horizontal && vertical)
+        {
+            // A corner drag has one edge following the pointer and one axis
+            // following the scale -- and the followed axis has no pointer to
+            // stop it at the screen's edge. Bound the scale by the room
+            // between the anchored visible edge and the work area's far
+            // side, so the panel grows only as far as the screen allows.
+            double roomH = edge.HasFlag(Edge.Bottom)
+                ? workArea.Bottom - origin.Top - ShadowPad          // top pinned, grows down
+                : origin.Bottom - workArea.Top - ShadowPad;         // bottom pinned, grows up
+            double roomW = edge.HasFlag(Edge.Left)
+                ? origin.Right - workArea.Left - ShadowPad          // right pinned, grows left
+                : workArea.Right - origin.Left - ShadowPad;         // left pinned, grows right
+            s = Math.Min(s, Math.Min(roomH / panelH, roomW / panelW));
+        }
+
         s = Math.Clamp(s, sMin, sMax);
 
         double width = panelW * s + ShadowPad * 2;

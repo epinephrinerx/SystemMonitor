@@ -414,4 +414,66 @@ public class WidgetRatioResizeTests
         Assert.IsTrue(result.Right <= narrow.Right + WindowGeometry.ShadowPad + 0.5,
             "the window spilled off the right of the screen");
     }
+
+    [TestMethod]
+    public void A_vertical_drag_is_clamped_on_the_right_side_too()
+    {
+        // The widget sits at the left of a narrow screen; widening around
+        // the middle is pulled right so the far edge stays on the screen.
+        Rect narrow = new(0, 0, 1200, 3000);
+        Rect start = new(20, 200, 500, 250);
+        Rect result = Drag(Edge.Top, 0, -80, start, narrow);
+        Assert.IsTrue(result.Right <= narrow.Right + WindowGeometry.ShadowPad + 0.5,
+            "the window spilled off the right of the screen");
+        Assert.AreEqual(PanelRatio(start), PanelRatio(result), 0.5 / 100);
+    }
+
+    [TestMethod]
+    public void A_corner_drag_keeps_the_followed_axis_on_the_screen()
+    {
+        // Reproducing the review's case: the widget sits 20px above the work
+        // area's bottom and the left/bottom corner is dragged sideways. The
+        // width follows the pointer, but the height follows the scale -- and
+        // the scale now stops where the bottom edge would leave the screen.
+        Rect tight = new(0, 0, 4000, 448);
+        Rect result = Drag(Edge.Left | Edge.Bottom, -135, 0, workArea: tight);
+
+        double visibleBottom = result.Top + result.Height - WindowGeometry.ShadowPad;
+        double visibleLeft = result.Left + WindowGeometry.ShadowPad;
+        Assert.IsTrue(visibleBottom <= tight.Bottom + 0.5,
+            $"the followed axis pushed the bottom to {visibleBottom}, past the work area");
+        Assert.IsTrue(visibleLeft >= tight.Left - 0.5,
+            "the dragged edge went past the left of the screen");
+        Assert.AreEqual(PanelRatio(Origin), PanelRatio(result), 0.5 / 100,
+            "the work-area bound broke the shape");
+    }
+
+    [TestMethod]
+    public void A_normal_corner_drag_is_not_disturbed_by_the_work_bound()
+    {
+        // On a generous screen the corner behaves exactly as before: the
+        // pointer's axis leads and the other follows the shape.
+        double panelW = Origin.Width - Pad, panelH = Origin.Height - Pad;
+        Rect result = Drag(Edge.Left | Edge.Bottom, -60, 0);
+
+        Assert.AreEqual(Origin.Width + 60, result.Width, 0.5);
+        Assert.AreEqual(Origin.Height + 60 * panelH / panelW, result.Height, 0.5);
+    }
+
+    [TestMethod]
+    public void The_fallback_picks_whichever_end_is_nearest_the_start()
+    {
+        // A panel 1800x100 (ratio 18) sits outside the limits from both
+        // directions: no scale satisfies them. The scale nearest 1 wins --
+        // here the minimum end, so the height lands on its limit while the
+        // width stays over -- and the shape survives either way.
+        Rect invalid = new(0, 0, 1824, 124);         // 1800x100 panel, ratio 18
+        Rect result = Drag(Edge.Right, 10, 0, invalid);
+        Size panel = WindowGeometry.Panel(result.Width, result.Height);
+
+        Assert.AreEqual(18.0, panel.Width / panel.Height, 0.5 / 100,
+            "even an unsatisfiable start keeps its own shape");
+        Assert.AreEqual(1800 * 0.64, panel.Width, 0.5,
+            "the near end of the broken range is the minimum scale");
+    }
 }
