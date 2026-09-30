@@ -19,12 +19,15 @@ public class NavigationButtonTests
     [TestMethod]
     public void The_navigation_keys_exist_in_both_languages()
     {
+        // Lang falls back to en and finally to the key's own name, so a key
+        // that is gone reads back as the key itself -- the one value that is
+        // never a real translation.
         foreach (string key in NavigationKeys)
         {
-            Assert.AreNotEqual(string.Empty, new Lang("th")[key],
-                $"{key} (th) is empty");
-            Assert.AreNotEqual(string.Empty, new Lang("en")[key],
-                $"{key} (en) is empty");
+            Assert.AreNotEqual(key, new Lang("th")[key],
+                $"{key} is missing from the Thai strings");
+            Assert.AreNotEqual(key, new Lang("en")[key],
+                $"{key} is missing from the English strings");
         }
     }
 
@@ -55,10 +58,10 @@ public class NavigationButtonTests
     {
         foreach (string key in new[] { "collapse", "expand_hint", "fullscreen", "exit_fullscreen" })
         {
-            Assert.AreNotEqual(string.Empty, new Lang("th")[key],
-                $"{key} (th) is gone, but the context menu still uses it");
-            Assert.AreNotEqual(string.Empty, new Lang("en")[key],
-                $"{key} (en) is gone, but the context menu still uses it");
+            Assert.AreNotEqual(key, new Lang("th")[key],
+                $"{key} is gone from the Thai strings, but the context menu still uses it");
+            Assert.AreNotEqual(key, new Lang("en")[key],
+                $"{key} is gone from the English strings, but the context menu still uses it");
         }
     }
 }
