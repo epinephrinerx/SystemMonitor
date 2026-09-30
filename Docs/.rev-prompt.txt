@@ -1,15 +1,12 @@
 คุณคือ Reviewer ของโปรเจกต์นี้ ตามบทบาทใน Docs/AI_WORKFLOW.md §5.1–5.2 — ตรวจ diff อย่างอิสระ โดยเน้น correctness, regression, security และ tests ที่ขาด คุณทำได้แค่อ่าน ห้ามแก้ไฟล์ใด ๆ
 
-บริบท:
-- แผนที่เฟสนี้อ้างอิง: Docs/CODING-OWNER-PLAN-2026-09-30.md (หัวข้อ "เฟส 1" และแถว "1 (R-002)" ในตารางข้อสังเกตสำหรับ Reviewer)
-- requirement ต้นทาง: Requirements.md ข้อ R-002 (และ R-005 ที่ถูกดูดเกณฑ์เข้ามา)
-- โค้ดตั้งต้น: commit ecc12ee · งานที่ต้องตรวจ: commit 7d60f69 (diff ecc12ee..7d60f69)
-
-สิ่งที่เฟสนี้ทำ: เปลี่ยนปุ่ม header หน้า Overall และ Full เป็นปุ่มนำทางใหม่พร้อม tooltip สองภาษา (ผูกผ่าน UpdateHeaderTooltips ที่ถูกเรียกจาก BuildSidebar), เพิ่มคีย์ i18n go_overall/open_widget, เพิ่ม NavigationButtonTests 4 test
+บริบท: นี่คือการรีวิวซ้ำหลังแก้ findings รอบก่อน
+- รอบแรก: รายงานอยู่ที่ Docs/REVIEW-phase1-R002.md — VERDICT: FAIL จาก finding F1 (test 2 ตัวผ่านเสมอเพราะ Lang คืนชื่อคีย์เมื่อหาไม่เจอ)
+- งานที่ตรวจ: diff ecc12ee..127a84b รวม 2 commit — งานเฟส 1 (R-002) ที่ 7d60f69 และการแก้ F1 ที่ 127a84b
+- การแก้ F1: เปลี่ยน assertion เป็น AreNotEqual(key, lang[key]) ทั้งสองภาษา และผู้แก้พิสูจน์แล้วว่าลบคีย์ ["collapse"] ออกจริง → test แดง 1/202, คืนคีย์ → เขียว 202/202
 
 งานของคุณ:
-1. อ่าน diff (`git diff ecc12ee..7d60f69`) และโค้ดรอบข้างที่เกี่ยวข้อง
-2. ตรวจตามจุดเสี่ยงที่แผนระบุสำหรับเฟส 1 รวมถึงสิ่งที่แผนมองข้าม
-3. รัน `dotnet test SysMonitor.Tests` (ใช้ Bash ได้) และรายงานผลจริง
-4. รายงาน findings ทุกข้อที่พิสูจน์ได้ พร้อม file:line · ผลกระทบ · วิธี reproduce — แยกเป็น "ต้องแก้" กับ "สังเกตไว้" ถ้าไม่มี finding ที่ต้องแก้ก็พูดตรงไปตรงมา
-5. ปิดท้ายบรรทัดเดียว: VERDICT: PASS หรือ VERDICT: FAIL พร้อมเหตุผลสั้น ๆ
+1. ตรวจว่า F1 ถูกแก้ถูกวิธีและครบ (อ่าน diff 7d60f69..127a84b และไฟล์ test เต็ม)
+2. รัน `dotnet test SysMonitor.Tests` รายงานผลจริง
+3. ตรวจซ้ำว่าไม่มี finding ใหม่จากการแก้ และ findings "สังเกตไว้" รอบก่อนยังอยู่ในความรับผิดชอบของผู้ใช้ (D1 icon, รายงานตรวจด้วยมือ) — ไม่ต้องนับเป็น FAIL ของโค้ด
+4. ปิดท้ายบรรทัดเดียว: VERDICT: PASS หรือ VERDICT: FAIL พร้อมเหตุผลสั้น ๆ

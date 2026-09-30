@@ -62,6 +62,12 @@ public class NavigationButtonTests
                 $"{key} is gone from the Thai strings, but the context menu still uses it");
             Assert.AreNotEqual(key, new Lang("en")[key],
                 $"{key} is gone from the English strings, but the context menu still uses it");
+            // A key missing from Thai alone silently falls back to English,
+            // which both key-name checks above accept -- the two translations
+            // being the same is the only visible symptom.
+            Assert.AreNotEqual(new Lang("th")[key], new Lang("en")[key],
+                $"{key} reads the same in both languages, which is what a "
+                + "Thai string falling back to English looks like");
         }
     }
 }
