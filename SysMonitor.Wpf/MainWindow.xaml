@@ -494,11 +494,23 @@
                         </StackPanel>
                     </Grid>
 
-                    <ScrollViewer Grid.Row="1" Grid.Column="0"
-                                  VerticalScrollBarVisibility="Auto"
-                                  HorizontalScrollBarVisibility="Disabled"
-                                  Margin="0,0,12,0">
-                        <ItemsControl ItemsSource="{Binding Tabs}" MinWidth="128">
+                    <Grid Grid.Row="1" Grid.Column="0" Margin="0,0,12,0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <!-- The rail's own navigation pair, rebuilt per
+                             language from code; pinned above the scrolling
+                             tab list so they stay reachable however many
+                             devices are listed. Its width follows the tab
+                             list's, so long labels wrap instead of widening
+                             the rail. -->
+                        <StackPanel x:Name="FullNav" Grid.Row="0" Margin="0,0,0,8"
+                                    Width="{Binding ActualWidth, ElementName=TabsList}"/>
+                        <ScrollViewer Grid.Row="1"
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled">
+                            <ItemsControl x:Name="TabsList" ItemsSource="{Binding Tabs}" MinWidth="128">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate DataType="{x:Type vm:DeviceTab}">
                                     <Button Style="{StaticResource DeviceTabButton}"
@@ -525,7 +537,8 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
-                    </ScrollViewer>
+                        </ScrollViewer>
+                    </Grid>
 
                     <!-- The selected device: what it is across the top, then
                          its graphs down the page. -->
