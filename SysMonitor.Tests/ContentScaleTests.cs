@@ -72,6 +72,14 @@ public class ContentScaleTests
     }
 
     [TestMethod]
+    public void The_overall_reference_is_the_configured_default_overall()
+    {
+        var fresh = new AppConfig();
+        Assert.AreEqual(fresh.OverallW, WindowGeometry.OverallReference.Width);
+        Assert.AreEqual(fresh.OverallH, WindowGeometry.OverallReference.Height);
+    }
+
+    [TestMethod]
     public void The_scale_round_trips_through_a_resized_window()
     {
         // A ratio-locked drag to twice the reference window yields exactly

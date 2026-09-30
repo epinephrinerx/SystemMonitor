@@ -35,6 +35,7 @@ public partial class MainWindow : Window
     private Rect _dragWorkArea;
     private readonly ScaleTransform _contentTransform = new(1, 1);
     private readonly ScaleTransform _badgeTransform = new(1, 1);
+    private readonly ScaleTransform _overallTransform = new(1, 1);
     private Snapshot? _shown;
     private readonly TrayIcon _tray = new();
     private Mode _mode = Mode.Widget;
@@ -106,6 +107,11 @@ public partial class MainWindow : Window
         FullOverallButton.Click += (_, _) => SetMode(Mode.Overall);
         FullWidgetButton.Click += (_, _) => SetMode(Mode.Widget);
         KeyDown += OnKeyDown;
+
+        // Windows can end the session without the window ever being asked to
+        // close -- a shutdown or logoff while the widget sits in the tray --
+        // so the placement goes to disk on the session's way out as well.
+        Application.Current.SessionEnding += (_, _) => SavePlacement();
 
         _timer.Interval = Tick;
         _timer.Tick += OnTick;
@@ -195,6 +201,7 @@ public partial class MainWindow : Window
         Width = (_isOverall ? _config.OverallW : _config.WidgetW) + ShadowPad * 2;
         Height = (_isOverall ? _config.OverallH : _config.WidgetH) + ShadowPad * 2;
         ApplyWidgetScale();
+        ApplyOverallScale();
     }
 
     /// <summary>
@@ -245,6 +252,25 @@ public partial class MainWindow : Window
         var side = new Thickness(16 / scale, 0, 16 / scale, 0);
         WidgetMessage.Margin = side;
         WidgetContentPanel.Margin = side;
+    }
+
+    /// <summary>
+    /// The overall view draws at whatever size its window is, measured
+    /// against the default overall panel -- the same rule the widget uses,
+    /// applied to the whole view: sidebar, corner buttons and content scale
+    /// together.
+    /// </summary>
+    private void ApplyOverallScale()
+    {
+        if (_mode != Mode.Overall)
+        {
+            return;
+        }
+        double scale = WindowGeometry.ContentScale(
+            WindowGeometry.Panel(Width, Height),
+            WindowGeometry.OverallReference);
+        _overallTransform.ScaleX = _overallTransform.ScaleY = scale;
+        OverallView.LayoutTransform = _overallTransform;
     }
 
     /// <summary>The monitor's full bounds, taskbar included, in DIPs.</summary>
@@ -787,6 +813,7 @@ public partial class MainWindow : Window
                 break;
         }
         ApplyWidgetScale();
+        ApplyOverallScale();
     }
 
     private static WindowGeometry.View ViewOf(Mode mode) => mode switch

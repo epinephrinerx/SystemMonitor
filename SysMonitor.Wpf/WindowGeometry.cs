@@ -132,6 +132,9 @@ internal static class WindowGeometry
     /// <summary>The panel size at which widget content draws at scale 1.</summary>
     public static Size WidgetReference => new(270, 104);
 
+    /// <summary>The panel size at which overall content draws at scale 1.</summary>
+    public static Size OverallReference => new(630, 480);
+
     /// <summary>
     /// How large the widget's content draws inside a panel.
     ///
