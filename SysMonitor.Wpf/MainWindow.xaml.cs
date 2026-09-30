@@ -901,7 +901,7 @@ public partial class MainWindow : Window
         // Above the settings, because it is the way into the full view and
         // not a setting: F11 and a double-click are invisible to anyone who
         // has not been told about them.
-        Sidebar.Children.Add(NavButton("\uE740", lang["full_data"],
+        Sidebar.Children.Add(NavButton("\uE9D9", lang["full_data"],
             () => SetMode(Mode.Full)));
         Sidebar.Children.Add(NavButton("\uE745", lang["open_widget"],
             () => SetMode(Mode.Widget)));
@@ -1262,35 +1262,42 @@ public partial class MainWindow : Window
     /// <summary>
     /// A sidebar-style navigation button: an MDL2 glyph beside a two-language
     /// label that wraps. Shared by the overall sidebar and the full view's
-    /// tab rail, which is why it takes its click target with it.
+    /// tab rail, which is why it takes its click target with it. The pair
+    /// sits in a fixed Auto/star grid rather than a horizontal stack --
+    /// a stack hands its children unlimited width, and a label that can
+    /// never run out of room never wraps.
     /// </summary>
     private Button NavButton(string glyph, string text, Action onClick)
     {
+        var icon = new TextBlock
+        {
+            Text = glyph,
+            FontFamily = new FontFamily("Segoe MDL2 Assets"),
+            FontSize = 13,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        var label = new TextBlock
+        {
+            Text = text,
+            FontFamily = new FontFamily("Segoe UI, Leelawadee UI, Tahoma"),
+            FontSize = 12,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextWrapping = TextWrapping.Wrap,
+        };
+        Grid.SetColumn(icon, 0);
+        Grid.SetColumn(label, 1);
         var button = new Button
         {
             Style = (Style)FindResource("SidebarButton"),
-            Content = new StackPanel
+            Content = new Grid
             {
-                Orientation = Orientation.Horizontal,
-                Children =
+                ColumnDefinitions =
                 {
-                    new TextBlock
-                    {
-                        Text = glyph,
-                        FontFamily = new FontFamily("Segoe MDL2 Assets"),
-                        FontSize = 13,
-                        VerticalAlignment = VerticalAlignment.Center,
-                        Margin = new Thickness(0, 0, 8, 0),
-                    },
-                    new TextBlock
-                    {
-                        Text = text,
-                        FontFamily = new FontFamily("Segoe UI, Leelawadee UI, Tahoma"),
-                        FontSize = 12,
-                        VerticalAlignment = VerticalAlignment.Center,
-                        TextWrapping = TextWrapping.Wrap,
-                    },
+                    new ColumnDefinition { Width = GridLength.Auto },
+                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
                 },
+                Children = { icon, label },
             },
         };
         button.Click += (_, _) => onClick();
