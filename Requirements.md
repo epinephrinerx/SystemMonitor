@@ -20,7 +20,7 @@
 
 | | |
 |---|---|
-| สถานะ | 🔨 กำลังทำ — ผู้ใช้สั่งแก้โดยตรงพร้อมเกณฑ์ครบ (2026-09-30) |
+| สถานะ | 🧪 รอตรวจรับ — แก้แล้ว (commit e203394, PASS review) |
 | วันที่ | 2026-09-30 |
 | แตะส่วนไหน | SysMonitor.Wpf/MainWindow.xaml.cs: Heading · Check · Choice · ปุ่มใน sidebar |
 | เกี่ยวกับ | [[R-002]] (sidebar ของ Overall) |
