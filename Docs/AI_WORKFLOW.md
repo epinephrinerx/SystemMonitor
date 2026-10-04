@@ -7,8 +7,8 @@
 - ชื่อโครงการ: SystemMonitor4.0
 - เป้าหมาย: System Monitor — Windows desktop widget แสดงสถานะ CPU/RAM/Disk/GPU/Network แบบ native (C#/.NET 8 WPF) ต่อยอดจาก https://github.com/epinephrinerx/SystemMonitor โดยเริ่มจาก branch C_Sharp v4.0.0 เปลี่ยนชื่อผลิตภัณฑ์จาก SysMonitor เป็น System Monitor พร้อม retire Python build
 - เจ้าของโครงการ: ผู้ดูแล repository นี้ (ระบุชื่อ/ทีมภายหลัง)
-- Production URL: N/A (ยังไม่มี)
-- Repository: local — `D:\Dev\Apps\SystemMonitor4.0` (ยังไม่มี remote)
+- Production URL: N/A (ไม่มีเว็บ; release อยู่ที่ https://github.com/epinephrinerx/SystemMonitor/releases/tag/v4.0.0)
+- Repository: local — `D:\Dev\Apps\SystemMonitor4.0` (remote `upstream` = https://github.com/epinephrinerx/SystemMonitor; v4.0.0 push และ release แล้ว)
 - Package/runtime หลัก: C# / .NET 8 (LTS)
 - Package manager: dotnet CLI / NuGet
 - Coding Owner : Claude Code — Sonnet 5.5 — effort high
