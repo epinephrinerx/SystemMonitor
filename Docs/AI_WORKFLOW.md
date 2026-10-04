@@ -11,12 +11,11 @@
 - Repository: local — `D:\Dev\Apps\SystemMonitor4.0` (ยังไม่มี remote)
 - Package/runtime หลัก: C# / .NET 8 (LTS)
 - Package manager: dotnet CLI / NuGet
-- Coding Owner : Claude Code
-- Writing Owner : ZCode / GLM
-- Writing Model : GLM (รุ่นเดียวกับ session ปัจจุบัน)
-- Writing Effort : medium
-- Reviwer Model : Claude Opus
-- Reviewer EFfort : high
+- Coding Owner : Claude Code — Sonnet 5.5 — effort high
+- Writing Owner : agy — Gemini 3.8 Flash — effort high
+- Reviewer 1 : Claude Code — Fable 5.1 — effort high
+- Reviewer 2 : Codex — GPT-6.1-Sol — effort high
+- Integrator : Claude Code — Opus 5.5 — effort high
 
 ## 2. ลำดับความสำคัญของข้อมูล
 
