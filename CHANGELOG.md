@@ -1,6 +1,6 @@
 # Change log
 
-## Unreleased -- the RAM tab lists what is in memory
+## v4.2.0 — 2026-10-07 — the RAM tab lists what is in memory
 
 **Processes.** The full view's RAM tab now lists every process, grouped by name
 (thirty `chrome` processes are one line with a count and a total), biggest

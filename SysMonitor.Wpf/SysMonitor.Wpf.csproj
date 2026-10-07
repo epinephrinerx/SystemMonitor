@@ -15,8 +15,8 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>SystemMonitor</AssemblyName>
     <RootNamespace>SysMonitor</RootNamespace>
-    <Version>4.1.0</Version>
-    <FileVersion>4.1.0.0</FileVersion>
+    <Version>4.2.0</Version>
+    <FileVersion>4.2.0.0</FileVersion>
     <Company>System Monitor</Company>
     <Product>System Monitor</Product>
     <Description>System resource monitor widget</Description>

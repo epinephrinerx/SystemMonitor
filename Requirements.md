@@ -20,7 +20,7 @@
 
 | | |
 |---|---|
-| สถานะ | 🧪 รอตรวจรับ — implement แล้ว อยู่ใน Unreleased ของ CHANGELOG (ยังไม่ release) |
+| สถานะ | ✔️ เสร็จแล้ว — ผู้ใช้ตรวจรับ 2026-10-07 ("ตรวจรับและทำเลยครับ") · release v4.2.0 |
 | วันที่ | 2026-10-07 |
 | แตะส่วนไหน | SysMonitor.Wpf: Sensors (ตัวอ่าน process/service ใหม่) · Model/Snapshot.cs · ViewModels · หน้า Full (แท็บ RAM) · I18n.cs · ขอสิทธิ์ admin เฉพาะตอนสั่ง kill/stop |
 | เกี่ยวกับ | [[R-014]] (แบบแผนเมนูคลิกขวาและเปิดเครื่องมือของ Windows) |
