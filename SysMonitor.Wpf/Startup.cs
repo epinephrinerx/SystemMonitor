@@ -13,10 +13,16 @@ public static class Startup
 {
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     /// <summary>
-    /// Not "SysMonitor": the Python build claims that value, and both install
-    /// per-user for the same account.
+    /// The same value the installer writes (Installer.Key). Not "SysMonitor":
+    /// the Python build claims that one, and both install per-user.
     /// </summary>
-    private const string ValueName = "SysMonitor.NET";
+    public const string ValueName = "SystemMonitor";
+
+    /// <summary>
+    /// What the pre-4.0 C# build wrote. A second Run entry makes Windows start
+    /// the app twice at logon, so it is cleaned up whenever the box is set.
+    /// </summary>
+    private const string LegacyValueName = "SysMonitor.NET";
 
     /// <summary>The command the Run key should hold for this installation.</summary>
     public static string Command(string exePath) => "\"" + exePath + "\"";
@@ -40,6 +46,7 @@ public static class Startup
         try
         {
             using RegistryKey key = Registry.CurrentUser.CreateSubKey(RunKey);
+            key.DeleteValue(LegacyValueName, throwOnMissingValue: false);
             if (enabled)
             {
                 key.SetValue(ValueName, Command(exePath));

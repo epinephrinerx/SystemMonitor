@@ -1440,10 +1440,10 @@ public partial class MainWindow : Window
     /// Start a fresh copy and stand down.
     ///
     /// Settings are written first, so the new process reads the state this one
-    /// was in rather than whatever was last saved. There is no single-instance
-    /// lock to trip over, but the two do overlap for a moment, which is why
-    /// the old one shuts down immediately afterwards rather than waiting to be
-    /// closed.
+    /// was in rather than whatever was last saved. The two overlap for a
+    /// moment, which is why the old one shuts down immediately afterwards
+    /// rather than waiting to be closed: the new one is waiting on the
+    /// single-instance lock the old one still holds.
     /// </summary>
     private void Restart()
     {

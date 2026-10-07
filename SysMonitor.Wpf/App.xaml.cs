@@ -7,11 +7,23 @@ namespace SysMonitor;
 
 public partial class App : Application
 {
+    /// <summary>Long enough for a Restart() hand-over, short enough to notice.</summary>
+    private static readonly TimeSpan HandOverWait = TimeSpan.FromSeconds(5);
+
     private Sampler? _sampler;
+    private SingleInstance? _instance;
 
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        _instance = SingleInstance.TryAcquire(SingleInstance.DefaultName, HandOverWait);
+        if (_instance is null)
+        {
+            // Already running: this copy was started twice. Leave the first one alone.
+            Shutdown();
+            return;
+        }
 
         // A widget nobody is watching must not die silently: log first, then
         // let the normal crash path run.
@@ -41,7 +53,11 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         _sampler?.Dispose();
-        Diag.Write("--- exit");
+        if (_instance is not null)
+        {
+            Diag.Write("--- exit");
+            _instance.Dispose();
+        }
         base.OnExit(e);
     }
 }

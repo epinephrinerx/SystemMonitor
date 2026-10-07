@@ -1,5 +1,18 @@
 # Change log
 
+## Unreleased — one copy at a time
+
+**Only one System Monitor runs per Windows session.** A second launch (a
+doubled start at logon, a double click) now waits a few seconds for the
+first to finish -- Restart hands over this way -- and then exits instead of
+opening a second window. The running copy is never killed.
+
+**The "Start with Windows" box and the installer now agree.** The sidebar
+checkbox still wrote the pre-4.0 `SysMonitor.NET` Run value while the
+installer writes `SystemMonitor`, so ticking it added a second entry and
+Windows started the app twice. Both use `SystemMonitor` now, and the stale
+`SysMonitor.NET` value is removed whenever the box is set.
+
 ## v4.0.0 — 2026-09-28 — the software is called System Monitor
 
 The product's name is **System Monitor**, and from this release every

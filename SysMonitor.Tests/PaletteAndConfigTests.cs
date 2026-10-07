@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using SysMonitor.Setup;
 
 namespace SysMonitor.Tests;
 
@@ -150,10 +151,55 @@ public class ConfigTests
 public class StartupTests
 {
     [TestMethod]
+    public void The_app_and_the_installer_share_one_run_value()
+    {
+        // Two names means two Run entries, and Windows starts the app twice.
+        Assert.AreEqual(Installer.Key, Startup.ValueName);
+    }
+
+    [TestMethod]
     public void The_run_command_is_quoted_for_a_path_with_spaces()
     {
         Assert.AreEqual("\"C:\\Program Files\\SysMonitor.exe\"",
             Startup.Command(@"C:\Program Files\SysMonitor.exe"));
+    }
+}
+
+[TestClass]
+public class SingleInstanceTests
+{
+    private static string UniqueName() => @"Local\SystemMonitor.Test." + Guid.NewGuid().ToString("N");
+
+    [TestMethod]
+    public void A_second_copy_is_refused_while_the_first_is_running()
+    {
+        string name = UniqueName();
+        using SingleInstance? first = SingleInstance.TryAcquire(name, TimeSpan.Zero);
+        Assert.IsNotNull(first);
+
+        // The mutex is owned by this thread, so probe from another one.
+        SingleInstance? second = null;
+        var probe = new Thread(() => second = SingleInstance.TryAcquire(name, TimeSpan.FromMilliseconds(100)));
+        probe.Start();
+        probe.Join();
+
+        Assert.IsNull(second);
+    }
+
+    [TestMethod]
+    public void A_new_copy_takes_over_once_the_old_one_lets_go()
+    {
+        string name = UniqueName();
+        SingleInstance? first = SingleInstance.TryAcquire(name, TimeSpan.Zero);
+        Assert.IsNotNull(first);
+        first.Dispose();
+
+        SingleInstance? second = null;
+        var probe = new Thread(() => second = SingleInstance.TryAcquire(name, TimeSpan.FromSeconds(1)));
+        probe.Start();
+        probe.Join();
+
+        Assert.IsNotNull(second);
     }
 }
 
