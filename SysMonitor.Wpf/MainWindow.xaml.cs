@@ -164,6 +164,7 @@ public partial class MainWindow : Window
         // DPI are real. A position saved against a monitor that has since been
         // unplugged would otherwise put the widget somewhere unreachable.
         Loaded += (_, _) => KeepOnScreen();
+        Loaded += async (_, _) => await CheckForUpdateOnStart();
         Diag.Write($"window ready mode={start.ToString().ToLowerInvariant()}");
     }
 
@@ -1179,6 +1180,14 @@ public partial class MainWindow : Window
             Style = (Style)FindResource("SidebarButton"),
         };
         buttonLabel.Text = lang["check_updates"];
+        if (_pendingUpdate is not null)
+        {
+            // Found by the check at start-up (or an earlier press): the panel
+            // is rebuilt on a language change and must not forget it.
+            status.Text = $"{lang["update_found"]} {_pendingUpdate.Version}";
+            status.Visibility = Visibility.Visible;
+            buttonLabel.Text = lang["download_install"];
+        }
         button.Click += async (_, _) => await RunUpdateStep(button, status, lang, buttonLabel);
 
         panel.Children.Add(button);
@@ -1188,6 +1197,41 @@ public partial class MainWindow : Window
 
     /// <summary>The release the last check found, waiting to be downloaded.</summary>
     private Updater.Release? _pendingUpdate;
+
+    /// <summary>
+    /// Look for a newer release every time the program opens.
+    ///
+    /// Silent by design: no dialog and no download -- a newer version only
+    /// shows up in the update corner of the sidebar, where the button installs
+    /// it. A failed check says nothing either; at logon the network is often
+    /// not up yet, so it is tried once more a minute later.
+    /// </summary>
+    private async Task CheckForUpdateOnStart()
+    {
+        try
+        {
+            Updater.Release? release = await Updater.CheckAsync();
+            if (release is null)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(60));
+                release = await Updater.CheckAsync();
+            }
+
+            // A press of the button may have found it first.
+            if (release is null || release.Version <= Updater.Current
+                || _pendingUpdate is not null)
+            {
+                return;
+            }
+            _pendingUpdate = release;
+            Diag.Write($"update available {release.Version}");
+            BuildSidebar();
+        }
+        catch (Exception error)
+        {
+            Diag.ReportException("Update check at start", error);
+        }
+    }
 
     private async Task RunUpdateStep(Button button, TextBlock status, Lang lang,
                                      TextBlock buttonLabel)

@@ -1,6 +1,12 @@
 # Change log
 
-## Unreleased — one copy at a time
+## v4.0.1 — 2026-10-07 — one copy at a time, and it looks for updates
+
+**It checks for a newer version every time it opens.** The check is silent:
+no dialog and no download. When a newer release exists, the update corner of
+the sidebar says so and its button turns into "download and install". If the
+check fails (at logon the network is often not up yet) it tries once more a
+minute later.
 
 **Only one System Monitor runs per Windows session.** A second launch (a
 doubled start at logon, a double click) now waits a few seconds for the

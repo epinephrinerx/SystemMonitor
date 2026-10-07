@@ -13,10 +13,10 @@ namespace SysMonitor;
 /// the class library, so the rule about shipping no packages holds. The whole
 /// exchange is two requests: one for the release metadata, one for the file.
 ///
-/// Nothing happens without the user asking. An updater that reaches out on its
-/// own is a network call the person did not make and a surprise dialog while
-/// they are working; this one runs when the button is pressed and is silent
-/// otherwise.
+/// It looks each time the program opens (once more a minute later if that
+/// failed) and when the button is pressed. Never a dialog, and never a download the person did
+/// not start: a newer version is only reported, and installing it is the
+/// button's job.
 /// </summary>
 internal static class Updater
 {
