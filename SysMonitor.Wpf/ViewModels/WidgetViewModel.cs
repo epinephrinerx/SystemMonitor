@@ -117,6 +117,9 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
     /// <summary>The full view: one tab per device, each with its own graphs.</summary>
     public ObservableCollection<DeviceTab> Tabs { get; } = new();
 
+    /// <summary>The process and service lists on the memory tab.</summary>
+    public MemoryViewModel Memory { get; } = new();
+
     public string WidgetTitle
     {
         get => _miniTitle;
@@ -365,7 +368,8 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
 
             case "ram":
                 Head(_lang["memory"], snap.Ram.Usage,
-                     $"{snap.Ram.UsedGb:F1} / {snap.Ram.TotalGb:F1} GB {_lang["in_use"]}",
+                     $"{snap.Ram.UsedGb:F1} / {snap.Ram.TotalGb:F1} GB {_lang["in_use"]}"
+                     + Suffix(MemoryViewModel.TopLine(MemoryBoard.Group(snap.Processes))),
                      snap.Ram.Temp, snap.Ram.Estimated);
                 WidgetColumns = 1;
                 Fill(WidgetRows, 1);
@@ -540,6 +544,9 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
                           $"{snap.Ram.UsedGb:F1} / {snap.Ram.TotalGb:F1} GB  {_lang["in_use"]}"
                           + Suffix(Module.Summarise(snap.Modules)),
                           snap.Ram.Temp, snap.Ram.Estimated);
+                    // The biggest thing in memory, beside the heading.
+                    string top = MemoryViewModel.TopLine(MemoryBoard.Group(snap.Processes));
+                    section.Note = top.Length == 0 ? string.Empty : string.Format(_lang["mem_top"], top);
                     break;
 
                 case "gpu":
@@ -692,6 +699,8 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
             return;
         }
 
+        Memory.Update(snap, _lang);
+
         var wanted = new List<PlannedTab>();
 
         if (_config.ShowCpu)
@@ -734,6 +743,18 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
                 snap.Ram.Usage + "%",
                 $"{snap.Ram.UsedGb:F1} / {snap.Ram.TotalGb:F1} GB {_lang["in_use"]}",
                 Palette.AccentRam, 100, Percent, "100%"));
+
+            // The group picked in the process list gets a graph of its own.
+            ProcessGroup? picked = Memory.SelectedGroup;
+            if (picked is not null)
+            {
+                double mb = picked.WorkingSet / 1048576.0;
+                ram.Cards.Add(new Planned("proc:" + picked.Name, picked.Name, mb,
+                    MemoryBoard.Size(picked.WorkingSet),
+                    picked.Count > 1 ? string.Format(_lang["mem_count"], picked.Count) : string.Empty,
+                    Palette.AccentRam, 0, "MB", string.Empty,
+                    Seed: Memory.HistoryOf(picked.Name), CeilingUnit: " MB"));
+            }
 
             // The size and what is used are on the rail and on the graph
             // below; what is left to say is which module sits in which slot.
@@ -1145,7 +1166,7 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
     /// <summary>What a graph should look like this tick, before it exists.</summary>
     private readonly record struct Planned(string Key, string Title, double Sample,
         string Value, string Detail, Color Accent, double Max, string Unit,
-        string Ceiling, bool Small = false);
+        string Ceiling, bool Small = false, History? Seed = null, string CeilingUnit = " MB/s");
 
     private string Percent => _lang["utilisation"];
 
@@ -1204,6 +1225,7 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
         {
             Planned plan = cards[i];
             ChartCard? card = target.FirstOrDefault(c => c.Key == plan.Key);
+            bool created = false;
             if (card is null)
             {
                 card = new ChartCard
@@ -1214,17 +1236,26 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
                     Unit = plan.Unit,
                 };
                 target.Insert(Math.Min(i, target.Count), card);
+                created = true;
             }
             card.Title = plan.Title;
             card.Value = plan.Value;
             card.Detail = plan.Detail;
             card.Maximum = plan.Max;
             card.Accent = Palette.Brush(plan.Accent);
-            card.Push(plan.Sample);
+            // A graph that has a past brings it; its newest point is already in it.
+            if (created && plan.Seed is not null)
+            {
+                card.Seed(plan.Seed);
+            }
+            else
+            {
+                card.Push(plan.Sample);
+            }
             // An unbounded graph says what its own peak is, since the vertical
             // scale moves with the data.
             card.Ceiling = plan.Max > 0 ? plan.Ceiling
-                : Speed(card.Series.Max * 1.25) + " MB/s";
+                : Speed(card.Series.Max * 1.25) + plan.CeilingUnit;
         }
     }
 

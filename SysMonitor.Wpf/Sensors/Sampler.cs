@@ -56,6 +56,12 @@ public sealed class Sampler : IDisposable
     private long _nextSpace;
     private long _nextTemp;
     private long _nextDrives;
+    private long _nextProcesses;
+    private long _nextServices;
+    private long _memoryStamp;
+    private IReadOnlyList<ProcessEntry> _processes = Array.Empty<ProcessEntry>();
+    private IReadOnlyList<ServiceEntry> _serviceList = Array.Empty<ServiceEntry>();
+    private IReadOnlyList<ServiceEntry> _servicesRaw = Array.Empty<ServiceEntry>();
 
     public Sampler(AppConfig config) => _config = config;
 
@@ -67,6 +73,14 @@ public sealed class Sampler : IDisposable
         Win32.QuietErrorDialogs();
         _prevCpu = Win32.CpuTimes();
         _loop = Task.Run(RunAsync);
+    }
+
+    /// <summary>Read processes and services again at once, e.g. after one was ended.</summary>
+    public void RefreshMemory()
+    {
+        Volatile.Write(ref _nextProcesses, 0);
+        Volatile.Write(ref _nextServices, 0);
+        Nudge();
     }
 
     /// <summary>Apply a changed refresh rate without waiting out the current sleep.</summary>
@@ -184,6 +198,12 @@ public sealed class Sampler : IDisposable
             RefreshTemperatures();
         }
 
+        if (now >= _nextProcesses)
+        {
+            _nextProcesses = now + ProcessEvery;
+            RefreshProcesses(now);
+        }
+
         // Decide the temperature before building the cores, so each one is
         // allocated once rather than built and then rebuilt with a reading.
         int? cpuTemp = _cpuTempReal;
@@ -212,10 +232,42 @@ public sealed class Sampler : IDisposable
             Adapters = CollectAdapters(),
             Gpu = CollectGpu(),
             Modules = _modules,
+            Processes = _processes,
+            Services = _serviceList,
+            MemoryStamp = _memoryStamp,
             MemorySlots = _memorySlots,
             CpuInfo = _cpuInfo,
             Ready = true,
         });
+    }
+
+    private const long ProcessEvery = 3_000;
+    private const long ServiceEvery = 10_000;
+
+    /// <summary>
+    /// The process table is cheap to read; the service table a little less so,
+    /// and it changes slowly, so it is read on a slower beat and re-attached
+    /// to each fresh process reading.
+    /// </summary>
+    private void RefreshProcesses(long now)
+    {
+        if (Guard("processes", MemorySensor.ReadProcesses, out List<ProcessEntry>? list,
+                  slowAfter: TimeSpan.FromSeconds(2)) && list is not null)
+        {
+            _processes = list;
+            _memoryStamp = now;
+        }
+
+        if (now >= _nextServices)
+        {
+            _nextServices = now + ServiceEvery;
+            if (Guard("services", MemorySensor.ReadServices, out List<ServiceEntry>? services,
+                      slowAfter: TimeSpan.FromSeconds(3)) && services is not null)
+            {
+                _servicesRaw = services;
+            }
+        }
+        _serviceList = MemoryBoard.Attach(_servicesRaw, _processes);
     }
 
     /// <summary>

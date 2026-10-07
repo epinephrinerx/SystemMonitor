@@ -1,5 +1,28 @@
 # Change log
 
+## Unreleased -- the RAM tab lists what is in memory
+
+**Processes.** The full view's RAM tab now lists every process, grouped by name
+(thirty `chrome` processes are one line with a count and a total), biggest
+first. A group opens into its pids with their size and private memory, and a
+search box filters the lists. Click a group's name to put a graph of its RAM
+over the last few minutes above the list.
+
+**Services.** Below the processes, every Windows service with its state, start
+type, process id and the RAM of the process it runs in. A service that shares
+its process (the svchost case) says with how many others, because that RAM
+belongs to the whole group.
+
+**Ending and stopping.** A red button ends one process or a whole group; a
+service can be stopped, started, restarted, and set to Automatic, Manual or
+Disabled. Every one asks first. The program never runs elevated: when Windows
+says access denied, a second copy is started through UAC to do that one job
+and exit. Windows' own processes (csrss, lsass, wininit and the like) and the
+program itself are listed but cannot be ended.
+
+**The short views.** The overall view's RAM heading names the process using
+the most memory, and so does the mini view's RAM page.
+
 ## v4.1.0 — 2026-10-07 — drives talk to Windows, and settings get a window
 
 **Drives link into Windows.** Double-click a drive row in the overall view,

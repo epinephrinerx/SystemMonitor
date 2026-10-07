@@ -18,6 +18,14 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        // The elevated copy the memory tab starts through UAC: one job, then
+        // gone. It must not take the one-copy guard or open a window.
+        if (e.Args.Contains(MemoryTools.ElevatedSwitch))
+        {
+            Shutdown(MemoryTools.RunElevated(e.Args));
+            return;
+        }
+
         // --allow-multiple is for checking a build next to the copy that is
         // already running; nobody launches it by accident.
         _guarded = !e.Args.Contains("--allow-multiple");

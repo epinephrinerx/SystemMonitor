@@ -109,6 +109,18 @@ public sealed class ChartCard : INotifyPropertyChanged
         Revision = Series.Revision;
     }
 
+    /// <summary>Start from a history that already exists, oldest reading first.</summary>
+    public void Seed(History past)
+    {
+        var buffer = new double[past.Capacity];
+        int count = past.CopyTo(buffer);
+        for (int i = 0; i < count; i++)
+        {
+            Series.Add(buffer[i]);
+        }
+        Revision = Series.Revision;
+    }
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
     private void Set<T>(ref T field, T value, [CallerMemberName] string? name = null)

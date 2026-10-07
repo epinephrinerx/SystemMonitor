@@ -11,6 +11,8 @@ public sealed class Snapshot
     private readonly IReadOnlyList<Disk> _disks = Array.Empty<Disk>();
     private readonly IReadOnlyList<Adapter> _adapters = Array.Empty<Adapter>();
     private readonly IReadOnlyList<Module> _modules = Array.Empty<Module>();
+    private readonly IReadOnlyList<ProcessEntry> _processes = Array.Empty<ProcessEntry>();
+    private readonly IReadOnlyList<ServiceEntry> _services = Array.Empty<ServiceEntry>();
 
     public IReadOnlyList<Core> Cores
     {
@@ -37,6 +39,25 @@ public sealed class Snapshot
         get => _modules;
         init => _modules = Seal(value);
     }
+
+    /// <summary>What is running and what it holds. Empty until the first read.</summary>
+    public IReadOnlyList<ProcessEntry> Processes
+    {
+        get => _processes;
+        init => _processes = Seal(value);
+    }
+
+    public IReadOnlyList<ServiceEntry> Services
+    {
+        get => _services;
+        init => _services = Seal(value);
+    }
+
+    /// <summary>
+    /// When the process list was read (Environment.TickCount64). Changes only
+    /// on a new reading, so a consumer can tell a fresh list from the same one.
+    /// </summary>
+    public long MemoryStamp { get; init; }
 
     /// <summary>
     /// Take a copy the caller cannot reach and hand it out read-only.
