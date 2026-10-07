@@ -20,7 +20,7 @@
 
 | | |
 |---|---|
-| สถานะ | 🧪 รอตรวจรับ — implement แล้ว (commit 0e45782) อยู่ใน v4.1.0 (build แล้ว ยังไม่ release) |
+| สถานะ | ✔️ เสร็จแล้ว — ผู้ใช้ตรวจรับ 2026-10-07 ("ตรวจรับและทำเลยครับ") · release v4.1.0 |
 | วันที่ | 2026-10-07 |
 | แตะส่วนไหน | SysMonitor.Wpf: MainWindow.xaml.cs (BuildSidebar) · MainWindow.SidePanels.cs · PanelWindow.cs · AboutInfo.cs · หน้าต่างใหม่ (คู่มือ, เกี่ยวกับ) · I18n.cs |
 | เกี่ยวกับ | [[R-015]] (หน้าต่างตั้งค่า — ใช้รูปแบบเดียวกัน) · [[R-016]] |
@@ -57,7 +57,7 @@
 
 | | |
 |---|---|
-| สถานะ | 🧪 รอตรวจรับ — implement แล้ว (commit 00ee510) อยู่ใน v4.1.0 (build แล้ว ยังไม่ release) |
+| สถานะ | ✔️ เสร็จแล้ว — ผู้ใช้ตรวจรับ 2026-10-07 ("ตรวจรับและทำเลยครับ") · release v4.1.0 |
 | วันที่ | 2026-10-07 |
 | แตะส่วนไหน | SysMonitor.Wpf: FontRamp.cs (ใหม่) · MainWindow.xaml.cs (Check, Choice, NavButton, BuildUpdatePanel, ApplyFontScale) · MainWindow.xaml · App.xaml |
 | เกี่ยวกับ | [[R-015]] (ตัวเลือก "ขนาดตัวอักษร" ยังแสดงใน sidebar ของ Overall) · [[R-009]] (สเกลหน้า Overall ทั้งหน้า) |
@@ -88,7 +88,7 @@
 
 | | |
 |---|---|
-| สถานะ | 🧪 รอตรวจรับ — implement แล้ว (commit 0e45782) อยู่ใน v4.1.0 (build แล้ว ยังไม่ release) |
+| สถานะ | ✔️ เสร็จแล้ว — ผู้ใช้ตรวจรับ 2026-10-07 ("ตรวจรับและทำเลยครับ") · release v4.1.0 |
 | วันที่ | 2026-10-07 |
 | แตะส่วนไหน | SysMonitor.Wpf: MainWindow.xaml.cs (BuildSidebar, Choice, Dial, Check) · MainWindow.xaml · I18n.cs |
 | เกี่ยวกับ | [[R-016]] · [[R-008]] (sidebar ของ Overall) · [[R-007]] (ปุ่มนำทางบนสุด) |
@@ -134,7 +134,7 @@
 
 | | |
 |---|---|
-| สถานะ | 🧪 รอตรวจรับ — implement แล้ว (commit cc763ab) อยู่ใน v4.1.0 (build แล้ว ยังไม่ release) |
+| สถานะ | ✔️ เสร็จแล้ว — ผู้ใช้ตรวจรับ 2026-10-07 ("ตรวจรับและทำเลยครับ") · release v4.1.0 |
 | วันที่ | 2026-10-07 |
 | แตะส่วนไหน | SysMonitor.Wpf: MainWindow.xaml.cs (OnMouseLeftButtonDown, BuildContextMenu) · ViewModels/WidgetViewModel.cs · TrayIcon.cs · I18n.cs · Sensors (disk.Usage) |
 | เกี่ยวกับ | [[R-015]] · [[R-002]] (double click สลับหน้า) |
@@ -191,7 +191,7 @@
 
 | | |
 |---|---|
-| สถานะ | 🧪 รอตรวจรับ — implement แล้ว (commit b395799) อยู่ใน v4.1.0 (build แล้ว **ยังไม่ release**) |
+| สถานะ | ✔️ เสร็จแล้ว — ผู้ใช้ตรวจรับ 2026-10-07 ("ตรวจรับและทำเลยครับ") · release v4.1.0 |
 | วันที่ | 2026-10-07 |
 | แตะส่วนไหน | SysMonitor.Wpf: AppConfig.cs (AutoCheckUpdates) · MainWindow.xaml.cs (sidebar หัวข้ออัปเดต, CheckForUpdateOnStart) · I18n.cs |
 | เกี่ยวกับ | [[R-012]] |
