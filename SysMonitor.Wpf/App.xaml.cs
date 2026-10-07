@@ -12,13 +12,19 @@ public partial class App : Application
 
     private Sampler? _sampler;
     private SingleInstance? _instance;
+    private bool _guarded = true;
 
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
 
-        _instance = SingleInstance.TryAcquire(SingleInstance.DefaultName, HandOverWait);
-        if (_instance is null)
+        // --allow-multiple is for checking a build next to the copy that is
+        // already running; nobody launches it by accident.
+        _guarded = !e.Args.Contains("--allow-multiple");
+        _instance = _guarded
+            ? SingleInstance.TryAcquire(SingleInstance.DefaultName, HandOverWait)
+            : null;
+        if (_guarded && _instance is null)
         {
             // Already running: this copy was started twice. Leave the first one alone.
             Shutdown();
@@ -53,10 +59,10 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         _sampler?.Dispose();
-        if (_instance is not null)
+        if (_instance is not null || !_guarded)
         {
             Diag.Write("--- exit");
-            _instance.Dispose();
+            _instance?.Dispose();
         }
         base.OnExit(e);
     }

@@ -292,3 +292,49 @@ public class FontRampTests
         }
     }
 }
+
+[TestClass]
+public class LanguageTableTests
+{
+    private static Dictionary<string, Dictionary<string, string>> Table() =>
+        (Dictionary<string, Dictionary<string, string>>)typeof(Lang)
+            .GetField("Strings", System.Reflection.BindingFlags.NonPublic
+                                 | System.Reflection.BindingFlags.Static)!
+            .GetValue(null)!;
+
+    [TestMethod]
+    public void Thai_and_English_have_exactly_the_same_keys()
+    {
+        var table = Table();
+        CollectionAssert.AreEquivalent(table["en"].Keys.ToList(), table["th"].Keys.ToList());
+    }
+
+    [TestMethod]
+    public void No_string_is_empty()
+    {
+        foreach ((string code, var strings) in Table())
+        {
+            foreach ((string key, string value) in strings)
+            {
+                Assert.IsFalse(string.IsNullOrWhiteSpace(value), $"{code}:{key}");
+            }
+        }
+    }
+
+    [TestMethod]
+    public void The_manual_is_a_run_of_numbered_headings_each_with_text()
+    {
+        foreach (string code in new[] { "th", "en" })
+        {
+            var lang = new Lang(code);
+            int sections = 0;
+            while (lang[$"manual_{sections + 1}_h"] != $"manual_{sections + 1}_h")
+            {
+                Assert.AreNotEqual($"manual_{sections + 1}_t", lang[$"manual_{sections + 1}_t"],
+                    $"{code}: section {sections + 1} has a heading but no text");
+                sections++;
+            }
+            Assert.IsTrue(sections >= 8, $"{code}: only {sections} sections");
+        }
+    }
+}

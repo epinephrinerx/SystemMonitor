@@ -980,6 +980,7 @@ public partial class MainWindow : Window
     {
         var lang = new Lang(_config.Lang);
         Sidebar.Children.Clear();
+        ForgetMirrors(SidebarGroup);
         UpdateHeaderTooltips(lang);
         ApplyRotationPauseState();
 
@@ -1000,38 +1001,7 @@ public partial class MainWindow : Window
             () => SetMode(Mode.Widget)));
 
         Sidebar.Children.Add(Heading(lang["window_settings"]));
-        Sidebar.Children.Add(Check(lang["always_on_top"], _config.AlwaysOnTop, value =>
-        {
-            _config.AlwaysOnTop = value;
-            Topmost = value;
-        }));
-        Sidebar.Children.Add(Check(lang["snap"], _config.Snap, value => _config.Snap = value));
-        string exePath = Environment.ProcessPath ?? string.Empty;
-        Sidebar.Children.Add(Check(lang["autostart"], Startup.IsEnabled(exePath),
-                                   value => Startup.Set(value, exePath)));
-        Sidebar.Children.Add(Check(lang["light_mode"], _config.Theme == "light", value =>
-        {
-            _config.Theme = value ? "light" : "dark";
-            _model.ApplyTheme();
-        }));
-
-        // Live while dragging: the Tk build redrew the whole canvas here and
-        // destroyed the item the pointer had grabbed.
-        Sidebar.Children.Add(Dial(lang["opacity"], 0.35, 1.0, _config.Opacity,
-            value => $"{value * 100:F0}%",
-            value =>
-            {
-                _config.Opacity = value;
-                _model.ApplyTheme();
-            }));
-
-        Sidebar.Children.Add(Dial(lang["font_size"], 0.8, 1.6, _config.FontScale,
-            value => $"{value * 100:F0}%",
-            value =>
-            {
-                _config.FontScale = value;
-                ApplyFontScale();
-            }));
+        AddWindowSettings(Sidebar, lang, everything: false);
 
         Sidebar.Children.Add(Heading(lang["display_settings"]));
         Sidebar.Children.Add(Check(lang["show_cpu"], _config.ShowCpu, value =>
@@ -1090,39 +1060,11 @@ public partial class MainWindow : Window
             Refresh();
         }));
 
-        Sidebar.Children.Add(Heading(lang["close_action"]));
-        Sidebar.Children.Add(Choice(
-            new[] { ("exit", lang["close_to_exit"]), ("tray", lang["close_to_tray"]) },
-            _config.CloseAction,
-            value =>
-            {
-                _config.CloseAction = value;
-                _config.Save();
-            }));
-
-        Sidebar.Children.Add(Heading(lang["speed"]));
-        Sidebar.Children.Add(Choice(
-            new[] { ("eco", lang["eco"]), ("balanced", lang["balanced"]), ("fast", lang["fast"]) },
-            _config.Speed,
-            value =>
-            {
-                _config.Speed = value;
-                _sampler.Nudge();
-                _config.Save();
-            }));
-
-        Sidebar.Children.Add(Heading(lang["language"]));
-        Sidebar.Children.Add(Choice(
-            new[] { ("th", "ไทย"), ("en", "English") },
-            _config.Lang,
-            value =>
-            {
-                _config.Lang = value;
-                _model.SetLanguage(value);
-                BuildSidebar();
-                BuildContextMenu();
-                Refresh();
-            }));
+        // The radio groups and the rest of the window settings live in the
+        // settings window; this button is the way to it.
+        Button settings = NavButton("\uE713", lang["settings"], OpenSettings);
+        settings.Margin = new Thickness(0, 12, 0, 0);
+        Sidebar.Children.Add(settings);
 
         Sidebar.Children.Add(Heading(lang["updates"]));
         Sidebar.Children.Add(Check(lang["auto_check_updates"], _config.AutoCheckUpdates,
@@ -1143,6 +1085,11 @@ public partial class MainWindow : Window
         };
         restart.Click += (_, _) => Restart();
         Sidebar.Children.Add(restart);
+
+        Sidebar.Children.Add(NavButton("\uE897", lang["manual"], OpenManual));
+        Sidebar.Children.Add(NavButton("\uE946", lang["about"], OpenAbout));
+
+        RebuildSidePanels();
     }
 
     // --------------------------------------------------------------- updates
@@ -1331,8 +1278,10 @@ public partial class MainWindow : Window
     /// guessing whether they are at 60% or 65%.
     /// </summary>
     private UIElement Dial(string text, double min, double max, double value,
-                           Func<double, string> format, Action<double> onChange)
+                           Func<double, string> format, Action<double> onChange,
+                           string? key = null)
     {
+        string group = _group;
         var readout = new TextBlock
         {
             Text = format(value),
@@ -1361,10 +1310,16 @@ public partial class MainWindow : Window
             Value = value,
             Margin = new Thickness(0, 0, 0, 6),
         };
+        Register(key, v => slider.Value = (double)v);
         slider.ValueChanged += (_, e) =>
         {
             readout.Text = format(e.NewValue);
+            if (_mirroring)
+            {
+                return;     // set from its twin; the twin already ran the handler
+            }
             onChange(e.NewValue);
+            Mirror(key, group, e.NewValue);
         };
         // Saving on release, not on every pixel of the drag.
         slider.PreviewMouseUp += (_, _) => _config.Save();
@@ -1447,8 +1402,9 @@ public partial class MainWindow : Window
         return button;
     }
 
-    private CheckBox Check(string text, bool value, Action<bool> onChange)
+    private CheckBox Check(string text, bool value, Action<bool> onChange, string? key = null)
     {
+        string group = _group;
         var box = new CheckBox
         {
             // A TextBlock rather than a plain string: the check box's own
@@ -1465,9 +1421,20 @@ public partial class MainWindow : Window
             Margin = new Thickness(0, 3, 0, 3),
         };
         FollowRamp(box, Control.FontSizeProperty, "FontBody");
-        box.Checked += (_, _) => onChange(true);
-        box.Unchecked += (_, _) => onChange(false);
+        Register(key, v => box.IsChecked = (bool)v);
+        box.Checked += (_, _) => Toggled(true);
+        box.Unchecked += (_, _) => Toggled(false);
         return box;
+
+        void Toggled(bool on)
+        {
+            if (_mirroring)
+            {
+                return;     // set from its twin; the twin already ran the handler
+            }
+            onChange(on);
+            Mirror(key, group, on);
+        }
     }
 
     private UIElement Choice((string Key, string Text)[] options, string selected,

@@ -89,6 +89,12 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
     // -------------------------------------------------------------- brushes
     public SolidColorBrush PanelBrush { get; } = new();
     public SolidColorBrush SidebarBrush { get; } = new();
+
+    /// <summary>
+    /// The panel colour, always opaque: ordinary windows (settings, manual,
+    /// about) cannot blend with the desktop the way the widget panel does.
+    /// </summary>
+    public SolidColorBrush WindowBrush { get; } = new();
     public SolidColorBrush ControlBrush { get; } = new();
     public SolidColorBrush ChipBrush { get; } = new();
     public SolidColorBrush TextBrush { get; } = new();
@@ -175,6 +181,7 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
         byte alpha = (byte)Math.Clamp(_config.Opacity * 255, 40, 255);
         PanelBrush.Color = WithAlpha(_palette.Panel, alpha);
         SidebarBrush.Color = WithAlpha(_palette.Sidebar, alpha);
+        WindowBrush.Color = _palette.Panel;
         ControlBrush.Color = _palette.Control;
         ChipBrush.Color = _palette.Chip;
         TextBrush.Color = _palette.Text;
