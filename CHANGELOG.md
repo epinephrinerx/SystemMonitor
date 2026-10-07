@@ -1,10 +1,42 @@
 # Change log
 
-## Unreleased — the start-up check can be switched off
+## v4.1.0 — 2026-10-07 — drives talk to Windows, and settings get a window
 
-The sidebar's update corner has a "Check for updates at start" box, on by
-default. Unticked, the program makes no network call on its own; the button
-still checks when pressed. A config from before this existed keeps it on.
+**Drives link into Windows.** Double-click a drive row in the overall view,
+or a disk tab in the full view, and File Explorer opens on it -- the window
+no longer resizes on that double-click (everywhere else it still does). A
+disk with several partitions asks which one. Right-click the same places for
+File Explorer, Disk Cleanup and Disk Management, followed by the window's
+usual menu.
+
+**A drive that is filling up says so.** A local drive at 70% used or more
+(the amber line the bars already use) gets a warning bar under its row, red
+from 90%; on the mini view the drive's detail line carries it instead. It
+appears every time the program starts, and again whenever the drive gets
+worse, not on every reading. Click the bar to open Disk Cleanup for that
+drive, or the cross to put it away. Network shares and removable drives are
+left out: Disk Cleanup does nothing for them. In "all drives combined" mode
+there is no row to put the warning on.
+
+**Settings have a window.** The overall sidebar's new Settings button opens
+a window with the radio choices (when closing, reading frequency, language)
+and every window setting. Always on top, light mode, opacity and font size
+stay in the sidebar as well, and change together in both places.
+
+**Manual and About.** Two more buttons under Restart open a manual (both
+languages) and an About page with the version, developer, copyright, terms
+and the project link.
+
+**The font-size slider reaches the sidebar.** Checkboxes, choices, buttons
+and the version and update lines used fixed sizes, so only the headings
+followed the slider. They all follow it now.
+
+**The start-up update check can be switched off.** A "Check for updates at
+start" box in the update corner, on by default. Unticked, the program makes
+no network call on its own; the button still checks when pressed.
+
+Diagnostics: `--allow-multiple` skips the one-copy guard, for checking a
+build beside the copy that is already running.
 
 ## v4.0.1 — 2026-10-07 — one copy at a time, and it looks for updates
 
