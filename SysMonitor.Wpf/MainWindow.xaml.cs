@@ -1129,13 +1129,15 @@ public partial class MainWindow : Window
                                    value => _config.AutoCheckUpdates = value));
         Sidebar.Children.Add(BuildUpdatePanel(lang));
 
+        var restartLabel = new TextBlock
+        {
+            Text = lang["restart"],
+            TextWrapping = TextWrapping.Wrap,
+        };
+        FollowRamp(restartLabel, TextBlock.FontSizeProperty, "FontNav");
         var restart = new Button
         {
-            Content = new TextBlock
-            {
-                Text = lang["restart"],
-                TextWrapping = TextWrapping.Wrap,
-            },
+            Content = restartLabel,
             Style = (Style)FindResource("SidebarButton"),
             Margin = new Thickness(0, 10, 0, 0),
         };
@@ -1155,27 +1157,29 @@ public partial class MainWindow : Window
     {
         var panel = new StackPanel();
 
-        panel.Children.Add(new TextBlock
+        var version = new TextBlock
         {
             Text = $"{lang["current_version"]} {Updater.Current}",
             Foreground = _model.MutedBrush,
             FontFamily = new FontFamily("Segoe UI, Leelawadee UI, Tahoma"),
-            FontSize = 11,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 6),
-        });
+        };
+        FollowRamp(version, TextBlock.FontSizeProperty, "FontBody");
+        panel.Children.Add(version);
 
         var status = new TextBlock
         {
             Foreground = _model.MutedBrush,
             FontFamily = new FontFamily("Segoe UI, Leelawadee UI, Tahoma"),
-            FontSize = 11,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 6, 0, 0),
             Visibility = Visibility.Collapsed,
         };
+        FollowRamp(status, TextBlock.FontSizeProperty, "FontBody");
 
         var buttonLabel = new TextBlock { TextWrapping = TextWrapping.Wrap };
+        FollowRamp(buttonLabel, TextBlock.FontSizeProperty, "FontNav");
         var button = new Button
         {
             Content = buttonLabel,
@@ -1377,17 +1381,17 @@ public partial class MainWindow : Window
     /// </summary>
     private void ApplyFontScale()
     {
-        double scale = Math.Clamp(_config.FontScale, 0.8, 1.6);
-        var ramp = new (string Key, double Size)[]
-        {
-            ("FontTiny", 9), ("FontSmall", 10), ("FontLabel", 10),
-            ("FontBody", 11), ("FontValue", 14), ("FontHeading", 15),
-        };
-        foreach ((string key, double size) in ramp)
-        {
-            Application.Current.Resources[key] = Math.Round(size * scale, 1);
-        }
+        FontRamp.Apply(Application.Current.Resources, _config.FontScale);
     }
+
+    /// <summary>
+    /// Size an element's text from the type ramp rather than a literal, so the
+    /// font-size slider reaches it. Controls built in code have no style to do
+    /// this for them.
+    /// </summary>
+    private static void FollowRamp(FrameworkElement element, DependencyProperty property,
+                                   string key) =>
+        element.SetResourceReference(property, key);
 
     private TextBlock Heading(string text) => new()
     {
@@ -1412,7 +1416,6 @@ public partial class MainWindow : Window
         {
             Text = glyph,
             FontFamily = new FontFamily("Segoe MDL2 Assets"),
-            FontSize = 13,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(0, 0, 8, 0),
         };
@@ -1420,10 +1423,11 @@ public partial class MainWindow : Window
         {
             Text = text,
             FontFamily = new FontFamily("Segoe UI, Leelawadee UI, Tahoma"),
-            FontSize = 12,
             VerticalAlignment = VerticalAlignment.Center,
             TextWrapping = TextWrapping.Wrap,
         };
+        FollowRamp(icon, TextBlock.FontSizeProperty, "FontNavIcon");
+        FollowRamp(label, TextBlock.FontSizeProperty, "FontNav");
         Grid.SetColumn(icon, 0);
         Grid.SetColumn(label, 1);
         var button = new Button
@@ -1458,9 +1462,9 @@ public partial class MainWindow : Window
             IsChecked = value,
             Foreground = _model.MutedBrush,
             FontFamily = new FontFamily("Segoe UI, Leelawadee UI, Tahoma"),
-            FontSize = 11,
             Margin = new Thickness(0, 3, 0, 3),
         };
+        FollowRamp(box, Control.FontSizeProperty, "FontBody");
         box.Checked += (_, _) => onChange(true);
         box.Unchecked += (_, _) => onChange(false);
         return box;
@@ -1481,10 +1485,10 @@ public partial class MainWindow : Window
                 IsChecked = key == selected,
                 Foreground = _model.MutedBrush,
                 FontFamily = new FontFamily("Segoe UI, Leelawadee UI, Tahoma"),
-                FontSize = 11,
                 Margin = new Thickness(0, 0, 10, 0),
                 GroupName = string.Join("-", options.Select(o => o.Key)),
             };
+            FollowRamp(button, Control.FontSizeProperty, "FontBody");
             button.Checked += (_, _) => onChange(key);
             panel.Children.Add(button);
         }

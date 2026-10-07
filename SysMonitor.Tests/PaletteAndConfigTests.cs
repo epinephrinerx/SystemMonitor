@@ -247,3 +247,48 @@ public class TrafficLightTests
         Assert.AreEqual(Palette.AccentCpu, Palette.LoadColor(10));
     }
 }
+
+[TestClass]
+public class FontRampTests
+{
+    [TestMethod]
+    public void Every_key_the_sidebar_uses_is_in_the_ramp()
+    {
+        var keys = FontRamp.Entries.Select(e => e.Key).ToHashSet();
+        foreach (string key in new[] { "FontBody", "FontNav", "FontNavIcon", "FontLabel" })
+        {
+            Assert.IsTrue(keys.Contains(key), key);
+        }
+    }
+
+    [TestMethod]
+    public void The_slider_range_scales_every_size_and_is_clamped_at_both_ends()
+    {
+        Assert.AreEqual(17.6, FontRamp.Scaled(11, 1.6));
+        Assert.AreEqual(8.8, FontRamp.Scaled(11, 0.8));
+        Assert.AreEqual(17.6, FontRamp.Scaled(11, 5.0));
+        Assert.AreEqual(8.8, FontRamp.Scaled(11, 0.1));
+        Assert.AreEqual(11, FontRamp.Scaled(11, 1.0));
+    }
+
+    [TestMethod]
+    public void Apply_rewrites_the_resources_the_controls_follow()
+    {
+        var resources = new System.Windows.ResourceDictionary();
+        FontRamp.Apply(resources, 1.6);
+        Assert.AreEqual(19.2, (double)resources["FontNav"]);
+        Assert.AreEqual(20.8, (double)resources["FontNavIcon"]);
+        Assert.AreEqual(17.6, (double)resources["FontBody"]);
+    }
+
+    [TestMethod]
+    public void App_xaml_declares_every_ramp_key_so_a_control_has_a_size_before_the_slider_moves()
+    {
+        string xaml = File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "..", "..", "..", "..", "SysMonitor.Wpf", "App.xaml"));
+        foreach ((string key, _) in FontRamp.Entries)
+        {
+            StringAssert.Contains(xaml, $"x:Key=\"{key}\"");
+        }
+    }
+}

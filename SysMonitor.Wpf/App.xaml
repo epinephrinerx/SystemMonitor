@@ -20,6 +20,8 @@
         <sys:Double x:Key="FontBody">11</sys:Double>
         <sys:Double x:Key="FontValue">14</sys:Double>
         <sys:Double x:Key="FontHeading">15</sys:Double>
+        <sys:Double x:Key="FontNav">12</sys:Double>
+        <sys:Double x:Key="FontNavIcon">13</sys:Double>
 
         <!-- Leelawadee UI keeps the Thai strings legible at these sizes. -->
         <Style x:Key="Label" TargetType="TextBlock">
