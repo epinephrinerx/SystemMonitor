@@ -27,6 +27,12 @@ public sealed class AppConfig
     public bool AlwaysOnTop { get; set; }
 
     public bool Snap { get; set; } = true;
+
+    /// <summary>
+    /// Look for a newer release each time the program opens. A config written
+    /// before this existed has no such key and so gets the default.
+    /// </summary>
+    public bool AutoCheckUpdates { get; set; } = true;
     public double Opacity { get; set; } = 1.0;
 
     /// <summary>

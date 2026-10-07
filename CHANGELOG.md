@@ -1,5 +1,11 @@
 # Change log
 
+## Unreleased — the start-up check can be switched off
+
+The sidebar's update corner has a "Check for updates at start" box, on by
+default. Unticked, the program makes no network call on its own; the button
+still checks when pressed. A config from before this existed keeps it on.
+
 ## v4.0.1 — 2026-10-07 — one copy at a time, and it looks for updates
 
 **It checks for a newer version every time it opens.** The check is silent:

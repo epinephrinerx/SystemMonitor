@@ -1125,6 +1125,8 @@ public partial class MainWindow : Window
             }));
 
         Sidebar.Children.Add(Heading(lang["updates"]));
+        Sidebar.Children.Add(Check(lang["auto_check_updates"], _config.AutoCheckUpdates,
+                                   value => _config.AutoCheckUpdates = value));
         Sidebar.Children.Add(BuildUpdatePanel(lang));
 
         var restart = new Button
@@ -1208,12 +1210,21 @@ public partial class MainWindow : Window
     /// </summary>
     private async Task CheckForUpdateOnStart()
     {
+        if (!_config.AutoCheckUpdates)
+        {
+            return;
+        }
         try
         {
             Updater.Release? release = await Updater.CheckAsync();
             if (release is null)
             {
                 await Task.Delay(TimeSpan.FromSeconds(60));
+                // Switched off during the wait: honour it before the retry.
+                if (!_config.AutoCheckUpdates)
+                {
+                    return;
+                }
                 release = await Updater.CheckAsync();
             }
 

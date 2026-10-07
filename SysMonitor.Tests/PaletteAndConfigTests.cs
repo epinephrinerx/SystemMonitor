@@ -132,6 +132,23 @@ public class ConfigTests
     }
 
     [TestMethod]
+    public void Auto_check_is_on_for_a_config_written_before_it_existed_and_stays_off_once_chosen()
+    {
+        var options = new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+        };
+
+        var old = JsonSerializer.Deserialize<AppConfig>("{\"lang\":\"th\"}", options)!;
+        Assert.IsTrue(old.AutoCheckUpdates);
+
+        var off = JsonSerializer.Deserialize<AppConfig>(
+            JsonSerializer.Serialize(new AppConfig { AutoCheckUpdates = false }, options),
+            options)!;
+        Assert.IsFalse(off.AutoCheckUpdates);
+    }
+
+    [TestMethod]
     public void The_config_file_is_separate_from_the_python_build()
     {
         // Both live in %APPDATA%\SysMonitor; they must not share a filename.
