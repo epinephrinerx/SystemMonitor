@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Media;
 using SysMonitor.Model;
+using SysMonitor.Native;
 
 namespace SysMonitor.ViewModels;
 
@@ -148,6 +149,23 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
     {
         get => _miniDetail;
         private set => Set(ref _miniDetail, value);
+    }
+
+    private Brush _miniDetailBrush = Brushes.Transparent;
+    private string? _miniAlertLetter;
+
+    /// <summary>The detail line's colour: muted, or amber/red while it carries a warning.</summary>
+    public Brush WidgetDetailBrush
+    {
+        get => _miniDetailBrush;
+        private set => Set(ref _miniDetailBrush, value);
+    }
+
+    /// <summary>The drive the detail line is warning about, or null.</summary>
+    public string? WidgetAlertLetter
+    {
+        get => _miniAlertLetter;
+        private set => Set(ref _miniAlertLetter, value);
     }
 
     /// <summary>
@@ -404,6 +422,14 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
                 Disk disk = snap.Disks[from.Value];
                 Head($"{_lang["drive"]} {disk.Title}", disk.Usage,
                      SpeedText(disk.ReadMb, disk.WriteMb), disk.Temp, disk.Estimated);
+                if (AlertFor(disk) is ({ } alertText, var alertHot))
+                {
+                    // The mini view has no room for a banner: the detail line,
+                    // which is only a throughput figure, carries the warning.
+                    WidgetDetail = alertText;
+                    WidgetDetailBrush = Palette.Brush(alertHot ? Palette.LoadHot : Palette.LoadWarm);
+                    WidgetAlertLetter = disk.Letter;
+                }
                 WidgetColumns = 1;
                 Fill(WidgetRows, 1);
                 Meter(WidgetRows[0], string.Empty, disk.Usage, Palette.LoadColor(disk.Usage, Palette.AccentDisk),
@@ -419,6 +445,8 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
         WidgetTitle = title.ToUpperInvariant();
         WidgetValue = percent + "%";
         WidgetDetail = detail;
+        WidgetAlertLetter = null;
+        WidgetDetailBrush = MutedBrush;
         WidgetHeader.Temp = temp;
         WidgetHeader.Estimated = estimated;
         ApplyTempColours(WidgetHeader);
@@ -577,6 +605,7 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
                                   $"{disk.Media} · {disk.Bus} · {disk.UsedGb:F0}/{disk.TotalGb:F0} GB · "
                                   + SpeedText(disk.ReadMb, disk.WriteMb),
                                   disk.Temp, disk.Estimated);
+                            ApplyAlert(section.Rows[d], disk);
                         }
                     }
                     else
@@ -585,6 +614,9 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
                         Fill(section.Rows, 1);
                         Meter(section.Rows[0], _lang["all_drives"], usage,
                               Palette.LoadColor(usage, Palette.AccentDisk), SpeedText(read, write), temp, false);
+                        // One row for every drive: nothing to open, nothing to warn about.
+                        section.Rows[0].DriveLetter = null;
+                        section.Rows[0].AlertText = string.Empty;
                     }
                     break;
             }
@@ -606,6 +638,53 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
     /// already have history behind them the moment the full view opens rather
     /// than starting from an empty box.
     /// </summary>
+    // ---------------------------------------------------------- disk alerts
+    private readonly DiskAlertTracker _alerts = new();
+
+    /// <summary>Whether a drive is inside this machine. Replaceable so a test can say.</summary>
+    internal Func<string, bool> IsLocalDrive { get; set; } = Win32.IsFixedDrive;
+
+    /// <summary>Feed the tracker every fresh snapshot, whichever view is showing.</summary>
+    public void UpdateAlerts(Snapshot snap) =>
+        _alerts.Update(snap.Disks.Select(d =>
+            (d.Letter, d.Usage, Local: !d.IsNetwork && IsLocalDrive(d.Letter))));
+
+    /// <summary>The warning for one drive, or null: what the rows and the mini view show.</summary>
+    private (string Text, bool Hot)? AlertFor(Disk disk)
+    {
+        if (_alerts.Pending(disk.Letter) is not DiskLevel level)
+        {
+            return null;
+        }
+        string key = level == DiskLevel.Hot ? "disk_hot" : "disk_warn";
+        return (string.Format(_lang[key], disk.Letter + ":", disk.Usage), level == DiskLevel.Hot);
+    }
+
+    private void ApplyAlert(MeterRow row, Disk disk)
+    {
+        row.DriveLetter = disk.Letter;
+        (string Text, bool Hot)? alert = AlertFor(disk);
+        row.AlertHot = alert?.Hot ?? false;
+        row.AlertText = alert?.Text ?? string.Empty;
+    }
+
+    /// <summary>The person has seen the warning for this drive; take it down everywhere.</summary>
+    public void DismissAlert(string letter)
+    {
+        _alerts.Dismiss(letter);
+        foreach (MeterRow row in AllRows().Where(r =>
+                     string.Equals(r.DriveLetter, letter, StringComparison.OrdinalIgnoreCase)))
+        {
+            row.AlertText = string.Empty;
+        }
+        if (string.Equals(WidgetAlertLetter, letter, StringComparison.OrdinalIgnoreCase))
+        {
+            WidgetAlertLetter = null;
+            WidgetDetailBrush = MutedBrush;
+            WidgetDetail = string.Empty;
+        }
+    }
+
     public void PushHistory(Snapshot snap)
     {
         if (!snap.Ready)
@@ -904,6 +983,7 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
     /// </summary>
     private void AddDriveCards(PlannedTab tab, List<Disk> drives)
     {
+        tab.DriveLetters.AddRange(drives.Select(d => d.Letter));
         foreach (Disk disk in drives)
         {
             tab.Cards.Add(new Planned($"diskio{disk.Letter}",
@@ -1059,6 +1139,7 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
         public string Hardware { get; }
         public List<Planned> Cards { get; } = new();
         public List<DeviceFact> Facts { get; } = new();
+        public List<string> DriveLetters { get; } = new();
     }
 
     /// <summary>What a graph should look like this tick, before it exists.</summary>
@@ -1093,6 +1174,7 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
             tab.Detail = plan.Detail;
             tab.Hardware = plan.Hardware;
             tab.Summary = plan.Summary;
+            tab.DriveLetters = plan.DriveLetters.ToArray();
 
             Fill(tab.Cards, tab.Key, plan.Cards.Where(c => !c.Small).ToList());
             Fill(tab.Cores, tab.Key, plan.Cards.Where(c => c.Small).ToList());

@@ -305,6 +305,13 @@ internal static class Win32
     public static bool IsNetworkDrive(string letter) =>
         GetDriveTypeW(letter + ":\\") == DRIVE_REMOTE;
 
+    /// <summary>
+    /// A drive inside this machine -- not a share, a USB stick or a RAM disk.
+    /// The only kind Disk Cleanup can free space on.
+    /// </summary>
+    public static bool IsFixedDrive(string letter) =>
+        GetDriveTypeW(letter + ":\\") == DRIVE_FIXED;
+
     /// <summary>(used, total) bytes for a drive letter, or null if unreadable.</summary>
     public static (ulong Used, ulong Total)? DiskSpace(string letter)
     {

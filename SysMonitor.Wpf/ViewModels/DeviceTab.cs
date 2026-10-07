@@ -61,6 +61,13 @@ public sealed class DeviceTab : INotifyPropertyChanged
         set => Set(ref _selected, value);
     }
 
+    /// <summary>
+    /// The drive letters this tab covers: one disk can hold several. Empty for
+    /// every tab that is not a disk. What a double-click or right-click on the
+    /// tab hands to File Explorer, Disk Cleanup and Disk Management.
+    /// </summary>
+    public IReadOnlyList<string> DriveLetters { get; set; } = Array.Empty<string>();
+
     /// <summary>The headline graphs, one framed panel each, top to bottom.</summary>
     public ObservableCollection<ChartCard> Cards { get; } = new();
 

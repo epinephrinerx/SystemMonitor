@@ -68,8 +68,11 @@
              carrying only facts (an installed memory module) drops the bar
              rather than drawing a number nobody measured. -->
         <DataTemplate DataType="{x:Type vm:MeterRow}">
-            <Grid Margin="0,2,6,2">
+            <Grid Margin="0,2,6,2" Background="Transparent"
+                  MouseLeftButtonDown="OnMeterRowDown"
+                  ContextMenuOpening="OnMeterRowMenu">
                 <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
@@ -122,6 +125,34 @@
                            Foreground="{Binding DataContext.LabelBrush,
                                         RelativeSource={RelativeSource AncestorType=Window}}"
                            TextTrimming="CharacterEllipsis" Margin="0,1,0,3"/>
+
+                <!-- A drive that is filling up: the line says so, and a click
+                     opens Disk Cleanup. The cross puts it away without. -->
+                <Border Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="4"
+                        Background="{Binding AlertBack}"
+                        BorderBrush="{Binding AlertAccent}" BorderThickness="3,0,0,0"
+                        CornerRadius="4" Padding="8,3,6,4" Margin="0,0,0,4"
+                        Cursor="Hand"
+                        Visibility="{Binding HasAlert, Converter={StaticResource BoolToVisible}}"
+                        MouseLeftButtonDown="OnAlertDown">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Style="{StaticResource Body}" FontSize="{DynamicResource FontSmall}"
+                                   Text="{Binding AlertText}" TextWrapping="Wrap"
+                                   Foreground="{Binding DataContext.TextBrush,
+                                                RelativeSource={RelativeSource AncestorType=Window}}"/>
+                        <TextBlock Grid.Column="1" Text="&#xE711;"
+                                   FontFamily="Segoe MDL2 Assets"
+                                   FontSize="{DynamicResource FontTiny}"
+                                   VerticalAlignment="Top" Margin="8,2,0,0"
+                                   Foreground="{Binding DataContext.MutedBrush,
+                                                RelativeSource={RelativeSource AncestorType=Window}}"
+                                   MouseLeftButtonDown="OnAlertDismissDown"/>
+                    </Grid>
+                </Border>
             </Grid>
         </DataTemplate>
 
@@ -353,9 +384,10 @@
                                    Text="{Binding WidgetDetail}"
                                    Visibility="{Binding WidgetDetail,
                                                 Converter={StaticResource EmptyToCollapsed}}"
-                                   Foreground="{Binding MutedBrush}"
+                                   Foreground="{Binding WidgetDetailBrush}"
                                    TextTrimming="CharacterEllipsis"
-                                   Margin="0,4,0,0"/>
+                                   Margin="0,4,0,0"
+                                   MouseLeftButtonDown="OnWidgetDetailDown"/>
                     </StackPanel>
                     </Grid>
                 </Grid>
@@ -515,7 +547,9 @@
                                 <DataTemplate DataType="{x:Type vm:DeviceTab}">
                                     <Button Style="{StaticResource DeviceTabButton}"
                                             Tag="{Binding Key}"
-                                            Click="OnTabClick">
+                                            Click="OnTabClick"
+                                            PreviewMouseLeftButtonDown="OnTabDown"
+                                            ContextMenuOpening="OnTabMenu">
                                         <StackPanel>
                                             <TextBlock Style="{StaticResource Label}"
                                                        Text="{Binding Title}"

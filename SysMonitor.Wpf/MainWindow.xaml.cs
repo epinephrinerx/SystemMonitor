@@ -366,6 +366,7 @@ public partial class MainWindow : Window
             if (fresh)
             {
                 _model.PushHistory(snap);
+                _model.UpdateAlerts(snap);
             }
 
             if (_mode == Mode.Full)
@@ -925,6 +926,16 @@ public partial class MainWindow : Window
     private void BuildContextMenu()
     {
         var menu = new ContextMenu();
+        FillWindowMenu(menu);
+        ContextMenu = menu;
+    }
+
+    /// <summary>
+    /// The window's own right-click items. Built fresh each time, because a
+    /// menu item belongs to one menu and the drive menus end with these too.
+    /// </summary>
+    private void FillWindowMenu(ContextMenu menu)
+    {
         var toggle = new MenuItem();
         var full = new MenuItem();
         var reset = new MenuItem { Header = new Lang(_config.Lang)["reset_size"] };
@@ -953,7 +964,6 @@ public partial class MainWindow : Window
         menu.Items.Add(restart);
         menu.Items.Add(new Separator());
         menu.Items.Add(close);
-        ContextMenu = menu;
     }
 
     // ------------------------------------------------------------- sidebar

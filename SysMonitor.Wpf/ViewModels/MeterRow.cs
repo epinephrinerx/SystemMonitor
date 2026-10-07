@@ -158,9 +158,59 @@ public sealed class MeterRow : INotifyPropertyChanged
             if (Set(ref _compact, value))
             {
                 OnPropertyChanged(nameof(TempHidden));
+                OnPropertyChanged(nameof(HasAlert));
             }
         }
     }
+
+    /// <summary>
+    /// The drive this row stands for, or null for every row that is not one
+    /// drive. What a double-click or a right-click on the row acts on.
+    /// </summary>
+    public string? DriveLetter { get; set; }
+
+    private string _alertText = string.Empty;
+    private bool _alertHot;
+
+    /// <summary>A warning for this row, shown under it; empty when there is none.</summary>
+    public string AlertText
+    {
+        get => _alertText;
+        set
+        {
+            if (Set(ref _alertText, value))
+            {
+                OnPropertyChanged(nameof(HasAlert));
+            }
+        }
+    }
+
+    /// <summary>Red rather than amber.</summary>
+    public bool AlertHot
+    {
+        get => _alertHot;
+        set
+        {
+            if (Set(ref _alertHot, value))
+            {
+                OnPropertyChanged(nameof(AlertAccent));
+                OnPropertyChanged(nameof(AlertBack));
+            }
+        }
+    }
+
+    /// <summary>
+    /// A compact row has no room for the line; the mini view puts the same
+    /// warning where it has room.
+    /// </summary>
+    public bool HasAlert => _alertText.Length > 0 && !_compact;
+
+    public Brush AlertAccent => Palette.Brush(_alertHot ? Palette.LoadHot : Palette.LoadWarm);
+
+    public Brush AlertBack => Palette.Brush(Color.FromArgb(0x30,
+        _alertHot ? Palette.LoadHot.R : Palette.LoadWarm.R,
+        _alertHot ? Palette.LoadHot.G : Palette.LoadWarm.G,
+        _alertHot ? Palette.LoadHot.B : Palette.LoadWarm.B));
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
