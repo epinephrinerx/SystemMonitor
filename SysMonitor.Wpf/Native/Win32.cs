@@ -33,7 +33,8 @@ internal static class Win32
     // STORAGE_PROPERTY_ID members we use.
     private const uint StorageAdapterProperty = 1;
     private const uint StorageDeviceSeekPenaltyProperty = 7;
-    private const uint StorageDeviceTemperatureProperty = 22;
+    // winioctl.h (SDK 10.0.26100.0): StorageDeviceTemperatureProperty = 52
+    internal const uint StorageDeviceTemperatureProperty = 52;
     private const uint PropertyStandardQuery = 0;
 
     private const int SystemProcessorPerformanceInformation = 8;
@@ -443,8 +444,8 @@ internal static class Win32
 
     /// <summary>
     /// Drive temperature in Celsius from the storage stack, or null.
-    /// Works on NVMe and most modern SATA SSDs (Windows 10 1803+); older or
-    /// USB-bridged drives simply do not expose one.
+    /// Observed working on NVMe and SATA; USB bridges often do not pass it through
+    /// (one tested returned ERROR_IO_DEVICE 1117).
     /// </summary>
     public static int? DriveTemperature(int driveNumber)
     {

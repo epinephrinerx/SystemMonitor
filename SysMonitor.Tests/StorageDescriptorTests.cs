@@ -73,6 +73,13 @@ public class StorageDescriptorTests
         Assert.IsNull(StorageDescriptors.Temperature(TemperatureDescriptor(200)));
     }
 
+    [TestMethod]
+    public void Storage_device_temperature_property_id_is_52()
+    {
+        // winioctl.h (SDK 10.0.26100.0): StorageDeviceTemperatureProperty = 52
+        Assert.AreEqual(52u, Win32.StorageDeviceTemperatureProperty);
+    }
+
     /// <summary>A descriptor of a given length that declares its own size.</summary>
     private static byte[] Descriptor(int length, int declared)
     {
