@@ -1,6 +1,6 @@
 # Requirements — SystemMonitor4.0
 
-บันทึกสิ่งที่ตกลงกันไว้ · อัปเดตล่าสุด 2026-10-07
+บันทึกสิ่งที่ตกลงกันไว้ · อัปเดตล่าสุด 2026-10-09
 **intake ปิดแล้ว (2026-09-30)** — ทุกข้อได้รับการรับรอง; งานถัดไป: handoff ให้ Coding Owner ประเมินและแบ่งเฟส
 บริบทของโปรเจกต์อยู่ที่ `AGENTS.md` / `CLAUDE.md` (root) — ไฟล์นี้ไม่เล่าซ้ำ
 
@@ -13,6 +13,48 @@
 | ✔️ เสร็จแล้ว | คุณตรวจรับแล้ว ผ่านเกณฑ์ครบทุกข้อ |
 | ⚠️ ขัดแย้ง | ขัดกับข้ออื่น ต้องตัดสินก่อน |
 | ⛔ ยกเลิก | ถูกแทนที่ด้วยข้ออื่น หรือไม่เอาแล้ว |
+
+---
+
+## R-019 · อุณหภูมิ Disk แสดงไม่ได้ — ตรวจสอบสาเหตุและเพิ่มแหล่งอ่านจาก SMART
+
+| | |
+|---|---|
+| สถานะ | 🔨 กำลังทำ — เริ่ม 2026-10-11 (ตกลงแล้ว 2026-10-09; requirement หลักอยู่ที่ `D:\Dev\Apps\DiskInfo\Requirements.md` R-003 — ข้อนี้เป็นตัวชี้และที่เก็บผลตรวจสอบ) |
+| วันที่ | 2026-10-09 |
+| แตะส่วนไหน | SysMonitor.Wpf: Native/Win32.cs (`DriveTemperature`) · Sensors/Sampler.cs · Model/Snapshot.cs · I18n.cs · SysMonitor.Tests |
+| เกี่ยวกับ | DiskInfo R-001 (core SMART) · DiskInfo R-002 (โมดูล SMART ใน SystemMonitor ใช้ตัวอ่านร่วมกัน) |
+
+**คุณระบุ:**
+> ใน system monitor ไม่สามารถแสดงผลอุณหภูมิ disk ได้ ให้ตรวจสอบพร้อมบันทึกใน project ของ system monitor และพัฒนาระบบร่วมกับ project system monitor ด้วยครับ
+
+**ผลตรวจสอบเบื้องต้น (2026-10-09, อ่านโค้ด ยังไม่ได้แก้):**
+- อุณหภูมิ disk มาจากทางเดียว: `IOCTL_STORAGE_QUERY_PROPERTY` + `StorageDeviceTemperatureProperty` (`Win32.DriveTemperature`) ไม่ได้ค่า → null → แสดง n/a
+- คอมเมนต์ในโค้ดระบุว่าใช้ได้กับ NVMe และ SATA SSD รุ่นใหม่ (Windows 10 1803+) ไดรฟ์รุ่นเก่าหรือต่อผ่าน USB bridge มักไม่คืนค่า
+- เครื่องพัฒนา: TOSHIBA MQ04ABF100 (HDD · SATA), Seagate One Touch Hub (HDD · USB), WDS250G3X0C (SSD · NVMe) — **สมมติฐานนี้ถูกหักล้างแล้ว ดู "ผลตรวจสอบจริง" ด้านล่าง:** HDD สองตัวไม่ได้ค่า NVMe น่าจะได้ (Get-StorageReliabilityCounter ต้องใช้ admin จึงยังเทียบค่าจริงไม่ได้)
+- ทางแก้ที่ตกลงทิศทางแล้ว: อ่านจาก SMART ผ่าน core ของ DiskInfo เป็นทางสำรอง; แอปปกติไม่ใช้ admin แต่มีตัวเลือกเปิดใช้แบบ admin เพื่ออ่าน SMART เต็มรูปแบบ
+
+**ตรวจรับเมื่อ:** ตามเกณฑ์ของ DiskInfo R-003 (ผลตรวจสอบรายดิสก์, เทียบค่ากับ CrystalDiskInfo ±2 °C ทั้งโหมดปกติและโหมด admin, ตัวเลือก admin ไทย/อังกฤษ, UI ไม่ค้าง, `dotnet test` และ `build-wpf.cmd` ผ่าน)
+
+**คำยืนยันของคุณ (2026-10-09):**
+> ถูกครับ
+
+**ผลตรวจสอบจริง (2026-10-11, รันโพรบอ่านอย่างเดียวบนเครื่องพัฒนา ทั้งสิทธิ์ปกติและ admin — สคริปต์จำลอง `IOCTL_STORAGE_QUERY_PROPERTY` ชุดเดียวกับ `Win32.StorageQuery`):**
+- **สาเหตุหลัก (พิสูจน์แล้ว):** `Win32.cs:36` ตั้ง `StorageDeviceTemperatureProperty = 22` แต่ค่าใน `winioctl.h` (SDK 10.0.26100.0) คือ **52** (`StorageDeviceIoCapabilityProperty = 48` แล้วนับ 49, 50, 51, 52; enum ไม่มี ID 22) ส่ง 22 → IOCTL ล้มด้วย `ERROR_INVALID_FUNCTION (1)` **ทุกดิสก์ ทั้งโหมดปกติและ admin** จึงได้ n/a หมด ไม่ใช่เพราะไดรฟ์รุ่นเก่า
+- สมมติฐานเดิม "NVMe น่าจะได้ค่า / HDD ไม่ได้" **ไม่จริง** — ไม่มีดิสก์ใดได้ค่าเพราะ ID ผิด
+- ผลเมื่อใช้ ID = 52 (สิทธิ์ปกติ ไม่ใช่ admin): TOSHIBA MQ04ABF100 (SATA HDD) = 37 °C · WDS250G3X0C (NVMe) = 42 °C · Seagate One Touch Hub (USB HDD) = ล้มด้วย `ERROR_IO_DEVICE (1117)` (ทั้งปกติและ admin)
+- ผล admin ด้วย ID = 52: SATA 37 °C · NVMe 45 °C · USB ยัง 1117 (ค่า NVMe ต่างจากโหมดปกติเพราะรันคนละเวลา ไม่ใช่ความต่างของสิทธิ์)
+- `Get-StorageReliabilityCounter` (WMI) ต้อง admin: ปกติ → "Access to a CIM resource was not available" · admin → SATA 37 °C, USB 41 °C, NVMe 45 °C (max 80) ดังนั้น **USB HDD อ่านอุณหภูมิได้ผ่าน WMI reliability counter เมื่อเป็น admin**
+- `StorageDescriptors.Temperature` อ่าน offset 26 ได้ค่าสมเหตุสมผล (ตรงกับ reliability counter ±ไม่กี่องศา) — parser ไม่น่าผิด แต่ต้องมี unit test ยืนยันกับ byte จริง
+- ไม่มี test ใน `SysMonitor.Tests` ที่ผูกกับค่า ID นี้ (grep แล้ว) จึงไม่เคยจับบั๊กได้
+
+**ผลต่อแผน R-003 (ข้อเสนอของ Coding Owner รอผู้ใช้รับรอง):** แก้ ID เป็น 52 แก้ HDD SATA และ NVMe ได้ทันทีในสิทธิ์ปกติ โดยไม่ต้องใช้ DLL ของ DiskInfo เหลือเฉพาะ USB HDD ที่ต้องใช้ทางสำรอง (WMI reliability counter ในโหมด admin หรือ SMART ผ่าน SAT ของ DiskInfo core) — เฟสถัดไปจึงเปลี่ยนจาก "DLL ก่อน" เป็น "แก้ ID + test ก่อน" แล้วค่อยพิจารณาทางสำรองสำหรับ USB
+
+**สถานะการลงมือ (2026-10-11):**
+- เฟส 2a แก้ ID เป็น 52 เสร็จใน branch `agent/agy-sysmon-temp-id` (ยังไม่ commit): Writing Owner = agy (Gemini 3.8 Flash Medium) แก้ `Win32.cs` + เพิ่ม test ล็อกค่า ID (ใน `StorageDescriptorTests.cs`) · Coding Owner รันซ้ำเอง: `dotnet test SysMonitor.Tests` ผ่าน 313/313 (เดิม 312) และ `build-wpf.cmd` สำเร็จ v4.2.0
+- Reviewer2 (codex gpt-6.1) ไม่พบปัญหา (รอบแรกใช้ไม่ได้เพราะ sandbox รัน git ไม่ได้ จึงส่ง diff ผ่าน stdin รอบสอง) · ข้อสังเกต: คอมเมนต์เรื่อง USB พูดกว้างกว่าหลักฐาน (วัดได้เครื่องเดียว) · Reviewer1 (Opus) ตรวจ ID กับ `winioctl.h` เอง ยืนยัน 52 ถูก ไม่พบ defect; ข้อสังเกตตรงกับ Reviewer2 (คอมเมนต์ overclaim เรื่อง USB) และ test เป็นแค่ pin ค่า → agy แก้คอมเมนต์เป็น "Observed working on NVMe and SATA; USB bridges often do not pass it through" แล้ว `dotnet test` ซ้ำผ่าน 313/313
+- ตรวจโค้ดจริงที่ build แล้ว: เรียก `Win32.DriveTemperature` (ค่าคงที่ = 52) จาก `SystemMonitor.dll` ในสิทธิ์ปกติ ได้ PhysicalDrive0 (SATA HDD) 34 °C · PhysicalDrive1 (NVMe) 45 °C · PhysicalDrive2 (USB) null (n/a) — เรียกผ่าน reflection ไม่ได้เปิดหน้าจอแอป
+- **ยังค้าง:** (1) ทางสำรองสำหรับ USB HDD + ตัวเลือก admin (เฟส 2b) (2) เทียบค่ากับ CrystalDiskInfo ±2 °C — ต้องให้คุณตรวจเอง (3) ยังไม่ได้รันแอปที่ build ใหม่ดูค่าจริงบนหน้าจอ
 
 ---
 
