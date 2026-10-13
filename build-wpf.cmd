@@ -37,7 +37,7 @@ rem DiskInfoCore.dll is optional: it lets the app read SMART for disks Windows w
 rem not report a temperature for (USB bridges, external NVMe). Point DISKINFOCORE at a
 rem build of it, or leave it to find the sibling DiskInfo checkout; without one the setup
 rem is built without it and the app simply does without.
-if not defined DISKINFOCORE set "DISKINFOCORE=%~dp0..\DiskInfo\CrystalDiskInfo\DiskInfoCore\Build\Releasex64\DiskInfoCore.dll"
+if not defined DISKINFOCORE set "DISKINFOCORE=%~dp0..\DiskInfo\DiskInfoCore\Build\Releasex64\DiskInfoCore.dll"
 if exist "SysMonitor.Setup\payload\DiskInfoCore.dll" del "SysMonitor.Setup\payload\DiskInfoCore.dll"
 if exist "%DISKINFOCORE%" (
     copy /y "%DISKINFOCORE%" "SysMonitor.Setup\payload\DiskInfoCore.dll" >nul || exit /b 1
