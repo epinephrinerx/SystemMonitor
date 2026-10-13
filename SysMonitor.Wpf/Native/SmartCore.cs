@@ -24,7 +24,12 @@ internal sealed record SmartReading(
     int? TempC,
     int? LifePercent,
     SmartHealth Health,
-    bool Full);
+    bool Full,
+    string Serial = "",
+    string Firmware = "",
+    int InterfaceKind = 0,
+    int Media = 0,
+    long? PowerOnHours = null);
 
 /// <summary>
 /// The C ABI of DiskInfoCore.dll (DiskInfo repo, docs/CORE_ABI.md), which wraps
@@ -37,9 +42,17 @@ internal sealed record SmartReading(
 internal static class SmartCore
 {
     private const string Dll = "DiskInfoCore.dll";
+
+    // The app folder first, then System32. The app folder alone is not enough: the
+    // loader applies the same restricted search to the DLL's own imports (setupapi,
+    // wintrust, oleacc...), none of which live beside the exe, so the load fails
+    // with "or one of its dependencies" and the module reports the library missing.
+    private const DllImportSearchPath SearchPaths =
+        DllImportSearchPath.ApplicationDirectory | DllImportSearchPath.System32;
     private const int AbiMajor = 1;
     private const int DiAccess = -2;                 // DI_E_ACCESS
     private const int DiNa = int.MinValue;           // DI_NA
+    private const long DiNa64 = long.MinValue;       // DI_NA64
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct NativeDisk
@@ -59,22 +72,22 @@ internal static class SmartCore
         public uint Source;
     }
 
-    [DllImport(Dll), DefaultDllImportSearchPaths(DllImportSearchPath.ApplicationDirectory)]
+    [DllImport(Dll), DefaultDllImportSearchPaths(SearchPaths)]
     private static extern uint di_abi_version();
 
-    [DllImport(Dll), DefaultDllImportSearchPaths(DllImportSearchPath.ApplicationDirectory)]
+    [DllImport(Dll), DefaultDllImportSearchPaths(SearchPaths)]
     private static extern int di_open(out IntPtr handle, uint flags);
 
-    [DllImport(Dll), DefaultDllImportSearchPaths(DllImportSearchPath.ApplicationDirectory)]
+    [DllImport(Dll), DefaultDllImportSearchPaths(SearchPaths)]
     private static extern void di_close(IntPtr handle);
 
-    [DllImport(Dll), DefaultDllImportSearchPaths(DllImportSearchPath.ApplicationDirectory)]
+    [DllImport(Dll), DefaultDllImportSearchPaths(SearchPaths)]
     private static extern int di_scan(IntPtr handle);
 
-    [DllImport(Dll), DefaultDllImportSearchPaths(DllImportSearchPath.ApplicationDirectory)]
+    [DllImport(Dll), DefaultDllImportSearchPaths(SearchPaths)]
     private static extern int di_disk_count(IntPtr handle);
 
-    [DllImport(Dll), DefaultDllImportSearchPaths(DllImportSearchPath.ApplicationDirectory)]
+    [DllImport(Dll), DefaultDllImportSearchPaths(SearchPaths)]
     private static extern int di_disk_info(IntPtr handle, int index, ref NativeDisk disk);
 
     // Two locks, not one: a scan holds its lock for seconds, and the sampler
@@ -168,7 +181,12 @@ internal static class SmartCore
         d.TemperatureC == DiNa ? null : d.TemperatureC,
         d.LifePercent == DiNa ? null : d.LifePercent,
         d.Health is >= 0 and <= 3 ? (SmartHealth)d.Health : SmartHealth.Unknown,
-        d.Access == 0);
+        d.Access == 0,
+        Utf8(d.Serial),
+        Utf8(d.Firmware),
+        d.InterfaceKind,
+        d.Media,
+        d.PowerOnHours == DiNa64 || d.PowerOnHours < 0 ? null : d.PowerOnHours);
 
     internal static string Utf8(byte[]? field)
     {

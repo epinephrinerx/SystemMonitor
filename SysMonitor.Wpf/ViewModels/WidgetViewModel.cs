@@ -66,7 +66,7 @@ public sealed class Section : INotifyPropertyChanged
 /// here it is simply cheaper than rebuilding a collection twenty times a
 /// minute and it keeps the bars from restarting their layout each tick.
 /// </summary>
-public sealed class WidgetViewModel : INotifyPropertyChanged
+public sealed partial class WidgetViewModel : INotifyPropertyChanged
 {
     private readonly AppConfig _config;
     private Palette.Colours _palette;
@@ -298,6 +298,10 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
                 _views.Add(("net", null, null));
             }
         }
+        if (_config.ShowSmart)
+        {
+            AddSmartViews(snap);
+        }
         if (_views.Count == 0)
         {
             _views.Add(("empty", null, null));
@@ -320,7 +324,7 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
             ShowMessage = true;
             return;
         }
-        if (_views.Count == 0)
+        if (_views.Count == 0 || SmartViewsStale(snap))
         {
             RebuildViews(snap);
         }
@@ -417,6 +421,10 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
                 break;
             }
 
+            case "smart":
+                UpdateSmartPage(snap, from);
+                break;
+
             case "disk":
             {
                 if (from!.Value >= snap.Disks.Count)
@@ -444,10 +452,14 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
     }
 
     /// <summary>Set the mini heading line and the badge that belongs to it.</summary>
-    private void Head(string title, int percent, string detail, int? temp, bool estimated)
+    private void Head(string title, int percent, string detail, int? temp, bool estimated) =>
+        Head(title, percent + "%", detail, temp, estimated);
+
+    /// <summary>The same heading with a headline that is not a percentage, e.g. a verdict.</summary>
+    private void Head(string title, string value, string detail, int? temp, bool estimated = false)
     {
         WidgetTitle = title.ToUpperInvariant();
-        WidgetValue = percent + "%";
+        WidgetValue = value;
         WidgetDetail = detail;
         WidgetAlertLetter = null;
         WidgetDetailBrush = MutedBrush;
@@ -476,6 +488,10 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
         if (_config.ShowDisk)
         {
             wanted.Add("disk");
+        }
+        if (_config.ShowSmart)
+        {
+            wanted.Add("smart");
         }
         // Only when the driver publishes counters: a remote session or a very
         // old adapter has none, and an empty heading helps nobody.
@@ -547,6 +563,10 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
                     // The biggest thing in memory, beside the heading.
                     string top = MemoryViewModel.TopLine(MemoryBoard.Group(snap.Processes));
                     section.Note = top.Length == 0 ? string.Empty : string.Format(_lang["mem_top"], top);
+                    break;
+
+                case "smart":
+                    FillSmartSection(section, snap.Smart);
                     break;
 
                 case "gpu":
@@ -809,6 +829,11 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
                 .OrderBy(d => d.Letter, StringComparer.OrdinalIgnoreCase)
                 .ToList();
             AddLetterGroup(wanted, "disknetwork", _lang["network_drives"], networkDrives);
+        }
+
+        if (_config.ShowSmart)
+        {
+            AddSmartTabs(wanted, snap.Smart);
         }
 
         if (_config.ShowGpu && snap.Gpu.Present)
@@ -1209,7 +1234,15 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
         if (Tabs.Count > 0 && !Tabs.Any(t => t.Selected))
         {
             string remembered = _config.FullTab;
-            Select(Tabs.Any(t => t.Key == remembered) ? remembered : Tabs[0].Key);
+            // The SMART tab changes key as the scan comes and goes ("smart" while it
+            // has nothing to show, "smart0".. per disk). The user's choice was the
+            // module, so any of its tabs honours it.
+            string? pick = Tabs.Any(t => t.Key == remembered)
+                ? remembered
+                : remembered.StartsWith("smart", StringComparison.Ordinal)
+                    ? Tabs.FirstOrDefault(t => t.Key.StartsWith("smart", StringComparison.Ordinal))?.Key
+                    : null;
+            Select(pick ?? Tabs[0].Key);
         }
     }
 
@@ -1304,6 +1337,7 @@ public sealed class WidgetViewModel : INotifyPropertyChanged
         "cpu" => _lang["cpu"],
         "ram" => _lang["memory"],
         "gpu" => _lang["gpu"],
+        "smart" => _lang["smart"],
         "net" => _lang["network"],
         _ => _lang["disk"],
     };

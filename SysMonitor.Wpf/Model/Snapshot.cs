@@ -22,6 +22,9 @@ public sealed class Snapshot
 
     public Ram Ram { get; init; } = new();
 
+    /// <summary>The SMART module's disks, or why there are none.</summary>
+    public SmartInfo Smart { get; init; } = SmartInfo.Off;
+
     public IReadOnlyList<Disk> Disks
     {
         get => _disks;

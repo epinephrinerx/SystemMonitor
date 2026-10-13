@@ -45,6 +45,13 @@ public sealed class AppConfig
     public bool ShowDisk { get; set; } = true;
     public bool ShowNetwork { get; set; } = true;
     public bool ShowGpu { get; set; } = true;
+
+    /// <summary>
+    /// The SMART module: health, life and hours for each physical disk. Off by
+    /// default because it needs administrator rights and the commands behind it
+    /// can wake a sleeping drive every couple of minutes.
+    /// </summary>
+    public bool ShowSmart { get; set; }
     public bool IncludeWireless { get; set; } = true;
     public string NetworkMode { get; set; } = "separated";  // separated | total
     public string CpuMode { get; set; } = "separated";   // separated | total

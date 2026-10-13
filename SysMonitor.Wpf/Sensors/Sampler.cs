@@ -48,8 +48,9 @@ public sealed class Sampler : IDisposable
     // the sampler thread can read it without a lock.
     private static readonly TimeSpan SmartEvery = TimeSpan.FromMinutes(2);
     private readonly bool _elevated = Win32.IsElevated();
-    private IReadOnlyDictionary<int, SmartReading> _smart = new Dictionary<int, SmartReading>();
+    private SmartResult _smartResult = SmartResult.None;
     private volatile bool _smartNeeded;
+    private volatile bool _smartReset;
     private Thread? _smartLoop;
     private readonly HashSet<string> _networkDrives = new(StringComparer.OrdinalIgnoreCase);
     private List<string> _drives = new();
@@ -91,8 +92,31 @@ public sealed class Sampler : IDisposable
         }
     }
 
+    /// <summary>How the last scan ended and what it found, published as one piece.</summary>
+    private sealed record SmartResult(SmartScanStatus? Status, IReadOnlyDictionary<int, SmartReading> Readings)
+    {
+        public static readonly SmartResult None = new(null, new Dictionary<int, SmartReading>());
+    }
+
+    private SmartInfo BuildSmart()
+    {
+        SmartResult result = Volatile.Read(ref _smartResult);
+        return SmartBoard.Build(_config.ShowSmart, SmartCore.IsAvailable, _elevated,
+                                result.Status, result.Readings);
+    }
+
     /// <summary>Is the app running elevated, so that SMART can be read at all?</summary>
     public bool Elevated => _elevated;
+
+    /// <summary>Scan now rather than at the next beat, e.g. when the SMART module was just switched on.</summary>
+    public void RequestSmart()
+    {
+        // Whatever was read before the module was off may be hours old (a disk
+        // since unplugged): show "waiting" until a fresh scan, not those disks.
+        Volatile.Write(ref _smartResult, SmartResult.None);
+        _smartReset = true;
+        Nudge();
+    }
 
     /// <summary>
     /// Read SMART now and then, but only while some disk has no temperature from
@@ -107,7 +131,14 @@ public sealed class Sampler : IDisposable
             long next = 0;
             while (!_stop.IsCancellationRequested)
             {
-                if (_smartNeeded && Environment.TickCount64 >= next)
+                if (_smartReset)
+                {
+                    _smartReset = false;
+                    next = 0;
+                }
+                // The SMART module asks for readings of every disk; the temperature
+                // fallback only asks while some disk has no temperature of its own.
+                if ((_smartNeeded || _config.ShowSmart) && Environment.TickCount64 >= next)
                 {
                     next = Environment.TickCount64 + (long)SmartEvery.TotalMilliseconds;
                     try
@@ -115,9 +146,10 @@ public sealed class Sampler : IDisposable
                         (SmartScanStatus status, IReadOnlyList<SmartReading> disks) = SmartCore.Scan();
                         // A pass that did not succeed must not leave the last good readings
                         // standing: a disk that stopped answering would keep its old number.
-                        Volatile.Write(ref _smart, status == SmartScanStatus.Ok
+                        // One write, so a reader never pairs this pass's status with the last pass's disks.
+                        Volatile.Write(ref _smartResult, new SmartResult(status, status == SmartScanStatus.Ok
                             ? disks.GroupBy(d => d.Drive).ToDictionary(g => g.Key, g => g.First())
-                            : new Dictionary<int, SmartReading>());
+                            : new Dictionary<int, SmartReading>()));
                         if (status != last)
                         {
                             Diag.Write($"SMART scan: {status} ({disks.Count} disks)");
@@ -126,7 +158,8 @@ public sealed class Sampler : IDisposable
                     }
                     catch (Exception error)
                     {
-                        Volatile.Write(ref _smart, new Dictionary<int, SmartReading>());
+                        Volatile.Write(ref _smartResult,
+                                       new SmartResult(SmartScanStatus.Failed, new Dictionary<int, SmartReading>()));
                         Diag.ReportException("SMART scan", error);
                     }
                 }
@@ -295,6 +328,7 @@ public sealed class Sampler : IDisposable
             Disks = CollectDisks(),
             Adapters = CollectAdapters(),
             Gpu = CollectGpu(),
+            Smart = BuildSmart(),
             Modules = _modules,
             Processes = _processes,
             Services = _serviceList,
@@ -477,7 +511,7 @@ public sealed class Sampler : IDisposable
         var seen = new Dictionary<int, int?>();
         bool wantSmart = false;
         bool smartAvailable = SmartCore.IsAvailable;
-        IReadOnlyDictionary<int, SmartReading> smart = Volatile.Read(ref _smart);
+        IReadOnlyDictionary<int, SmartReading> smart = Volatile.Read(ref _smartResult).Readings;
         foreach (string letter in _drives)
         {
             int? number = _hardware.TryGetValue(letter, out var hardware) ? hardware.Number : null;
