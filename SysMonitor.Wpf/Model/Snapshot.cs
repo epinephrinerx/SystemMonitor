@@ -141,6 +141,9 @@ public sealed class Disk
     public int? Temp { get; init; }
     public bool Estimated { get; init; }
 
+    /// <summary>Where <see cref="Temp"/> came from.</summary>
+    public TempSource TempSource { get; init; }
+
     /// <summary>
     /// Which physical disk this letter lives on and how. Null until the first
     /// slow pass has read it, and on a drive with no physical disk behind it.

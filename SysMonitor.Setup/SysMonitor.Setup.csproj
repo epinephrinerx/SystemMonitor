@@ -24,6 +24,10 @@
   <ItemGroup>
     <EmbeddedResource Include="payload\SystemMonitor.exe" LogicalName="SystemMonitor.exe"
                       Condition="Exists('payload\SystemMonitor.exe')" />
+    <!-- Optional: SMART for disks Windows will not report a temperature for.
+         build-wpf.cmd copies DiskInfoCore.dll here when it can find one. -->
+    <EmbeddedResource Include="payload\DiskInfoCore.dll" LogicalName="DiskInfoCore.dll"
+                      Condition="Exists('payload\DiskInfoCore.dll')" />
   </ItemGroup>
 
 </Project>

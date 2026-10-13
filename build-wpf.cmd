@@ -33,6 +33,18 @@ echo.
 echo [3/4] Building the installer...
 if not exist "SysMonitor.Setup\payload" mkdir "SysMonitor.Setup\payload"
 copy /y "SysMonitor.Wpf\%PUBLISH%\SystemMonitor.exe" "SysMonitor.Setup\payload\SystemMonitor.exe" >nul || exit /b 1
+rem DiskInfoCore.dll is optional: it lets the app read SMART for disks Windows will
+rem not report a temperature for (USB bridges, external NVMe). Point DISKINFOCORE at a
+rem build of it, or leave it to find the sibling DiskInfo checkout; without one the setup
+rem is built without it and the app simply does without.
+if not defined DISKINFOCORE set "DISKINFOCORE=%~dp0..\DiskInfo\CrystalDiskInfo\DiskInfoCore\Build\Releasex64\DiskInfoCore.dll"
+if exist "SysMonitor.Setup\payload\DiskInfoCore.dll" del "SysMonitor.Setup\payload\DiskInfoCore.dll"
+if exist "%DISKINFOCORE%" (
+    copy /y "%DISKINFOCORE%" "SysMonitor.Setup\payload\DiskInfoCore.dll" >nul || exit /b 1
+    echo   including DiskInfoCore.dll
+) else (
+    echo   DiskInfoCore.dll not found: building without the SMART fallback
+)
 rem The payload is an embedded resource, so the setup must rebuild whenever
 rem the application does.
 "%DOTNET%" publish SysMonitor.Setup -c Release -r win-x64 --self-contained false ^

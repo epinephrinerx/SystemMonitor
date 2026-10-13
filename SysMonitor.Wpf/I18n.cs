@@ -180,6 +180,11 @@ public sealed class Lang
             ["disabled"] = "ปิดอยู่",
             ["type"] = "ชนิด",
             ["model"] = "รุ่น",
+            ["disk_smart"] = "อุณหภูมิดิสก์แบบเต็ม (ผู้ดูแลระบบ)",
+            ["disk_smart_hint"] = "ดิสก์ USB และ NVMe ภายนอกบางตัวบอกอุณหภูมิได้เฉพาะเมื่อโปรแกรมเปิดแบบผู้ดูแลระบบ โปรแกรมจะไม่ขอสิทธิ์นี้เองและทำงานแบบปกติต่อไปถ้าคุณไม่เลือก",
+            ["restart_admin"] = "รันใหม่แบบผู้ดูแลระบบ",
+            ["admin_active"] = "กำลังทำงานแบบผู้ดูแลระบบ: อ่านอุณหภูมิดิสก์จาก SMART ได้",
+            ["admin_missing_core"] = "ไม่พบ DiskInfoCore.dll ข้างโปรแกรม จึงอ่านจาก SMART ไม่ได้",
         },
         ["en"] = new()
         {
@@ -356,6 +361,11 @@ public sealed class Lang
             ["disabled"] = "Disabled",
             ["type"] = "Type",
             ["model"] = "Model",
+            ["disk_smart"] = "Full disk temperature (administrator)",
+            ["disk_smart_hint"] = "Some USB and external NVMe drives only report a temperature when the app runs as administrator. The app never asks for this on its own and keeps running normally if you do not choose it.",
+            ["restart_admin"] = "Restart as administrator",
+            ["admin_active"] = "Running as administrator: disk temperature is read from SMART",
+            ["admin_missing_core"] = "DiskInfoCore.dll was not found next to the app, so SMART cannot be read",
         },
     };
 

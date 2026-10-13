@@ -40,7 +40,17 @@ public sealed class Sampler : IDisposable
     private readonly Dictionary<string, (string Media, string Bus, int? Number, string Label)> _hardware = new();
     private readonly Dictionary<string, (ulong Used, ulong Total)> _space = new();
     private readonly Dictionary<string, int?> _temps = new();
+    private readonly Dictionary<string, TempResult> _tempInfo = new();
     private readonly Dictionary<string, long> _slowUntil = new();
+
+    // SMART through DiskInfoCore: only for an elevated process, on a thread of
+    // its own because a scan takes seconds. The reading is replaced whole, so
+    // the sampler thread can read it without a lock.
+    private static readonly TimeSpan SmartEvery = TimeSpan.FromMinutes(2);
+    private readonly bool _elevated = Win32.IsElevated();
+    private IReadOnlyDictionary<int, SmartReading> _smart = new Dictionary<int, SmartReading>();
+    private volatile bool _smartNeeded;
+    private Thread? _smartLoop;
     private readonly HashSet<string> _networkDrives = new(StringComparer.OrdinalIgnoreCase);
     private List<string> _drives = new();
     private readonly NetworkSensor _network = new();
@@ -73,6 +83,60 @@ public sealed class Sampler : IDisposable
         Win32.QuietErrorDialogs();
         _prevCpu = Win32.CpuTimes();
         _loop = Task.Run(RunAsync);
+        if (_elevated)
+        {
+            _smartLoop = new Thread(SmartLoop) { IsBackground = true, Name = "smart-scan" };
+            _smartLoop.SetApartmentState(ApartmentState.STA);   // what the DiskInfo GUI uses for COM
+            _smartLoop.Start();
+        }
+    }
+
+    /// <summary>Is the app running elevated, so that SMART can be read at all?</summary>
+    public bool Elevated => _elevated;
+
+    /// <summary>
+    /// Read SMART now and then, but only while some disk has no temperature from
+    /// the storage stack: a SMART command can wake a sleeping drive, and there is
+    /// nothing to gain from asking when the answer is already on screen.
+    /// </summary>
+    private void SmartLoop()
+    {
+        try
+        {
+            var last = SmartScanStatus.Ok;
+            long next = 0;
+            while (!_stop.IsCancellationRequested)
+            {
+                if (_smartNeeded && Environment.TickCount64 >= next)
+                {
+                    next = Environment.TickCount64 + (long)SmartEvery.TotalMilliseconds;
+                    try
+                    {
+                        (SmartScanStatus status, IReadOnlyList<SmartReading> disks) = SmartCore.Scan();
+                        // A pass that did not succeed must not leave the last good readings
+                        // standing: a disk that stopped answering would keep its old number.
+                        Volatile.Write(ref _smart, status == SmartScanStatus.Ok
+                            ? disks.GroupBy(d => d.Drive).ToDictionary(g => g.Key, g => g.First())
+                            : new Dictionary<int, SmartReading>());
+                        if (status != last)
+                        {
+                            Diag.Write($"SMART scan: {status} ({disks.Count} disks)");
+                            last = status;
+                        }
+                    }
+                    catch (Exception error)
+                    {
+                        Volatile.Write(ref _smart, new Dictionary<int, SmartReading>());
+                        Diag.ReportException("SMART scan", error);
+                    }
+                }
+                _stop.Token.WaitHandle.WaitOne(3000);   // short, so a disk that just lost its reading is noticed
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+            // Dispose() ran while a scan was finishing: the app is closing.
+        }
     }
 
     /// <summary>Read processes and services again at once, e.g. after one was ended.</summary>
@@ -384,6 +448,7 @@ public sealed class Sampler : IDisposable
         Forget(_prevIo, letters);
         Forget(_space, letters);
         Forget(_temps, letters);
+        Forget(_tempInfo, letters);
     }
 
     private static void Forget<T>(Dictionary<string, T> cache, List<string> keep)
@@ -410,6 +475,9 @@ public sealed class Sampler : IDisposable
     private void RefreshTemperatures()
     {
         var seen = new Dictionary<int, int?>();
+        bool wantSmart = false;
+        bool smartAvailable = SmartCore.IsAvailable;
+        IReadOnlyDictionary<int, SmartReading> smart = Volatile.Read(ref _smart);
         foreach (string letter in _drives)
         {
             int? number = _hardware.TryGetValue(letter, out var hardware) ? hardware.Number : null;
@@ -423,8 +491,15 @@ public sealed class Sampler : IDisposable
                     Guard($"temp:{number}", () => Win32.DriveTemperature(number.Value),
                           out int? value) ? value : null;
             }
-            _temps[letter] = seen[number.Value];
+
+            int? storage = seen[number.Value];
+            wantSmart |= !DiskTemperature.Plausible(storage);
+            int? fromSmart = smart.TryGetValue(number.Value, out SmartReading? reading) ? reading.TempC : null;
+            TempResult result = DiskTemperature.Merge(storage, fromSmart, _elevated, smartAvailable);
+            _temps[letter] = result.Celsius;
+            _tempInfo[letter] = result;
         }
+        _smartNeeded = wantSmart;
         RefreshCpuTemperature();
 
         // Installed memory does not change while the widget runs, so this
@@ -575,6 +650,7 @@ public sealed class Sampler : IDisposable
                 ReadMb = readMb,
                 WriteMb = writeMb,
                 Temp = _temps.TryGetValue(letter, out int? temp) ? temp : null,
+                TempSource = _tempInfo.TryGetValue(letter, out TempResult info) ? info.Source : TempSource.None,
                 Detail = _driveDetails.GetValueOrDefault(letter),
             });
         }

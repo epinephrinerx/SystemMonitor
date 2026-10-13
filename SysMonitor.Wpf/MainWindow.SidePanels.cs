@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using SysMonitor.Native;
 
 namespace SysMonitor;
 
@@ -154,6 +155,34 @@ public partial class MainWindow
                 BuildContextMenu();
                 Refresh();
             }));
+
+        AddDiskSmart(target, lang);
+    }
+
+    /// <summary>
+    /// Full disk temperature needs an elevated process, so the choice is the
+    /// user's: a button that restarts the app as administrator (one UAC prompt),
+    /// never an elevation at start-up. Elevated, it just says SMART is in use.
+    /// </summary>
+    private void AddDiskSmart(Panel target, Lang lang)
+    {
+        target.Children.Add(Heading(lang["disk_smart"]));
+        if (_sampler.Elevated)
+        {
+            target.Children.Add(Paragraph(lang["admin_active"]));
+        }
+        else
+        {
+            target.Children.Add(Paragraph(lang["disk_smart_hint"]));
+            if (SmartCore.IsAvailable)
+            {
+                target.Children.Add(NavButton("", lang["restart_admin"], () => Restart(asAdmin: true)));
+            }
+            else
+            {
+                target.Children.Add(Paragraph(lang["admin_missing_core"]));
+            }
+        }
     }
 
     private TextBlock Paragraph(string text, bool muted = true)

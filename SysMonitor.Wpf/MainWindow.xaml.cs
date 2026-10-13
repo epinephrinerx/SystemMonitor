@@ -1481,7 +1481,7 @@ public partial class MainWindow : Window
     /// rather than waiting to be closed: the new one is waiting on the
     /// single-instance lock the old one still holds.
     /// </summary>
-    private void Restart()
+    private void Restart(bool asAdmin = false)
     {
         if (Environment.ProcessPath is not string exe)
         {
@@ -1490,17 +1490,28 @@ public partial class MainWindow : Window
 
         SavePlacement();
         _config.Save();
-        Diag.Write("restarting");
+        Diag.Write(asAdmin ? "restarting as administrator" : "restarting");
 
         try
         {
-            Process.Start(new ProcessStartInfo(exe)
-            {
-                UseShellExecute = true,
-                // Fully qualified: an unqualified Path here is
-                // System.Windows.Shapes.Path, which the resize grip uses.
-                WorkingDirectory = System.IO.Path.GetDirectoryName(exe) ?? string.Empty,
-            });
+            Process.Start(asAdmin
+                ? AdminRestart.Start(exe)
+                : new ProcessStartInfo(exe)
+                {
+                    UseShellExecute = true,
+                    // Fully qualified: an unqualified Path here is
+                    // System.Windows.Shapes.Path, which the resize grip uses.
+                    WorkingDirectory = System.IO.Path.GetDirectoryName(exe) ?? string.Empty,
+                });
+        }
+        catch (System.ComponentModel.Win32Exception error)
+            when (asAdmin && AdminRestart.IsDeclined(error))
+        {
+            // The user said no at the UAC prompt: nothing started, so stay up.
+            var lang = new Lang(_config.Lang);
+            MessageBox.Show(this, lang["mem_cancelled"], lang["title"],
+                            MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
         }
         catch (Exception error)
         {

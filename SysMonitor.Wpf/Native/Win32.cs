@@ -57,6 +57,13 @@ internal static class Win32
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CloseHandle(IntPtr handle);
 
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool GetTokenInformation(IntPtr token, int infoClass,
+        out uint elevated, int size, out int returned);
+
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool DeviceIoControl(IntPtr device, uint code,
         byte[]? inBuffer, uint inSize, byte[] outBuffer, uint outSize,
@@ -440,6 +447,30 @@ internal static class Win32
             return null;
         }
         return (media ?? "Disk", bus ?? "Unknown");
+    }
+
+    /// <summary>
+    /// Is this process running with an elevated token? Asks the token itself
+    /// (TokenElevation) rather than the Administrators group: a user who is in
+    /// the group but running un-elevated must read false.
+    /// </summary>
+    public static bool IsElevated()
+    {
+        const uint TOKEN_QUERY = 0x0008;
+        const int TokenElevation = 20;
+        if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, out IntPtr token))
+        {
+            return false;
+        }
+        try
+        {
+            return GetTokenInformation(token, TokenElevation, out uint elevated,
+                                       sizeof(uint), out _) && elevated != 0;
+        }
+        finally
+        {
+            CloseHandle(token);
+        }
     }
 
     /// <summary>

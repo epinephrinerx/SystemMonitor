@@ -48,13 +48,20 @@ public static class Installer
     public const string ExeName = "SystemMonitor.exe";
     public const string UninstallName = "uninstall.exe";
 
+    /// <summary>
+    /// DiskInfoCore.dll, optional: SMART for disks Windows will not report a
+    /// temperature for. The app runs without it, so a setup built without it
+    /// installs without it.
+    /// </summary>
+    public const string CoreName = "DiskInfoCore.dll";
+
     private const string UninstallKey =
         @"Software\Microsoft\Windows\CurrentVersion\Uninstall\SystemMonitor";
     private const string RunKey =
         @"Software\Microsoft\Windows\CurrentVersion\Run";
 
     /// <summary>Every file this installer creates. Nothing else is ever deleted.</summary>
-    private static readonly string[] ProgramFiles = { ExeName, UninstallName };
+    private static readonly string[] ProgramFiles = { ExeName, UninstallName, CoreName };
 
     /// <summary>Settings and logs, removed only when the user asks for it.</summary>
     private static readonly string[] SettingsFiles =
@@ -71,6 +78,7 @@ public static class Installer
 
     public static string ExePath => Path.Combine(InstallDir, ExeName);
     public static string UninstallPath => Path.Combine(InstallDir, UninstallName);
+    public static string CorePath => Path.Combine(InstallDir, CoreName);
 
     public static string DesktopShortcut => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
@@ -259,6 +267,7 @@ public static class Installer
 
         StopRunningApp();
         WritePayload(ExePath);
+        WriteCore();
         // The uninstaller is this same executable; it decides what to do from
         // where it was started.
         File.Copy(Environment.ProcessPath!, UninstallPath, overwrite: true);
@@ -277,6 +286,33 @@ public static class Installer
                 "This setup was built without the application payload.");
         using var target = new FileStream(destination, FileMode.Create, FileAccess.Write);
         source.CopyTo(target);
+    }
+
+    /// <summary>
+    /// Lay down DiskInfoCore.dll when this setup carries one. If the library
+    /// is in use the old one stays, which is harmless: the app checks its ABI
+    /// version and does without a library it cannot use.
+    ///
+    /// Known limit: an elevated copy of the app cannot be stopped from an
+    /// un-elevated setup, so WritePayload fails on the running exe before this
+    /// is reached and the install aborts. Close the elevated app first.
+    /// </summary>
+    private static void WriteCore()
+    {
+        using Stream? source = Assembly.GetExecutingAssembly().GetManifestResourceStream(CoreName);
+        if (source is null)
+        {
+            return;
+        }
+        try
+        {
+            using var target = new FileStream(CorePath, FileMode.Create, FileAccess.Write);
+            source.CopyTo(target);
+        }
+        catch (IOException)
+        {
+            // In use: keep what is there.
+        }
     }
 
     /// <summary>A running copy holds its own file open; ask it to go first.</summary>
@@ -321,7 +357,8 @@ public static class Installer
         key.SetValue("QuietUninstallString", "\"" + UninstallPath + "\" /S");
         key.SetValue("NoModify", 1, RegistryValueKind.DWord);
         key.SetValue("NoRepair", 1, RegistryValueKind.DWord);
-        key.SetValue("EstimatedSize", FileSizeKb(ExePath), RegistryValueKind.DWord);
+        key.SetValue("EstimatedSize", FileSizeKb(ExePath) + (File.Exists(CorePath) ? FileSizeKb(CorePath) : 0),
+                     RegistryValueKind.DWord);
     }
 
     private static int FileSizeKb(string path)

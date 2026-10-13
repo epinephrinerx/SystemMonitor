@@ -24,7 +24,18 @@ public sealed class SingleInstance : IDisposable
     /// </summary>
     public static SingleInstance? TryAcquire(string name, TimeSpan wait)
     {
-        var mutex = new Mutex(initiallyOwned: false, name);
+        Mutex mutex;
+        try
+        {
+            mutex = new Mutex(initiallyOwned: false, name);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // The running copy is elevated and made the mutex with a security
+            // descriptor that an un-elevated token cannot open (or the reverse).
+            // Either way another copy is running.
+            return null;
+        }
         bool owned;
         try
         {
