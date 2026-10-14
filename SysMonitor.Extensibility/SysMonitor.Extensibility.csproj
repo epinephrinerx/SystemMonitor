@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>SysMonitor.Extensibility</RootNamespace>
+    <AssemblyName>SysMonitor.Extensibility</AssemblyName>
+    <!-- Contract rule: AssemblyVersion stays fixed at 1.0.0.0 (incremented only on major breaking contract changes). -->
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
+</Project>
