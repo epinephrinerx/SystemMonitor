@@ -135,6 +135,11 @@ public sealed class AppConfig
     /// <summary>Which tab the full view was last on.</summary>
     public string FullTab { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Per-extension settings (enabled/disabled), keyed by extension ID.
+    /// </summary>
+    public Dictionary<string, ExtensionSetting> Extensions { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     // Resize limits, matching the Python build.
     [JsonIgnore] public static (double W, double H) MinWidget => (200, 64);
     [JsonIgnore] public static (double W, double H) MaxWidget => (900, 400);
@@ -222,13 +227,35 @@ public sealed class AppConfig
             AppConfig config = JsonSerializer.Deserialize<AppConfig>(text, Options)
                                ?? new AppConfig();
             Migrate(config, text);
+            config.Normalize();
             return config;
         }
         catch (Exception)
         {
             // A missing or corrupt file just means defaults; never a startup failure.
-            return new AppConfig();
+            var config = new AppConfig();
+            config.Normalize();
+            return config;
         }
+    }
+
+    private void Normalize()
+    {
+        if (Extensions == null)
+        {
+            Extensions = new Dictionary<string, ExtensionSetting>(StringComparer.OrdinalIgnoreCase);
+            return;
+        }
+
+        var normalized = new Dictionary<string, ExtensionSetting>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, value) in Extensions)
+        {
+            if (key != null && value != null)
+            {
+                normalized[key] = value;
+            }
+        }
+        Extensions = normalized;
     }
 
     /// <summary>
@@ -300,4 +327,9 @@ public sealed class AppConfig
             // Settings are a convenience; a read-only profile must not crash us.
         }
     }
+}
+
+public sealed class ExtensionSetting
+{
+    public bool Enabled { get; set; } = false;
 }

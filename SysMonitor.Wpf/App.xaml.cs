@@ -1,5 +1,8 @@
+using System.IO;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Threading;
+using SysMonitor.Extensions;
 using SysMonitor.Native;
 using SysMonitor.Sensors;
 
@@ -11,6 +14,7 @@ public partial class App : Application
     private static readonly TimeSpan HandOverWait = TimeSpan.FromSeconds(5);
 
     private Sampler? _sampler;
+    private SysMonitor.Extensions.ExtensionHost? _extensions;
     private SingleInstance? _instance;
     private bool _guarded = true;
 
@@ -54,10 +58,25 @@ public partial class App : Application
         AppConfig config = AppConfig.Load();
         Diag.Start(config.Diagnostics);
 
-        _sampler = new Sampler(config);
+        Assembly appAssembly = typeof(App).Assembly;
+        var extensionOptions = new ExtensionLoaderOptions
+        {
+            ExtensionsRoot = Path.Combine(AppContext.BaseDirectory, "extensions"),
+            HostVersion = appAssembly.GetName().Version ?? new Version(1, 0, 0),
+            HostIsElevated = Win32.IsElevated(),
+            Language = config.Lang,
+            FirstParty = FirstPartyAllowlist.FromAssembly(appAssembly, Diag.Write),
+            Approvals = new ApprovalStore(ApprovalStore.DefaultPath, log: Diag.Write),
+            Log = Diag.Write,
+        };
+
+        _extensions = new ExtensionHost(config, extensionOptions);
+        _ = _extensions.StartAsync();
+
+        _sampler = new Sampler(config, _extensions);
         _sampler.Start();
 
-        var window = new MainWindow(config, _sampler, e.Args);
+        var window = new MainWindow(config, _sampler, _extensions, e.Args);
         MainWindow = window;
         window.Show();
 
@@ -66,7 +85,31 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
-        _sampler?.Dispose();
+        try
+        {
+            _sampler?.Dispose();
+        }
+        catch (Exception error)
+        {
+            Diag.ReportException("SamplerDispose", error);
+        }
+
+        try
+        {
+            if (_extensions is not null)
+            {
+                var disposeTask = Task.Run(() => _extensions.Dispose());
+                if (!disposeTask.Wait(TimeSpan.FromSeconds(2)))
+                {
+                    Diag.Write("Extension host dispose timed out on exit.");
+                }
+            }
+        }
+        catch (Exception error)
+        {
+            Diag.ReportException("ExtensionHostDispose", error);
+        }
+
         if (_instance is not null || !_guarded)
         {
             Diag.Write("--- exit");

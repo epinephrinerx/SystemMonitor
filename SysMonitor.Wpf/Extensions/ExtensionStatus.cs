@@ -17,4 +17,6 @@ public enum ExtensionStatus
     DuplicateId,
     EntryNotFound,
     LoadFailed,
+    Disabled,
 }
+

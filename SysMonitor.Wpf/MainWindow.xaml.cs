@@ -26,6 +26,7 @@ public partial class MainWindow : Window
 
     private readonly AppConfig _config;
     private readonly Sampler _sampler;
+    private readonly SysMonitor.Extensions.ExtensionHost? _extensions;
     private readonly WidgetViewModel _model;
     private readonly DispatcherTimer _timer = new();
     private readonly DispatcherTimer _heartbeat = new();
@@ -42,6 +43,7 @@ public partial class MainWindow : Window
     private bool _exiting;
     private Rect _beforeFull;
     private bool _closing;
+    private string _lastExtensionsSignature = string.Empty;
 
     /// <summary>The widget rotates, overall lists, full graphs.</summary>
     private enum Mode
@@ -82,9 +84,13 @@ public partial class MainWindow : Window
     private DpiScale _dragDpi;
 
     public MainWindow(AppConfig config, Sampler sampler, string[]? args = null)
+        : this(config, sampler, null, args) { }
+
+    public MainWindow(AppConfig config, Sampler sampler, SysMonitor.Extensions.ExtensionHost? extensions, string[]? args = null)
     {
         _config = config;
         _sampler = sampler;
+        _extensions = extensions;
         _model = new WidgetViewModel(config);
 
         InitializeComponent();
@@ -359,6 +365,16 @@ public partial class MainWindow : Window
             if (_tray.Visible)
             {
                 _tray.Update(TrayTooltip());
+            }
+
+            if (_extensions != null)
+            {
+                string sig = string.Join(";", _extensions.Entries.Select(e => $"{e.Id}:{e.Name}:{e.Status}:{e.Enabled}"));
+                if (sig != _lastExtensionsSignature)
+                {
+                    _lastExtensionsSignature = sig;
+                    BuildSidebar();
+                }
             }
 
             // Every snapshot feeds the graphs, whichever view is on screen, so
@@ -1067,6 +1083,7 @@ public partial class MainWindow : Window
             }
             Refresh();
         }));
+
         Sidebar.Children.Add(Check(lang["show_network"], _config.ShowNetwork, value =>
         {
             _config.ShowNetwork = value;
@@ -1078,6 +1095,37 @@ public partial class MainWindow : Window
             _config.NetworkMode = value ? "separated" : "total";
             Refresh();
         }));
+
+        if (_extensions?.Entries is { Count: > 0 } entries)
+        {
+            Sidebar.Children.Add(Heading(lang["extensions"]));
+            foreach (var entry in entries)
+            {
+                string id = entry.Id;
+                string title = entry.Name.Length > 0 ? entry.Name : id;
+                string statusKey = SysMonitor.Extensions.ExtensionStatusText.KeyFor(entry.Status);
+                string statusText = statusKey.Length > 0 ? lang[statusKey] : string.Empty;
+
+                string checkLabel = string.IsNullOrEmpty(statusText) ? title : $"{title} ({statusText})";
+                var box = Check(checkLabel, entry.Enabled, value =>
+                {
+                    _extensions.SetEnabled(id, value);
+                    _config.Save();
+                    _sampler.Nudge();
+                    Refresh();
+                });
+
+                var tooltipParts = new List<string>();
+                if (!string.IsNullOrWhiteSpace(entry.Version)) tooltipParts.Add(entry.Version);
+                if (!string.IsNullOrWhiteSpace(entry.Detail)) tooltipParts.Add(entry.Detail);
+                if (tooltipParts.Count > 0) box.ToolTip = string.Join(Environment.NewLine, tooltipParts);
+
+                box.IsEnabled = SysMonitor.Extensions.ExtensionStatusText.CanToggle(entry.Status, entry.Enabled);
+
+
+                Sidebar.Children.Add(box);
+            }
+        }
 
         // The radio groups and the rest of the window settings live in the
         // settings window; this button is the way to it.

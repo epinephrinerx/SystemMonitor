@@ -990,6 +990,125 @@ public class ExtensionLoaderTests
         Assert.AreEqual(ExtensionStatus.ManifestInvalid, results[0].Status, results[0].Detail);
     }
 
+    [TestMethod]
+    public void LoadFolder_DisabledExtension_ReturnsDisabledWithoutReadingFiles()
+    {
+        string extDir = CreateExtensionDirectory("disabled_loader", out string manifestSha256);
+
+        // Corrupt the dll: a disabled extension is never read or hashed, so this must still
+        // report Disabled and not HashMismatch.
+        string dllPath = Path.Combine(extDir, "SysMonitor.Tests.DummyExtension.dll");
+        File.WriteAllBytes(dllPath, new byte[] { 1, 2, 3, 4 });
+
+        var options = new ExtensionLoaderOptions
+        {
+            ExtensionsRoot = _tempDir,
+            FirstParty = new FirstPartyAllowlist(new[] { manifestSha256 }),
+            IsEnabled = id => id != "disabled_loader"
+        };
+
+        var result = ExtensionLoader.LoadFolder(extDir, options);
+        Assert.AreEqual(ExtensionStatus.Disabled, result.Status);
+        Assert.AreEqual("disabled_loader", result.Id);
+        Assert.IsNotNull(result.Manifest);
+        Assert.IsNull(result.LoadedExtension);
+    }
+
+    [TestMethod]
+    public void LoadFolder_EnabledExtension_LoadsSuccessfully()
+    {
+        string extDir = CreateExtensionDirectory("enabled_loader", out string manifestSha256);
+
+        var options = new ExtensionLoaderOptions
+        {
+            ExtensionsRoot = _tempDir,
+            FirstParty = new FirstPartyAllowlist(new[] { manifestSha256 }),
+            IsEnabled = _ => true
+        };
+
+        var result = ExtensionLoader.LoadFolder(extDir, options);
+        Assert.AreEqual(ExtensionStatus.Loaded, result.Status, result.Detail);
+        Assert.AreEqual("enabled_loader", result.Id);
+        Assert.IsNotNull(result.Manifest);
+        Assert.IsNotNull(result.LoadedExtension);
+
+        result.LoadedExtension.Dispose();
+    }
+
+    [TestMethod]
+    public void LoadFolder_OutsideExtensionsRoot_RejectedWithUnsafePath()
+    {
+        string rootDir = Path.Combine(_tempDir, "extensions_root");
+        string siblingDir = Path.Combine(_tempDir, "sibling_folder");
+        Directory.CreateDirectory(rootDir);
+        Directory.CreateDirectory(siblingDir);
+
+        // Put a valid package in the sibling directory
+        string siblingExt = Path.Combine(siblingDir, "ext_outside");
+        Directory.CreateDirectory(siblingExt);
+        string targetDll = Path.Combine(siblingExt, "SysMonitor.Tests.DummyExtension.dll");
+        File.Copy(_dummyDllSourcePath, targetDll, overwrite: true);
+        string dllSha256 = ComputeSha256(File.ReadAllBytes(targetDll));
+
+        var manifest = new ExtensionManifest
+        {
+            Id = "ext_outside",
+            Name = "Extension Outside",
+            Version = "1.0.0",
+            Contract = "1.0",
+            Entry = new ExtensionEntry
+            {
+                Assembly = "SysMonitor.Tests.DummyExtension.dll",
+                Type = typeof(DummyNormalExtension).FullName!
+            },
+            Files = new List<ExtensionFile>
+            {
+                new()
+                {
+                    Path = "SysMonitor.Tests.DummyExtension.dll",
+                    Sha256 = dllSha256,
+                    Native = false
+                }
+            }
+        };
+        string manifestJson = JsonSerializer.Serialize(manifest, ExtensionManifest.JsonOptions);
+        File.WriteAllText(Path.Combine(siblingExt, "extension.json"), manifestJson);
+        string manifestSha256 = ComputeSha256(File.ReadAllBytes(Path.Combine(siblingExt, "extension.json")));
+
+        var options = new ExtensionLoaderOptions
+        {
+            ExtensionsRoot = rootDir,
+            FirstParty = new FirstPartyAllowlist(new[] { manifestSha256 }),
+            IsEnabled = _ => true
+        };
+
+        // 1. Refused with UnsafePath when pointing outside root
+        var resultOutside = ExtensionLoader.LoadFolder(siblingExt, options);
+        Assert.AreEqual(ExtensionStatus.UnsafePath, resultOutside.Status);
+        Assert.IsNull(resultOutside.LoadedExtension);
+        StringAssert.Contains(resultOutside.Detail, "outside");
+
+        // 2. Same package inside root loads
+        string insideExt = Path.Combine(rootDir, "ext_inside");
+        Directory.CreateDirectory(insideExt);
+        File.Copy(targetDll, Path.Combine(insideExt, "SysMonitor.Tests.DummyExtension.dll"));
+        manifest.Id = "ext_inside";
+        File.WriteAllText(Path.Combine(insideExt, "extension.json"), JsonSerializer.Serialize(manifest, ExtensionManifest.JsonOptions));
+        string insideHash = ComputeSha256(File.ReadAllBytes(Path.Combine(insideExt, "extension.json")));
+
+        var insideOptions = new ExtensionLoaderOptions
+        {
+            ExtensionsRoot = rootDir,
+            FirstParty = new FirstPartyAllowlist(new[] { insideHash }),
+            IsEnabled = _ => true
+        };
+
+        var resultInside = ExtensionLoader.LoadFolder(insideExt, insideOptions);
+        Assert.AreEqual(ExtensionStatus.Loaded, resultInside.Status, resultInside.Detail);
+        Assert.IsNotNull(resultInside.LoadedExtension);
+        resultInside.LoadedExtension.Dispose();
+    }
+
     #region Helper Methods
 
     private string CreateExtensionDirectory(

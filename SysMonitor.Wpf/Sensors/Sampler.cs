@@ -29,6 +29,7 @@ public sealed class Sampler : IDisposable
     private static readonly TimeSpan SlowBackoff = TimeSpan.FromMinutes(5);
 
     private readonly AppConfig _config;
+    private readonly SysMonitor.Extensions.ExtensionHost? _extensions;
     private readonly CancellationTokenSource _stop = new();
     private readonly SemaphoreSlim _wake = new(0, 1);
     private Task? _loop;
@@ -74,7 +75,13 @@ public sealed class Sampler : IDisposable
     private IReadOnlyList<ServiceEntry> _serviceList = Array.Empty<ServiceEntry>();
     private IReadOnlyList<ServiceEntry> _servicesRaw = Array.Empty<ServiceEntry>();
 
-    public Sampler(AppConfig config) => _config = config;
+    public Sampler(AppConfig config) : this(config, null) { }
+
+    public Sampler(AppConfig config, SysMonitor.Extensions.ExtensionHost? extensions)
+    {
+        _config = config;
+        _extensions = extensions;
+    }
 
     /// <summary>The most recent complete reading.  Safe to call from any thread.</summary>
     public Snapshot Current => Volatile.Read(ref _snapshot);
@@ -330,6 +337,7 @@ public sealed class Sampler : IDisposable
             Gpu = CollectGpu(),
             Smart = BuildSmart(),
             Modules = _modules,
+            Extensions = _extensions != null ? _extensions.CollectViews(_config.Lang) : Array.Empty<SysMonitor.Extensions.ExtensionViewData>(),
             Processes = _processes,
             Services = _serviceList,
             MemoryStamp = _memoryStamp,

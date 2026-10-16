@@ -13,6 +13,7 @@ public sealed class Section : INotifyPropertyChanged
     private int _columns = 1;
     private string _note = string.Empty;
 
+    public string Id { get; init; } = string.Empty;
     public required string Title { get; init; }
 
     /// <summary>
@@ -78,6 +79,7 @@ public sealed partial class WidgetViewModel : INotifyPropertyChanged
     private bool _showMessage = true;
     private int _miniColumns = 1;
     private string _miniDetail = string.Empty;
+    private bool _isFallbackSelection;
 
     public WidgetViewModel(AppConfig config)
     {
@@ -302,6 +304,7 @@ public sealed partial class WidgetViewModel : INotifyPropertyChanged
         {
             AddSmartViews(snap);
         }
+        AddExtensionViews(snap);
         if (_views.Count == 0)
         {
             _views.Add(("empty", null, null));
@@ -324,7 +327,7 @@ public sealed partial class WidgetViewModel : INotifyPropertyChanged
             ShowMessage = true;
             return;
         }
-        if (_views.Count == 0 || SmartViewsStale(snap))
+        if (_views.Count == 0 || SmartViewsStale(snap) || ExtensionViewsStale(snap))
         {
             RebuildViews(snap);
         }
@@ -425,6 +428,10 @@ public sealed partial class WidgetViewModel : INotifyPropertyChanged
                 UpdateSmartPage(snap, from);
                 break;
 
+            case string k when k.StartsWith("ext:", StringComparison.Ordinal):
+                UpdateExtensionPage(snap, k, from);
+                break;
+
             case "disk":
             {
                 if (from!.Value >= snap.Disks.Count)
@@ -504,15 +511,26 @@ public sealed partial class WidgetViewModel : INotifyPropertyChanged
             wanted.Add("net");
         }
 
-        // Section identity is the title, so a display-settings change rebuilds
-        // only what actually changed.
-        var titles = wanted.Select(TitleFor).ToList();
-        if (!Sections.Select(s => s.Title).SequenceEqual(titles))
+        if (snap.Extensions != null)
+        {
+            foreach (SysMonitor.Extensions.ExtensionViewData ext in snap.Extensions)
+            {
+                if (ext.View.Overview != null)
+                {
+                    wanted.Add("ext:" + ext.Id);
+                }
+            }
+        }
+
+        // Section identity is the stable module/extension key as well as the title;
+        // a mismatch rebuilds the section and resets Note.
+        var desired = wanted.Select(k => (Id: k, Title: TitleFor(k, snap))).ToList();
+        if (!Sections.Select(s => (s.Id, s.Title)).SequenceEqual(desired))
         {
             Sections.Clear();
-            foreach (string title in titles)
+            foreach (var item in desired)
             {
-                Sections.Add(new Section { Title = title });
+                Sections.Add(new Section { Id = item.Id, Title = item.Title });
             }
         }
 
@@ -568,6 +586,17 @@ public sealed partial class WidgetViewModel : INotifyPropertyChanged
                 case "smart":
                     FillSmartSection(section, snap.Smart);
                     break;
+
+                case string k when k.StartsWith("ext:", StringComparison.Ordinal):
+                {
+                    string extId = k["ext:".Length..];
+                    var ext = snap.Extensions?.FirstOrDefault(e => string.Equals(e.Id, extId, StringComparison.OrdinalIgnoreCase));
+                    if (ext?.View.Overview != null)
+                    {
+                        FillExtensionSection(section, ext.View.Overview);
+                    }
+                    break;
+                }
 
                 case "gpu":
                 {
@@ -915,6 +944,8 @@ public sealed partial class WidgetViewModel : INotifyPropertyChanged
             }
         }
 
+        AddExtensionTabs(wanted, snap.Extensions);
+
         Reconcile(wanted);
     }
 
@@ -1227,23 +1258,59 @@ public sealed partial class WidgetViewModel : INotifyPropertyChanged
             FillFacts(tab, plan.Facts);
         }
 
+        if (Tabs.Count == 0)
+        {
+            if (SelectedTab != null)
+            {
+                SelectedTab = null;
+                OnPropertyChanged(nameof(SelectedTab));
+            }
+            return;
+        }
+
         // Something has to be selected. The tab the user was last on wins if
         // it is still here: the view is often opened before the first sample
         // has landed, so there were no tabs to restore the choice onto at the
         // moment the view asked for it, and this is where they arrive.
-        if (Tabs.Count > 0 && !Tabs.Any(t => t.Selected))
+        if (!Tabs.Any(t => t.Selected))
         {
             string remembered = _config.FullTab;
             // The SMART tab changes key as the scan comes and goes ("smart" while it
             // has nothing to show, "smart0".. per disk). The user's choice was the
             // module, so any of its tabs honours it.
-            string? pick = Tabs.Any(t => t.Key == remembered)
+            // Extension tabs follow the same rule: ext:<id>:<tabKey> falls back to
+            // any tab belonging to that extension (ext:<id>:*) before falling back
+            // to the first tab.
+            bool exactMatch = !string.IsNullOrEmpty(remembered) && Tabs.Any(t => t.Key == remembered);
+            string? pick = exactMatch
                 ? remembered
                 : remembered.StartsWith("smart", StringComparison.Ordinal)
                     ? Tabs.FirstOrDefault(t => t.Key.StartsWith("smart", StringComparison.Ordinal))?.Key
-                    : null;
-            Select(pick ?? Tabs[0].Key);
+                    : remembered.StartsWith("ext:", StringComparison.Ordinal)
+                        ? GetExtensionFallbackTabKey(remembered)
+                        : null;
+
+            string targetKey = pick ?? Tabs[0].Key;
+            _isFallbackSelection = !exactMatch;
+            ApplySelection(targetKey);
         }
+        else if (_isFallbackSelection && !string.IsNullOrEmpty(_config.FullTab))
+        {
+            // If the current tab is only a fallback and the remembered tab arrives later, switch to it.
+            if (Tabs.Any(t => t.Key == _config.FullTab))
+            {
+                _isFallbackSelection = false;
+                ApplySelection(_config.FullTab);
+            }
+        }
+    }
+
+    private string? GetExtensionFallbackTabKey(string remembered)
+    {
+        // remembered is "ext:<id>:<subKey>"
+        int secondColon = remembered.IndexOf(':', "ext:".Length);
+        string prefix = secondColon > 0 ? remembered[..(secondColon + 1)] : remembered + ":";
+        return Tabs.FirstOrDefault(t => t.Key.StartsWith(prefix, StringComparison.Ordinal))?.Key;
     }
 
     private void Fill(ObservableCollection<ChartCard> target, string group,
@@ -1318,6 +1385,12 @@ public sealed partial class WidgetViewModel : INotifyPropertyChanged
     /// <summary>Show one tab and put the others away.</summary>
     public void Select(string key)
     {
+        _isFallbackSelection = false;
+        ApplySelection(key);
+    }
+
+    private void ApplySelection(string key)
+    {
         foreach (DeviceTab tab in Tabs)
         {
             tab.Selected = tab.Key == key;
@@ -1332,15 +1405,27 @@ public sealed partial class WidgetViewModel : INotifyPropertyChanged
     private int ColumnsFor(string kind) =>
         kind == "cpu" && _config.CpuMode == "separated" ? 2 : 1;
 
-    private string TitleFor(string kind) => kind switch
+    private string TitleFor(string kind) => TitleFor(kind, null);
+
+    private string TitleFor(string kind, Snapshot? snap)
     {
-        "cpu" => _lang["cpu"],
-        "ram" => _lang["memory"],
-        "gpu" => _lang["gpu"],
-        "smart" => _lang["smart"],
-        "net" => _lang["network"],
-        _ => _lang["disk"],
-    };
+        if (kind.StartsWith("ext:", StringComparison.Ordinal))
+        {
+            string extId = kind["ext:".Length..];
+            var ext = snap?.Extensions?.FirstOrDefault(e => string.Equals(e.Id, extId, StringComparison.OrdinalIgnoreCase));
+            return ext?.DisplayName ?? extId;
+        }
+
+        return kind switch
+        {
+            "cpu" => _lang["cpu"],
+            "ram" => _lang["memory"],
+            "gpu" => _lang["gpu"],
+            "smart" => _lang["smart"],
+            "net" => _lang["network"],
+            _ => _lang["disk"],
+        };
+    }
 
     // -------------------------------------------------------------- helpers
     /// <summary>Grow or shrink a row list without discarding the rows that stay.</summary>

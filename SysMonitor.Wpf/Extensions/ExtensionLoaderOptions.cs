@@ -39,4 +39,10 @@ public sealed class ExtensionLoaderOptions
     /// Diagnostic logger callback.
     /// </summary>
     public Action<string>? Log { get; init; }
+
+    /// <summary>
+    /// Optional predicate returning whether an extension id is enabled (null = all enabled).
+    /// </summary>
+    public Func<string, bool>? IsEnabled { get; init; }
 }
+

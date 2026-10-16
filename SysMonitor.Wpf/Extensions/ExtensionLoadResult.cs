@@ -35,13 +35,19 @@ public sealed class ExtensionLoadResult
     /// </summary>
     public LoadedExtension? LoadedExtension { get; }
 
+    /// <summary>
+    /// Manifest parsed from extension.json, or null if parsing failed or was skipped before parsing.
+    /// </summary>
+    public ExtensionManifest? Manifest { get; }
+
     public ExtensionLoadResult(
         string folderName,
         string? id,
         ExtensionStatus status,
         string detail,
         string? manifestSha256,
-        LoadedExtension? loadedExtension)
+        LoadedExtension? loadedExtension,
+        ExtensionManifest? manifest = null)
     {
         FolderName = folderName;
         Id = id;
@@ -49,5 +55,7 @@ public sealed class ExtensionLoadResult
         Detail = detail;
         ManifestSha256 = manifestSha256;
         LoadedExtension = loadedExtension;
+        Manifest = manifest ?? loadedExtension?.Manifest;
     }
 }
+

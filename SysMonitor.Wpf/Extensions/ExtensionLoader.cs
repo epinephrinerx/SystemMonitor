@@ -82,6 +82,96 @@ public static class ExtensionLoader
         return results;
     }
 
+    /// <summary>
+    /// Loads a single extension folder using the same rules and security checks as LoadAll.
+    /// Never throws exceptions out of this method, except ArgumentNullException if options is null.
+    /// </summary>
+    public static ExtensionLoadResult LoadFolder(string folder, ExtensionLoaderOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        string folderName = string.IsNullOrWhiteSpace(folder)
+            ? string.Empty
+            : Path.GetFileName(folder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+
+        if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
+        {
+            return new ExtensionLoadResult(
+                folderName,
+                null,
+                ExtensionStatus.UnsafePath,
+                "Extension folder does not exist or path is empty",
+                null,
+                null,
+                null);
+        }
+
+        if (string.IsNullOrWhiteSpace(options.ExtensionsRoot))
+        {
+            return new ExtensionLoadResult(
+                folderName,
+                null,
+                ExtensionStatus.UnsafePath,
+                "ExtensionsRoot is empty or not configured",
+                null,
+                null,
+                null);
+        }
+
+        string fullFolderPath;
+        string fullRootPath;
+        try
+        {
+            fullFolderPath = Path.GetFullPath(folder).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            fullRootPath = Path.GetFullPath(options.ExtensionsRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+        catch (Exception ex)
+        {
+            return new ExtensionLoadResult(
+                folderName,
+                null,
+                ExtensionStatus.UnsafePath,
+                $"Invalid path format: {ex.Message}",
+                null,
+                null,
+                null);
+        }
+
+        string expectedPath = Path.Combine(fullRootPath, folderName).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string? parentDir = Path.GetDirectoryName(fullFolderPath)?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        if (!string.Equals(parentDir, fullRootPath, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(fullFolderPath, expectedPath, StringComparison.OrdinalIgnoreCase))
+        {
+            return new ExtensionLoadResult(
+                folderName,
+                null,
+                ExtensionStatus.UnsafePath,
+                $"Extension folder '{fullFolderPath}' is outside ExtensionsRoot '{fullRootPath}'",
+                null,
+                null,
+                null);
+        }
+
+        try
+        {
+            var loadedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            return LoadSingleFolder(folder, options, loadedIds);
+        }
+        catch (Exception ex)
+        {
+            options.Log.SafeLog($"Unexpected error loading extension folder '{folderName}': {ex.Describe()}");
+            return new ExtensionLoadResult(
+                folderName,
+                null,
+                ExtensionStatus.LoadFailed,
+                $"Unexpected error: {ex.Describe()}",
+                null,
+                null,
+                null);
+        }
+    }
+
     internal static ExtensionLoadResult LoadSingleFolder(
         string dir,
         ExtensionLoaderOptions options,
@@ -196,7 +286,8 @@ public static class ExtensionLoader
                 ExtensionStatus.ManifestInvalid,
                 $"Folder name '{folderName}' does not match manifest id '{manifest.Id}'",
                 manifestSha256,
-                null);
+                null,
+                manifest);
         }
 
         // 4. Contract version compatibility check
@@ -210,7 +301,8 @@ public static class ExtensionLoader
                 ExtensionStatus.ContractMismatch,
                 $"Contract version '{manifest.Contract}' is incompatible with host contract '{hostContract}'",
                 manifestSha256,
-                null);
+                null,
+                manifest);
         }
 
         // 5. min_host version check with normalized Version comparison (Build/Revision -1 -> 0)
@@ -226,7 +318,8 @@ public static class ExtensionLoader
                     ExtensionStatus.HostTooOld,
                     $"Extension requires host version >= {minHost}, but current host is {options.HostVersion}",
                     manifestSha256,
-                    null);
+                    null,
+                    manifest);
             }
         }
 
@@ -250,7 +343,8 @@ public static class ExtensionLoader
                     ExtensionStatus.UnsafePath,
                     $"File path '{p}' is rooted or contains forbidden characters",
                     manifestSha256,
-                    null);
+                    null,
+                    manifest);
             }
 
             string[] segments = p.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
@@ -262,7 +356,8 @@ public static class ExtensionLoader
                     ExtensionStatus.UnsafePath,
                     $"File path '{p}' contains directory traversal segments",
                     manifestSha256,
-                    null);
+                    null,
+                    manifest);
             }
 
             string resolved;
@@ -278,7 +373,8 @@ public static class ExtensionLoader
                     ExtensionStatus.UnsafePath,
                     $"Failed to resolve file path '{p}': {ex.Describe()}",
                     manifestSha256,
-                    null);
+                    null,
+                    manifest);
             }
 
             if (!resolved.StartsWith(canonicalDir, StringComparison.OrdinalIgnoreCase))
@@ -289,7 +385,8 @@ public static class ExtensionLoader
                     ExtensionStatus.UnsafePath,
                     $"File path '{p}' resolves outside the extension directory",
                     manifestSha256,
-                    null);
+                    null,
+                    manifest);
             }
 
             // Check if file is a reparse point
@@ -305,7 +402,8 @@ public static class ExtensionLoader
                             ExtensionStatus.UnsafePath,
                             $"File '{p}' is a symbolic link or reparse point",
                             manifestSha256,
-                            null);
+                            null,
+                            manifest);
                     }
                 }
                 catch (Exception ex)
@@ -316,7 +414,8 @@ public static class ExtensionLoader
                         ExtensionStatus.UnsafePath,
                         $"Failed to check attributes for file '{p}': {ex.Describe()}",
                         manifestSha256,
-                        null);
+                        null,
+                        manifest);
                 }
             }
 
@@ -349,7 +448,8 @@ public static class ExtensionLoader
                         ExtensionStatus.UnsafePath,
                         $"File '{Path.GetRelativePath(dir, diskFile)}' is a symbolic link or reparse point",
                         manifestSha256,
-                        null);
+                        null,
+                        manifest);
                 }
 
                 string relPath = Path.GetRelativePath(dir, diskFile)
@@ -364,7 +464,8 @@ public static class ExtensionLoader
                         ExtensionStatus.UnsafePath,
                         $"Extension directory contains unlisted file '{relPath}'",
                         manifestSha256,
-                        null);
+                        null,
+                        manifest);
                 }
             }
         }
@@ -376,7 +477,8 @@ public static class ExtensionLoader
                 ExtensionStatus.UnsafePath,
                 $"Failed to verify directory contents: {ex.Describe()}",
                 manifestSha256,
-                null);
+                null,
+                manifest);
         }
 
         // 7. Check that all declared files exist
@@ -391,7 +493,8 @@ public static class ExtensionLoader
                     ExtensionStatus.FileMissing,
                     $"Required file '{file.Path}' was not found on disk",
                     manifestSha256,
-                    null);
+                    null,
+                    manifest);
             }
         }
 
@@ -407,9 +510,11 @@ public static class ExtensionLoader
                     ExtensionStatus.NotTrustedWhenElevated,
                     "Only first-party extensions can be loaded when host is elevated",
                     manifestSha256,
-                    null);
+                    null,
+                    manifest);
             }
         }
+
         else
         {
             if (!isFirstParty)
@@ -423,9 +528,23 @@ public static class ExtensionLoader
                         ExtensionStatus.NotApproved,
                         "Extension manifest is neither first-party nor approved by the user",
                         manifestSha256,
-                        null);
+                        null,
+                        manifest);
                 }
             }
+        }
+
+        // 8b. If extension is not enabled in settings -> Disabled (do not read or hash files)
+        if (options.IsEnabled != null && !options.IsEnabled(manifest.Id))
+        {
+            return new ExtensionLoadResult(
+                folderName,
+                manifest.Id,
+                ExtensionStatus.Disabled,
+                "Extension is disabled in settings",
+                manifestSha256,
+                null,
+                manifest);
         }
 
         // 9. Read every file once and verify every SHA-256 BEFORE loading anything. A native
@@ -467,7 +586,8 @@ public static class ExtensionLoader
                         ExtensionStatus.LoadFailed,
                         $"Failed to read file '{file.Path}': {ex.Describe()}",
                         manifestSha256,
-                        null);
+                        null,
+                        manifest);
                 }
 
                 string actualHash = ComputeSha256Hex(bytes);
@@ -480,7 +600,8 @@ public static class ExtensionLoader
                         ExtensionStatus.HashMismatch,
                         $"File '{file.Path}' hash mismatch. Expected {file.Sha256}, got {actualHash}",
                         manifestSha256,
-                        null);
+                        null,
+                        manifest);
                 }
 
                 if (held != null)
@@ -505,7 +626,8 @@ public static class ExtensionLoader
                     ExtensionStatus.EntryNotFound,
                     $"Entry assembly '{manifest.Entry.Assembly}' is not declared in 'files' or is marked as native",
                     manifestSha256,
-                    null);
+                    null,
+                    manifest);
             }
 
         // 11. Duplicate ID check in the same run
@@ -517,7 +639,8 @@ public static class ExtensionLoader
                 ExtensionStatus.DuplicateId,
                 $"An extension with id '{manifest.Id}' was already loaded in this run",
                 manifestSha256,
-                null);
+                null,
+                manifest);
         }
 
             // Everything is verified: preload the native libraries while their files are still held.
@@ -543,7 +666,8 @@ public static class ExtensionLoader
                         ExtensionStatus.LoadFailed,
                         $"Failed to load native library '{file.Path}' via LoadLibraryEx (Win32 error {win32Err})",
                         manifestSha256,
-                        null);
+                        null,
+                        manifest);
                 }
 
                 string fileName = Path.GetFileName(resolved);
@@ -564,7 +688,8 @@ public static class ExtensionLoader
                 ExtensionStatus.LoadFailed,
                 $"Failed reading or loading files: {ex.Describe()}",
                 manifestSha256,
-                null);
+                null,
+                manifest);
         }
         finally
         {
@@ -618,7 +743,8 @@ public static class ExtensionLoader
                     ExtensionStatus.EntryNotFound,
                     $"Entry type '{manifest.Entry.Type}' was not found in '{manifest.Entry.Assembly}' or does not implement IExtension",
                     manifestSha256,
-                    null);
+                    null,
+                    manifest);
             }
 
             object? createdObj = Activator.CreateInstance(extType);
@@ -632,7 +758,8 @@ public static class ExtensionLoader
                     ExtensionStatus.EntryNotFound,
                     $"Failed to cast instantiated entry '{manifest.Entry.Type}' to IExtension",
                     manifestSha256,
-                    null);
+                    null,
+                    manifest);
             }
 
             // Rule 11: Provide canonical/absolute path to IExtensionContext.ExtensionDirectory
@@ -662,7 +789,8 @@ public static class ExtensionLoader
                 ExtensionStatus.Loaded,
                 "Extension loaded successfully",
                 manifestSha256,
-                loadedExt);
+                loadedExt,
+                manifest);
         }
         catch (Exception ex)
         {
@@ -678,7 +806,8 @@ public static class ExtensionLoader
                 ExtensionStatus.LoadFailed,
                 $"Load or initialization threw an exception: {ex.Describe()}",
                 manifestSha256,
-                null);
+                null,
+                manifest);
         }
     }
 

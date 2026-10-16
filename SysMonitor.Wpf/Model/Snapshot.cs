@@ -13,6 +13,13 @@ public sealed class Snapshot
     private readonly IReadOnlyList<Module> _modules = Array.Empty<Module>();
     private readonly IReadOnlyList<ProcessEntry> _processes = Array.Empty<ProcessEntry>();
     private readonly IReadOnlyList<ServiceEntry> _services = Array.Empty<ServiceEntry>();
+    private readonly IReadOnlyList<SysMonitor.Extensions.ExtensionViewData> _extensions = Array.Empty<SysMonitor.Extensions.ExtensionViewData>();
+
+    public IReadOnlyList<SysMonitor.Extensions.ExtensionViewData> Extensions
+    {
+        get => _extensions;
+        init => _extensions = Seal(value);
+    }
 
     public IReadOnlyList<Core> Cores
     {
