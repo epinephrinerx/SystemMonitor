@@ -44,6 +44,7 @@ public partial class MainWindow : Window
     private Rect _beforeFull;
     private bool _closing;
     private string _lastExtensionsSignature = string.Empty;
+    private readonly HashSet<string> _approvalsInFlight = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The widget rotates, overall lists, full graphs.</summary>
     private enum Mode
@@ -369,7 +370,7 @@ public partial class MainWindow : Window
 
             if (_extensions != null)
             {
-                string sig = string.Join(";", _extensions.Entries.Select(e => $"{e.Id}:{e.Name}:{e.Status}:{e.Enabled}"));
+                string sig = string.Join(";", _extensions.Entries.Select(e => $"{e.Id}:{e.Name}:{e.Status}:{e.Enabled}:{e.ManifestSha256}:{_approvalsInFlight.Contains(e.Id)}"));
                 if (sig != _lastExtensionsSignature)
                 {
                     _lastExtensionsSignature = sig;
@@ -1118,12 +1119,110 @@ public partial class MainWindow : Window
                 var tooltipParts = new List<string>();
                 if (!string.IsNullOrWhiteSpace(entry.Version)) tooltipParts.Add(entry.Version);
                 if (!string.IsNullOrWhiteSpace(entry.Detail)) tooltipParts.Add(entry.Detail);
+                if (Win32.IsElevated() && (entry.Status is SysMonitor.Extensions.ExtensionStatus.NotApproved or SysMonitor.Extensions.ExtensionStatus.NotTrustedWhenElevated))
+                {
+                    tooltipParts.Add(lang["ext_elevated_hint"]);
+                }
                 if (tooltipParts.Count > 0) box.ToolTip = string.Join(Environment.NewLine, tooltipParts);
 
                 box.IsEnabled = SysMonitor.Extensions.ExtensionStatusText.CanToggle(entry.Status, entry.Enabled);
 
 
                 Sidebar.Children.Add(box);
+
+                if (SysMonitor.Extensions.ExtensionStatusText.CanApprove(entry.Status, Win32.IsElevated())
+                    && !string.IsNullOrEmpty(entry.ManifestSha256))
+                {
+                    var approveLabel = new TextBlock
+                    {
+                        Text = lang["ext_approve_button"],
+                        TextWrapping = TextWrapping.Wrap,
+                    };
+                    FollowRamp(approveLabel, TextBlock.FontSizeProperty, "FontNav");
+                    var approveButton = new Button
+                    {
+                        Content = approveLabel,
+                        Style = (Style)FindResource("SidebarButton"),
+                        Margin = new Thickness(16, 2, 0, 6),
+                        IsEnabled = !_approvalsInFlight.Contains(id),
+                    };
+
+                    approveButton.Click += async (_, _) =>
+                    {
+                        if (_approvalsInFlight.Contains(id))
+                        {
+                            return;
+                        }
+
+                        if (_extensions == null)
+                        {
+                            return;
+                        }
+
+                        var currentEntry = _extensions.Entries.FirstOrDefault(e => string.Equals(e.Id, id, StringComparison.OrdinalIgnoreCase));
+                        if (currentEntry == null || currentEntry.Status != SysMonitor.Extensions.ExtensionStatus.NotApproved || string.IsNullOrEmpty(currentEntry.ManifestSha256))
+                        {
+                            return;
+                        }
+
+                        if (Environment.ProcessPath is not string exe)
+                        {
+                            return;
+                        }
+
+                        string currentSha = currentEntry.ManifestSha256;
+                        _approvalsInFlight.Add(id);
+                        approveButton.IsEnabled = false;
+
+                        try
+                        {
+                            ProcessStartInfo startInfo = SysMonitor.Extensions.ExtensionApproval.CreateStartInfo(exe, id, currentSha);
+                            Process? proc;
+                            try
+                            {
+                                proc = Process.Start(startInfo);
+                            }
+                            catch (System.ComponentModel.Win32Exception error) when (AdminRestart.IsDeclined(error))
+                            {
+                                return;
+                            }
+                            catch (Exception error)
+                            {
+                                Diag.ReportException("ExtensionApprovalStart", error);
+                                return;
+                            }
+
+                            if (proc is null)
+                            {
+                                return;
+                            }
+
+                            int exitCode;
+                            using (proc)
+                            {
+                                await proc.WaitForExitAsync().ConfigureAwait(true);
+                                exitCode = proc.ExitCode;
+                            }
+
+                            if (exitCode == SysMonitor.Extensions.ExtensionApproval.ExitApproved)
+                            {
+                                if (_extensions is not null)
+                                {
+                                    await _extensions.Reload(id).ConfigureAwait(true);
+                                    _sampler.Nudge();
+                                }
+                            }
+                        }
+                        finally
+                        {
+                            _approvalsInFlight.Remove(id);
+                            _lastExtensionsSignature = string.Empty;
+                            BuildSidebar();
+                        }
+                    };
+
+                    Sidebar.Children.Add(approveButton);
+                }
             }
         }
 

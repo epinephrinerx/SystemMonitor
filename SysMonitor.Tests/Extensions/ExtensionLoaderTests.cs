@@ -1109,6 +1109,103 @@ public class ExtensionLoaderTests
         resultInside.LoadedExtension.Dispose();
     }
 
+    [TestMethod]
+    public void Inspect_ValidPackage_ReturnsLoadedWithManifestAndHash_NoAlcCreated()
+    {
+        string extDir = CreateExtensionDirectory("inspect_valid", out string manifestSha256);
+
+        int alcCount = 0;
+        ExtensionLoader.AlcCreatedForTesting = _ => Interlocked.Increment(ref alcCount);
+        try
+        {
+            var options = new ExtensionLoaderOptions
+            {
+                ExtensionsRoot = _tempDir,
+                HostVersion = new Version(4, 2, 0),
+                FirstParty = new FirstPartyAllowlist(new[] { manifestSha256 })
+            };
+
+            ExtensionInspection inspection = ExtensionLoader.Inspect(extDir, options);
+
+            Assert.AreEqual(ExtensionStatus.Loaded, inspection.Status, inspection.Detail);
+            Assert.IsNotNull(inspection.Manifest);
+            Assert.AreEqual("inspect_valid", inspection.Manifest.Id);
+            Assert.AreEqual(manifestSha256, inspection.ManifestSha256);
+            Assert.IsTrue(inspection.IsFirstParty);
+            Assert.AreEqual(0, alcCount, "Inspect must never create an AssemblyLoadContext");
+        }
+        finally
+        {
+            ExtensionLoader.AlcCreatedForTesting = null;
+        }
+    }
+
+    [TestMethod]
+    public void Inspect_WrongFileHash_ReturnsHashMismatch()
+    {
+        string extDir = CreateExtensionDirectory("inspect_corrupt", out string manifestSha256);
+
+        // Corrupt the DLL file
+        string targetDll = Path.Combine(extDir, "SysMonitor.Tests.DummyExtension.dll");
+        File.WriteAllBytes(targetDll, new byte[] { 99, 98, 97 });
+
+        var options = new ExtensionLoaderOptions
+        {
+            ExtensionsRoot = _tempDir,
+            HostVersion = new Version(4, 2, 0),
+            FirstParty = new FirstPartyAllowlist(new[] { manifestSha256 })
+        };
+
+        ExtensionInspection inspection = ExtensionLoader.Inspect(extDir, options);
+
+        Assert.AreEqual(ExtensionStatus.HashMismatch, inspection.Status);
+        StringAssert.Contains(inspection.Detail, "hash mismatch");
+    }
+
+    [TestMethod]
+    public void Inspect_FolderOutsideRoot_ReturnsUnsafePath()
+    {
+        string rootDir = Path.Combine(_tempDir, "root_a");
+        string siblingDir = Path.Combine(_tempDir, "root_b");
+        Directory.CreateDirectory(rootDir);
+        Directory.CreateDirectory(siblingDir);
+
+        string extDir = Path.Combine(siblingDir, "ext_out");
+        Directory.CreateDirectory(extDir);
+
+        var options = new ExtensionLoaderOptions
+        {
+            ExtensionsRoot = rootDir,
+            HostVersion = new Version(4, 2, 0),
+            FirstParty = FirstPartyAllowlist.Empty
+        };
+
+        ExtensionInspection inspection = ExtensionLoader.Inspect(extDir, options);
+
+        Assert.AreEqual(ExtensionStatus.UnsafePath, inspection.Status);
+    }
+
+    [TestMethod]
+    public void Inspect_NotApprovedPackage_ReturnsLoaded()
+    {
+        // Not in first-party allowlist and Approvals store is empty
+        string extDir = CreateExtensionDirectory("inspect_unapproved", out string manifestSha256);
+
+        var options = new ExtensionLoaderOptions
+        {
+            ExtensionsRoot = _tempDir,
+            HostVersion = new Version(4, 2, 0),
+            FirstParty = FirstPartyAllowlist.Empty,
+            Approvals = null
+        };
+
+        ExtensionInspection inspection = ExtensionLoader.Inspect(extDir, options);
+
+        Assert.AreEqual(ExtensionStatus.Loaded, inspection.Status, "Unapproved package must inspect as Loaded structurally");
+        Assert.AreEqual(manifestSha256, inspection.ManifestSha256);
+        Assert.IsFalse(inspection.IsFirstParty);
+    }
+
     #region Helper Methods
 
     private string CreateExtensionDirectory(
@@ -1118,124 +1215,22 @@ public class ExtensionLoaderTests
         bool includeNativeFile = false,
         bool omitNativeFromManifest = false,
         string nativeFileName = "dummynative.dll",
-        bool nativeFirst = false)
-    {
-        string extDir = Path.Combine(_tempDir, id);
-        Directory.CreateDirectory(extDir);
+        bool nativeFirst = false) =>
+        ExtensionTestPackageBuilder.CreateExtensionDirectory(
+            _tempDir,
+            id,
+            out manifestSha256,
+            entryType,
+            includeNativeFile,
+            omitNativeFromManifest,
+            nativeFileName,
+            nativeFirst);
 
-        string targetDll = Path.Combine(extDir, "SysMonitor.Tests.DummyExtension.dll");
-        File.Copy(_dummyDllSourcePath, targetDll, overwrite: true);
+    private string CreateExtensionDirectoryWithManifest(string id, Action<ExtensionManifest> configureManifest) =>
+        ExtensionTestPackageBuilder.CreateExtensionDirectoryWithManifest(_tempDir, id, configureManifest);
 
-        byte[] dllBytes = File.ReadAllBytes(targetDll);
-        string dllSha256 = ComputeSha256(dllBytes);
-
-        var files = new List<ExtensionFile>
-        {
-            new()
-            {
-                Path = "SysMonitor.Tests.DummyExtension.dll",
-                Sha256 = dllSha256,
-                Native = false
-            }
-        };
-
-        if (includeNativeFile)
-        {
-            string systemNativeSource = Path.Combine(Environment.SystemDirectory, "shlwapi.dll");
-            string targetNative = Path.Combine(extDir, nativeFileName);
-            File.Copy(systemNativeSource, targetNative, overwrite: true);
-
-            if (!omitNativeFromManifest)
-            {
-                byte[] nativeBytes = File.ReadAllBytes(targetNative);
-                var nativeEntry = new ExtensionFile
-                {
-                    Path = nativeFileName,
-                    Sha256 = ComputeSha256(nativeBytes),
-                    Native = true
-                };
-                if (nativeFirst)
-                {
-                    files.Insert(0, nativeEntry);
-                }
-                else
-                {
-                    files.Add(nativeEntry);
-                }
-            }
-        }
-
-        var manifest = new ExtensionManifest
-        {
-            Id = id,
-            Name = "Extension " + id,
-            Version = "1.0.0",
-            Contract = "1.0",
-            Entry = new ExtensionEntry
-            {
-                Assembly = "SysMonitor.Tests.DummyExtension.dll",
-                Type = entryType ?? typeof(DummyNormalExtension).FullName!
-            },
-            Files = files
-        };
-
-        string manifestJson = JsonSerializer.Serialize(manifest, ExtensionManifest.JsonOptions);
-        string manifestPath = Path.Combine(extDir, "extension.json");
-        File.WriteAllText(manifestPath, manifestJson);
-
-        byte[] manifestBytes = File.ReadAllBytes(manifestPath);
-        manifestSha256 = ComputeSha256(manifestBytes);
-
-        return extDir;
-    }
-
-    private string CreateExtensionDirectoryWithManifest(string id, Action<ExtensionManifest> configureManifest)
-    {
-        string extDir = Path.Combine(_tempDir, id);
-        Directory.CreateDirectory(extDir);
-
-        string targetDll = Path.Combine(extDir, "SysMonitor.Tests.DummyExtension.dll");
-        File.Copy(_dummyDllSourcePath, targetDll, overwrite: true);
-
-        byte[] dllBytes = File.ReadAllBytes(targetDll);
-        string dllSha256 = ComputeSha256(dllBytes);
-
-        var manifest = new ExtensionManifest
-        {
-            Id = id,
-            Name = "Extension " + id,
-            Version = "1.0.0",
-            Contract = "1.0",
-            Entry = new ExtensionEntry
-            {
-                Assembly = "SysMonitor.Tests.DummyExtension.dll",
-                Type = typeof(DummyNormalExtension).FullName!
-            },
-            Files = new List<ExtensionFile>
-            {
-                new()
-                {
-                    Path = "SysMonitor.Tests.DummyExtension.dll",
-                    Sha256 = dllSha256,
-                    Native = false
-                }
-            }
-        };
-
-        configureManifest(manifest);
-
-        string manifestJson = JsonSerializer.Serialize(manifest, ExtensionManifest.JsonOptions);
-        string manifestPath = Path.Combine(extDir, "extension.json");
-        File.WriteAllText(manifestPath, manifestJson);
-
-        return extDir;
-    }
-
-    private static string ComputeSha256(byte[] data)
-    {
-        byte[] hash = SHA256.HashData(data);
-        return Convert.ToHexString(hash).ToLowerInvariant();
-    }
+    private static string ComputeSha256(byte[] data) =>
+        ExtensionTestPackageBuilder.ComputeSha256(data);
 
     #endregion
 }

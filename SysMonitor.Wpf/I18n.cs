@@ -218,6 +218,11 @@ public sealed class Lang
             ["ext_status_load_failed"] = "โหลดส่วนเสริมไม่สำเร็จ",
             ["ext_status_duplicate_id"] = "รหัสส่วนเสริมซ้ำกับส่วนเสริมอื่น",
             ["ext_status_disabled"] = "ถูกปิดการใช้งาน",
+            ["ext_approve_button"] = "อนุมัติ...",
+            ["ext_elevated_hint"] = "เปิด SystemMonitor ในโหมดปกติ (ไม่ใช่ผู้ดูแลระบบ) เพื่ออนุมัติหรือใช้งานส่วนเสริมนี้",
+            ["ext_approve_title"] = "อนุมัติส่วนเสริม",
+            ["ext_approve_body"] = "คุณต้องการอนุมัติให้ส่วนเสริมนี้ทำงานใน System Monitor หรือไม่?\n\nรหัส: {1}\nSHA-256 ของ Manifest: {3}...\nชื่อ: {0}\nเวอร์ชัน: {2}\nไฟล์:\n{4}\n\nคำเตือน: ส่วนเสริมจะทำงานด้วยสิทธิ์เดียวกับคุณภายในโปรแกรม อย่าอนุมัติส่วนเสริมที่คุณไม่มั่นใจในที่มา",
+            ["ext_approve_native_warning"] = "ข้อควรระวัง: ส่วนเสริมนี้มีการโหลดเนทีฟโค้ด (.dll)",
         },
         ["en"] = new()
         {
@@ -432,6 +437,11 @@ public sealed class Lang
             ["ext_status_load_failed"] = "Failed to load extension",
             ["ext_status_duplicate_id"] = "Duplicate extension identifier",
             ["ext_status_disabled"] = "Disabled",
+            ["ext_approve_button"] = "Approve...",
+            ["ext_elevated_hint"] = "Open SystemMonitor normally (not as administrator) to approve or use this extension.",
+            ["ext_approve_title"] = "Approve Extension",
+            ["ext_approve_body"] = "Do you want to approve this extension to run in System Monitor?\n\nID: {1}\nManifest SHA-256: {3}...\nName: {0}\nVersion: {2}\nFiles:\n{4}\n\nWarning: The extension will run with your user rights inside the app. You should only approve extensions from a source you trust.",
+            ["ext_approve_native_warning"] = "Caution: This extension loads native code (.dll).",
         },
     };
 

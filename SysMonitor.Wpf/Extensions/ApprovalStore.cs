@@ -42,6 +42,7 @@ public sealed class ApprovalStore
     private readonly Action<string>? _log;
     private readonly Action<string> _secureDirectory;
     private readonly Action<string> _secureFile;
+    private readonly TimeSpan _lockTimeout;
 
     public static string DefaultPath =>
         Path.Combine(
@@ -61,12 +62,14 @@ public sealed class ApprovalStore
         Func<string, bool>? aclChecker = null,
         Action<string>? log = null,
         Action<string>? secureDirectory = null,
-        Action<string>? secureFile = null)
+        Action<string>? secureFile = null,
+        TimeSpan? lockTimeout = null)
     {
         // Taking ownership for Administrators needs an elevated caller, which the tests
         // are not, so they pass no-op securers. Production always uses the real ones.
         _secureDirectory = secureDirectory ?? AclPolicy.SetAdminOnlyWritableDirectory;
         _secureFile = secureFile ?? AclPolicy.SetAdminOnlyWritableFile;
+        _lockTimeout = lockTimeout ?? TimeSpan.FromSeconds(10);
         // One absolute path for every check and every read: a relative path could point
         // somewhere else by the time it is used if the current directory changes.
         string resolved = path;
@@ -197,76 +200,127 @@ public sealed class ApprovalStore
                 return ApprovalResult.Failed($"Approval store directory '{dir}' changed or is not admin-only writable after it was prepared");
             }
 
-            // (ค) อ่านรายการเดิมมารวมเฉพาะเมื่อไฟล์เดิมผ่านตัวตรวจ ACL/เจ้าของ; ไม่ผ่าน/เสียรูปแบบ -> เริ่มจากรายการว่างและ log (ไม่กลืนเงียบ)
-            var list = new List<ApprovedExtensionEntry>();
-            if (File.Exists(fullPath))
-            {
-                if (AclPolicy.IsReparsePoint(fullPath))
-                {
-                    return ApprovalResult.Failed($"Approval store file '{fullPath}' is a reparse point");
-                }
+            // Cross-process safety: acquire exclusive lock on <store file name>.lock in the store directory
+            string lockFile = fullPath + ".lock";
+            FileStream? lockStream = null;
+            DateTime deadline = DateTime.UtcNow + _lockTimeout;
 
-                if (!_aclChecker(fullPath))
+            while (true)
+            {
+                try
                 {
-                    _log.SafeLog($"Existing approval store at '{fullPath}' failed ACL or owner check. Starting with an empty entry list.");
+                    bool existsBefore = File.Exists(lockFile);
+                    lockStream = new FileStream(lockFile, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+                    if (!existsBefore)
+                    {
+                        try
+                        {
+                            _secureFile(lockFile);
+                        }
+                        catch
+                        {
+                            // Best effort securing newly created lock file
+                        }
+                    }
+                    break;
                 }
-                else
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
-                    try
+                    if (DateTime.UtcNow >= deadline)
                     {
-                        string existingJson = File.ReadAllText(fullPath);
-                        var existing = JsonSerializer.Deserialize<List<ApprovedExtensionEntry>>(existingJson, JsonOptions);
-                        if (existing == null || existing.Any(e => e == null))
-                        {
-                            _log.SafeLog($"Existing approval store at '{fullPath}' is malformed or contains null entries. Starting with an empty entry list.");
-                        }
-                        else
-                        {
-                            list.AddRange(existing);
-                        }
+                        return ApprovalResult.Failed("Approval store is busy");
                     }
-                    catch (Exception ex)
-                    {
-                        _log.SafeLog($"Existing approval store at '{fullPath}' could not be parsed: {ex.Describe()}. Starting with an empty entry list.");
-                    }
+                    Thread.Sleep(50);
                 }
             }
 
-            list.RemoveAll(e => string.Equals(e.Id, id, StringComparison.OrdinalIgnoreCase));
-            list.Add(new ApprovedExtensionEntry
-            {
-                Id = id,
-                Name = name,
-                ManifestSha256 = manifestSha256,
-                ApprovedAt = DateTimeOffset.UtcNow
-            });
-
-            // (ง) เขียนไฟล์ชั่วคราวในโฟลเดอร์ store แล้วตั้ง ACL แล้ว File.Move(..., overwrite: true)
-            string tempFile = Path.Combine(dir, $"appr_{Guid.NewGuid():N}.tmp");
             try
             {
-                string json = JsonSerializer.Serialize(list, JsonOptions);
-                File.WriteAllText(tempFile, json);
+                // (ค) อ่านรายการเดิมมารวมเฉพาะเมื่อไฟล์เดิมผ่านตัวตรวจ ACL/เจ้าของ; ไม่ผ่าน/เสียรูปแบบ -> เริ่มจากรายการว่างและ log (ไม่กลืนเงียบ)
+                var list = new List<ApprovedExtensionEntry>();
+                if (File.Exists(fullPath))
+                {
+                    if (AclPolicy.IsReparsePoint(fullPath))
+                    {
+                        return ApprovalResult.Failed($"Approval store file '{fullPath}' is a reparse point");
+                    }
 
+                    if (!_aclChecker(fullPath))
+                    {
+                        _log.SafeLog($"Existing approval store at '{fullPath}' failed ACL or owner check. Starting with an empty entry list.");
+                    }
+                    else
+                    {
+                        try
+                        {
+                            string existingJson = File.ReadAllText(fullPath);
+                            var existing = JsonSerializer.Deserialize<List<ApprovedExtensionEntry>>(existingJson, JsonOptions);
+                            if (existing == null || existing.Any(e => e == null))
+                            {
+                                _log.SafeLog($"Existing approval store at '{fullPath}' is malformed or contains null entries. Starting with an empty entry list.");
+                            }
+                            else
+                            {
+                                list.AddRange(existing);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _log.SafeLog($"Existing approval store at '{fullPath}' could not be parsed: {ex.Describe()}. Starting with an empty entry list.");
+                        }
+                    }
+                }
+
+                list.RemoveAll(e => string.Equals(e.Id, id, StringComparison.OrdinalIgnoreCase));
+                list.Add(new ApprovedExtensionEntry
+                {
+                    Id = id,
+                    Name = name,
+                    ManifestSha256 = manifestSha256,
+                    ApprovedAt = DateTimeOffset.UtcNow
+                });
+
+                // (ง) เขียนไฟล์ชั่วคราวในโฟลเดอร์ store แล้วตั้ง ACL แล้ว File.Move(..., overwrite: true)
+                string tempFile = Path.Combine(dir, $"appr_{Guid.NewGuid():N}.tmp");
                 try
                 {
-                    _secureFile(tempFile);
+                    string json = JsonSerializer.Serialize(list, JsonOptions);
+                    File.WriteAllText(tempFile, json);
+
+                    try
+                    {
+                        _secureFile(tempFile);
+                    }
+                    catch (Exception ex)
+                    {
+                        TryDelete(tempFile);
+                        return ApprovalResult.Failed($"Failed to set admin-only ACL on temporary file '{tempFile}': {ex.Describe()}");
+                    }
+
+                    File.Move(tempFile, fullPath, overwrite: true);
                 }
                 catch (Exception ex)
                 {
                     TryDelete(tempFile);
-                    return ApprovalResult.Failed($"Failed to set admin-only ACL on temporary file '{tempFile}': {ex.Describe()}");
+                    return ApprovalResult.Failed($"Failed to write approval store file: {ex.Describe()}");
                 }
 
-                File.Move(tempFile, fullPath, overwrite: true);
+                return ApprovalResult.Ok();
             }
-            catch (Exception ex)
+            finally
             {
-                TryDelete(tempFile);
-                return ApprovalResult.Failed($"Failed to write approval store file: {ex.Describe()}");
+                if (lockStream != null)
+                {
+                    try
+                    {
+                        lockStream.Dispose();
+                    }
+                    catch
+                    {
+                    }
+                    TryDelete(lockFile);
+                }
             }
-
-            return ApprovalResult.Ok();
         }
         catch (Exception ex)
         {

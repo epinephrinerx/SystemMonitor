@@ -30,7 +30,7 @@ public sealed class ExtensionManifest
     [JsonPropertyName("files")]
     public List<ExtensionFile> Files { get; set; } = new();
 
-    private static readonly Regex IdRegex = new(@"^[a-z0-9._-]{1,64}$", RegexOptions.Compiled);
+    private static readonly Regex IdRegex = new(@"^[a-z0-9][a-z0-9._-]{0,63}\z", RegexOptions.Compiled);
     private static readonly Regex Sha256Regex = new(@"^[a-fA-F0-9]{64}$", RegexOptions.Compiled);
 
     public static readonly JsonSerializerOptions JsonOptions = new()
@@ -74,7 +74,7 @@ public sealed class ExtensionManifest
 
         if (string.IsNullOrWhiteSpace(manifest.Id) || !IdRegex.IsMatch(manifest.Id))
         {
-            error = $"Invalid or missing 'id' ('{manifest.Id}'). Must match ^[a-z0-9._-]{{1,64}}$";
+            error = $"Invalid or missing 'id' ('{manifest.Id}'). Must match ^[a-z0-9][a-z0-9._-]{{0,63}}$";
             return false;
         }
 

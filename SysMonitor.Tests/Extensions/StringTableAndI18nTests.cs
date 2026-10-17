@@ -74,6 +74,11 @@ public class StringTableAndI18nTests
             "ext_status_load_failed",
             "ext_status_duplicate_id",
             "ext_status_disabled",
+            "ext_approve_button",
+            "ext_elevated_hint",
+            "ext_approve_title",
+            "ext_approve_body",
+            "ext_approve_native_warning",
         };
 
         foreach (string key in requiredKeys)
@@ -85,6 +90,42 @@ public class StringTableAndI18nTests
             Assert.AreNotEqual(key, enVal, $"Key '{key}' is missing in English dictionary");
             Assert.IsFalse(string.IsNullOrWhiteSpace(thVal));
             Assert.IsFalse(string.IsNullOrWhiteSpace(enVal));
+        }
+    }
+
+    [TestMethod]
+    public void I18n_Phase2bKeys_ExistNonEmptyAndHaveFormatPlaceholders()
+    {
+        var langTh = new Lang("th");
+        var langEn = new Lang("en");
+
+        string[] phase2bKeys =
+        {
+            "ext_approve_button",
+            "ext_elevated_hint",
+            "ext_approve_title",
+            "ext_approve_body",
+            "ext_approve_native_warning"
+        };
+
+        foreach (string key in phase2bKeys)
+        {
+            string thVal = langTh[key];
+            string enVal = langEn[key];
+
+            Assert.AreNotEqual(key, thVal, $"Key '{key}' is missing in Thai dictionary");
+            Assert.AreNotEqual(key, enVal, $"Key '{key}' is missing in English dictionary");
+            Assert.IsFalse(string.IsNullOrWhiteSpace(thVal));
+            Assert.IsFalse(string.IsNullOrWhiteSpace(enVal));
+        }
+
+        for (int i = 0; i <= 4; i++)
+        {
+            string placeholder = "{" + i + "}";
+            Assert.IsTrue(langTh["ext_approve_body"].Contains(placeholder),
+                $"Thai ext_approve_body must contain placeholder {placeholder}");
+            Assert.IsTrue(langEn["ext_approve_body"].Contains(placeholder),
+                $"English ext_approve_body must contain placeholder {placeholder}");
         }
     }
 }

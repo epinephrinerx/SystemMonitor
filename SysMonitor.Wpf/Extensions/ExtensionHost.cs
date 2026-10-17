@@ -26,7 +26,8 @@ public sealed class ExtensionHost : IDisposable
         string Version,
         ExtensionStatus Status,
         string Detail,
-        bool Enabled);
+        bool Enabled,
+        string ManifestSha256 = "");
 
     private readonly AppConfig _config;
     private readonly ExtensionLoaderOptions _baseOptions;
@@ -219,6 +220,7 @@ public sealed class ExtensionHost : IDisposable
 
             string version = manifest?.Version ?? string.Empty;
             bool enabled = _enabled.TryGetValue(id, out bool en) && en;
+            string sha = res.ManifestSha256 ?? string.Empty;
 
             list.Add(new ExtensionEntry(
                 Id: id,
@@ -226,7 +228,8 @@ public sealed class ExtensionHost : IDisposable
                 Version: version,
                 Status: res.Status,
                 Detail: res.Detail,
-                Enabled: enabled));
+                Enabled: enabled,
+                ManifestSha256: sha));
         }
 
         return list;
@@ -254,7 +257,7 @@ public sealed class ExtensionHost : IDisposable
             await _lifecycle.WaitAsync().ConfigureAwait(false);
             try
             {
-                ReconcileExtension(id);
+                ReconcileExtension(id, refresh: false);
             }
             finally
             {
@@ -263,65 +266,133 @@ public sealed class ExtensionHost : IDisposable
         });
     }
 
-    private void ReconcileExtension(string id)
+    /// <summary>
+    /// Reloads an extension by re-evaluating trust via LoadFolder, updating its load status,
+    /// and reloading it if enabled. A reload of an unknown id is a no-op.
+    /// Serialized through the lifecycle lock.
+    /// </summary>
+    public Task Reload(string id)
+    {
+        ArgumentNullException.ThrowIfNull(id);
+
+        return Task.Run(async () =>
+        {
+            await _lifecycle.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                ExtensionSlot? slotToRetire = null;
+
+                lock (_lock)
+                {
+                    if (_disposed)
+                    {
+                        return;
+                    }
+
+                    bool isKnown = _lastResults.ContainsKey(id) || _slots.ContainsKey(id);
+                    if (!isKnown)
+                    {
+                        return;
+                    }
+
+                    if (_slots.Remove(id, out var s))
+                    {
+                        slotToRetire = s;
+                    }
+                    _cachedDisplayNames.Remove(id);
+                }
+
+                slotToRetire?.RetireAndDispose(TimeSpan.FromSeconds(5));
+
+                ReconcileExtension(id, refresh: true);
+            }
+            finally
+            {
+                _lifecycle.Release();
+            }
+        });
+    }
+
+    private void ReconcileExtension(string id, bool refresh)
     {
         bool desired;
-        bool isLoaded;
         ExtensionSlot? slotToRetire = null;
 
-        lock (_lock)
+        if (!refresh)
         {
-            if (_disposed)
+            lock (_lock)
             {
-                return;
-            }
+                if (_disposed)
+                {
+                    return;
+                }
 
-            desired = _enabled.TryGetValue(id, out bool en) && en;
-            isLoaded = _slots.ContainsKey(id);
+                desired = _enabled.TryGetValue(id, out bool en) && en;
+                if (desired && _slots.ContainsKey(id))
+                {
+                    // desired and a slot exists -> return, do nothing (no Shutdown, no Initialize)
+                    return;
+                }
+
+                if (!desired)
+                {
+                    if (_slots.Remove(id, out var s))
+                    {
+                        slotToRetire = s;
+                    }
+                    _cachedDisplayNames.Remove(id);
+
+                    if (_lastResults.TryGetValue(id, out var prev))
+                    {
+                        if (prev.Status is ExtensionStatus.Loaded or ExtensionStatus.Disabled)
+                        {
+                            _lastResults[id] = new ExtensionLoadResult(
+                                prev.FolderName,
+                                prev.Id ?? id,
+                                ExtensionStatus.Disabled,
+                                "Extension is disabled in settings",
+                                prev.ManifestSha256,
+                                null,
+                                prev.Manifest);
+                        }
+                    }
+                    else
+                    {
+                        _lastResults[id] = new ExtensionLoadResult(
+                            id,
+                            id,
+                            ExtensionStatus.Disabled,
+                            "Extension is disabled in settings",
+                            null,
+                            null,
+                            null);
+                    }
+
+                    Volatile.Write(ref _entries, BuildEntriesListLocked());
+                }
+            }
 
             if (!desired)
             {
-                if (_slots.Remove(id, out var s))
+                slotToRetire?.RetireAndDispose(TimeSpan.FromSeconds(5));
+                return;
+            }
+        }
+        else
+        {
+            lock (_lock)
+            {
+                if (_disposed)
                 {
-                    slotToRetire = s;
+                    return;
                 }
-                _cachedDisplayNames.Remove(id);
-
-                // When disabling, replace previous result with Disabled only if previous was Loaded or Disabled (or none).
-                // If it was a failure status (NotApproved, NotTrustedWhenElevated, HashMismatch, ...), keep it unchanged.
-                bool hasPrev = _lastResults.TryGetValue(id, out var prev);
-                if (!hasPrev || prev!.Status is ExtensionStatus.Loaded or ExtensionStatus.Disabled)
-                {
-                    ExtensionManifest? manifest = prev?.Manifest;
-                    string? hash = prev?.ManifestSha256;
-                    _lastResults[id] = new ExtensionLoadResult(
-                        id,
-                        id,
-                        ExtensionStatus.Disabled,
-                        "Extension is disabled in settings",
-                        hash,
-                        null,
-                        manifest);
-                }
-
-                Volatile.Write(ref _entries, BuildEntriesListLocked());
+                desired = _enabled.TryGetValue(id, out bool en) && en;
             }
         }
 
-        if (!desired)
-        {
-            // Retire outside _lock
-            slotToRetire?.RetireAndDispose(TimeSpan.FromSeconds(5));
-            return;
-        }
-
-        // Desired is enabled. If already loaded, stale worker finds nothing to do.
-        if (isLoaded)
-        {
-            return;
-        }
-
-        // Desired enabled and not loaded -> load outside _lock
+        // desired and no slot (refresh == false), OR refresh == true:
+        // Always call LoadFolder (also when not desired, so the trust status is refreshed;
+        // the loader checks trust before Disabled) and publish.
         string folderPath = Path.Combine(_baseOptions.ExtensionsRoot, id);
         ExtensionLoadResult result = ExtensionLoader.LoadFolder(folderPath, CreateOptions());
         ExtensionSlot? newSlot = null;
@@ -353,7 +424,7 @@ public sealed class ExtensionHost : IDisposable
         ExtensionSlot? slotToRetireOnAbort = null;
         lock (_lock)
         {
-            if (_disposed || !_enabled.TryGetValue(id, out bool en) || !en)
+            if (_disposed || (_enabled.TryGetValue(id, out bool curEn) && curEn) != desired)
             {
                 slotToRetireOnAbort = newSlot;
             }

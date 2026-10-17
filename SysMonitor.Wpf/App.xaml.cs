@@ -30,6 +30,12 @@ public partial class App : Application
             return;
         }
 
+        if (e.Args.Contains(ExtensionApproval.Switch))
+        {
+            Shutdown(ExtensionApproval.RunProduction(e.Args));
+            return;
+        }
+
         // --allow-multiple is for checking a build next to the copy that is
         // already running; nobody launches it by accident.
         _guarded = !e.Args.Contains("--allow-multiple");

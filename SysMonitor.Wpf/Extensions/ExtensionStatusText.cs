@@ -35,4 +35,11 @@ public static class ExtensionStatusText
 
         return status is ExtensionStatus.Loaded or ExtensionStatus.Disabled;
     }
+
+    /// <summary>
+    /// Determines whether the user can approve an unapproved extension.
+    /// Only unapproved extensions on a non-elevated host can be approved.
+    /// </summary>
+    public static bool CanApprove(ExtensionStatus status, bool hostElevated) =>
+        status == ExtensionStatus.NotApproved && !hostElevated;
 }

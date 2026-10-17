@@ -233,4 +233,69 @@ public class ApprovalStoreTests
         ApprovalResult emptyHash = store.Approve("id", "name", "");
         Assert.IsFalse(emptyHash.Success);
     }
+
+    [TestMethod]
+    public async Task Approve_ParallelCallsOnDifferentIds_AllSucceedWithoutLostUpdates()
+    {
+        string storePath = Path.Combine(_tempDir, "parallel_approved.json");
+        const string hashPrefix = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd";
+
+        var tasks = Enumerable.Range(0, 8).Select(i => Task.Run(() =>
+        {
+            var store = new ApprovalStore(
+                storePath,
+                aclChecker: _ => true,
+                log: _ => { },
+                secureDirectory: _ => { },
+                secureFile: _ => { });
+
+            string id = $"ext_par_{i}";
+            string sha = $"{hashPrefix}{i:D2}";
+            ApprovalResult res = store.Approve(id, $"Extension {i}", sha);
+            Assert.IsTrue(res.Success, $"Approve failed for {id}: {res.Error}");
+        })).ToArray();
+
+        await Task.WhenAll(tasks);
+
+        var verifyStore = new ApprovalStore(
+            storePath,
+            aclChecker: _ => true,
+            log: _ => { },
+            secureDirectory: _ => { },
+            secureFile: _ => { });
+
+        for (int i = 0; i < 8; i++)
+        {
+            string id = $"ext_par_{i}";
+            string sha = $"{hashPrefix}{i:D2}";
+            Assert.IsTrue(verifyStore.IsApproved(id, sha), $"Extension '{id}' must be approved after parallel run");
+        }
+    }
+
+    [TestMethod]
+    public void Approve_WhenLockFileIsHeld_FailsWithBusyAfterTimeout()
+    {
+        string storePath = Path.Combine(_tempDir, "locked_store.json");
+        string lockPath = storePath + ".lock";
+
+        Directory.CreateDirectory(_tempDir);
+
+        using var heldLock = new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+
+        var store = new ApprovalStore(
+            storePath,
+            aclChecker: _ => true,
+            log: _ => { },
+            secureDirectory: _ => { },
+            secureFile: _ => { },
+            lockTimeout: TimeSpan.FromSeconds(1));
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        ApprovalResult result = store.Approve("ext1", "Name", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+        sw.Stop();
+
+        Assert.IsFalse(result.Success);
+        Assert.AreEqual("Approval store is busy", result.Error);
+        Assert.IsTrue(sw.ElapsedMilliseconds >= 900, $"Approve should wait for timeout (took {sw.ElapsedMilliseconds} ms)");
+    }
 }

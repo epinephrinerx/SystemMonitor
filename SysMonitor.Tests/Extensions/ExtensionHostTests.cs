@@ -549,6 +549,9 @@ public class ExtensionHostTests
                 Thread.Sleep(10);
             }
 
+            var disabledEntry = host.Entries.FirstOrDefault(e => e.Id == "ext_gate");
+            Assert.AreEqual(ExtensionStatus.Disabled, disabledEntry?.Status, "Disabled must be published while GetView is still blocked");
+            Assert.IsTrue(sw.ElapsedMilliseconds < 2000, $"Disabled took {sw.ElapsedMilliseconds} ms to show; it must not wait for the in-flight call");
             Assert.IsFalse(DummyViewsExtension.ShutdownCalled, "Shutdown called while GetView was still in flight");
 
             blockGetView.Set();
@@ -1002,6 +1005,85 @@ public class ExtensionHostTests
         Assert.AreEqual("valid_tab", v.Tabs[0].Key);
         Assert.AreEqual(1, v.Tabs[0].Facts.Count);
         Assert.AreEqual("FactName", v.Tabs[0].Facts[0].Name);
+    }
+
+    [TestMethod]
+    public async Task ExtensionHost_SetEnabledTrueAgain_DoesNotShutdownOrReinitialize()
+    {
+        string extDir = CreateExtension("ext_noop_reconcile", out string hash);
+
+        var config = new AppConfig
+        {
+            Extensions = new Dictionary<string, ExtensionSetting>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["ext_noop_reconcile"] = new ExtensionSetting { Enabled = true }
+            }
+        };
+
+        var allowlist = new FirstPartyAllowlist(new[] { hash });
+        var options = new ExtensionLoaderOptions
+        {
+            ExtensionsRoot = _tempDir,
+            FirstParty = allowlist,
+            HostIsElevated = false,
+        };
+
+        using var host = new ExtensionHost(config, options);
+        await host.StartAsync();
+
+        var entry = host.Entries.FirstOrDefault(e => e.Id == "ext_noop_reconcile");
+        Assert.IsNotNull(entry);
+        Assert.AreEqual(ExtensionStatus.Loaded, entry.Status);
+        Assert.AreEqual(1, DummyViewsExtension.InitializeCount, "Initialize should have run once upon start");
+        Assert.IsFalse(DummyViewsExtension.ShutdownCalled, "Shutdown should not have been called yet");
+
+        // Reconcile with refresh == false (SetEnabled true again)
+        await host.SetEnabled("ext_noop_reconcile", true);
+
+        Assert.AreEqual(1, DummyViewsExtension.InitializeCount, "Initialize should not run again on no-op reconcile");
+        Assert.IsFalse(DummyViewsExtension.ShutdownCalled, "Shutdown should not be called on no-op reconcile");
+        Assert.AreEqual(ExtensionStatus.Loaded, host.Entries.First(e => e.Id == "ext_noop_reconcile").Status);
+    }
+
+    [TestMethod]
+    public async Task ExtensionHost_HashMismatch_SetEnabledFalse_KeepsHashMismatch()
+    {
+        string extDir = CreateExtension("ext_corrupted", out string hash);
+
+        // Corrupt the DLL to cause a HashMismatch
+        string dllPath = Path.Combine(extDir, "SysMonitor.Tests.DummyExtension.dll");
+        File.WriteAllBytes(dllPath, new byte[] { 0x00, 0x01, 0x02, 0x03 });
+
+        var config = new AppConfig
+        {
+            Extensions = new Dictionary<string, ExtensionSetting>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["ext_corrupted"] = new ExtensionSetting { Enabled = true }
+            }
+        };
+
+        var allowlist = new FirstPartyAllowlist(new[] { hash });
+        var options = new ExtensionLoaderOptions
+        {
+            ExtensionsRoot = _tempDir,
+            FirstParty = allowlist,
+            HostIsElevated = false,
+        };
+
+        using var host = new ExtensionHost(config, options);
+        await host.StartAsync();
+
+        var entry = host.Entries.FirstOrDefault(e => e.Id == "ext_corrupted");
+        Assert.IsNotNull(entry);
+        Assert.AreEqual(ExtensionStatus.HashMismatch, entry.Status);
+
+        // Disabling an extension that failed with HashMismatch should keep HashMismatch status
+        await host.SetEnabled("ext_corrupted", false);
+
+        var updatedEntry = host.Entries.FirstOrDefault(e => e.Id == "ext_corrupted");
+        Assert.IsNotNull(updatedEntry);
+        Assert.AreEqual(ExtensionStatus.HashMismatch, updatedEntry.Status);
+        Assert.IsFalse(updatedEntry.Enabled);
     }
 
     private string CreateExtension(string id, out string manifestSha256)

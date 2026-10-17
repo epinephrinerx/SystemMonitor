@@ -44,10 +44,17 @@ public class DummyViewsExtension : IExtension, IViewProvider
         set => Write(nameof(InitializeAction), value);
     }
 
+    public static int InitializeCount
+    {
+        get => Read<int>(nameof(InitializeCount));
+        set => Write(nameof(InitializeCount), value);
+    }
+
     public static void Reset()
     {
         Initialized = false;
         ShutdownCalled = false;
+        InitializeCount = 0;
         DisplayNameFunc = null;
         ViewFunc = null;
         InitializeAction = null;
@@ -56,6 +63,7 @@ public class DummyViewsExtension : IExtension, IViewProvider
     public void Initialize(IExtensionContext context)
     {
         Initialized = true;
+        InitializeCount++;
         InitializeAction?.Invoke();
     }
 

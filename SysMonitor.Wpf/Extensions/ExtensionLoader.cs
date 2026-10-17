@@ -82,40 +82,29 @@ public static class ExtensionLoader
         return results;
     }
 
-    /// <summary>
-    /// Loads a single extension folder using the same rules and security checks as LoadAll.
-    /// Never throws exceptions out of this method, except ArgumentNullException if options is null.
-    /// </summary>
-    public static ExtensionLoadResult LoadFolder(string folder, ExtensionLoaderOptions options)
+    private static bool TryValidateFolder(
+        string folder,
+        string? extensionsRoot,
+        out string folderName,
+        out ExtensionStatus errorStatus,
+        out string? errorDetail)
     {
-        ArgumentNullException.ThrowIfNull(options);
-
-        string folderName = string.IsNullOrWhiteSpace(folder)
+        folderName = string.IsNullOrWhiteSpace(folder)
             ? string.Empty
             : Path.GetFileName(folder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
 
         if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
         {
-            return new ExtensionLoadResult(
-                folderName,
-                null,
-                ExtensionStatus.UnsafePath,
-                "Extension folder does not exist or path is empty",
-                null,
-                null,
-                null);
+            errorStatus = ExtensionStatus.UnsafePath;
+            errorDetail = "Extension folder does not exist or path is empty";
+            return false;
         }
 
-        if (string.IsNullOrWhiteSpace(options.ExtensionsRoot))
+        if (string.IsNullOrWhiteSpace(extensionsRoot))
         {
-            return new ExtensionLoadResult(
-                folderName,
-                null,
-                ExtensionStatus.UnsafePath,
-                "ExtensionsRoot is empty or not configured",
-                null,
-                null,
-                null);
+            errorStatus = ExtensionStatus.UnsafePath;
+            errorDetail = "ExtensionsRoot is empty or not configured";
+            return false;
         }
 
         string fullFolderPath;
@@ -123,18 +112,13 @@ public static class ExtensionLoader
         try
         {
             fullFolderPath = Path.GetFullPath(folder).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            fullRootPath = Path.GetFullPath(options.ExtensionsRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            fullRootPath = Path.GetFullPath(extensionsRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         }
         catch (Exception ex)
         {
-            return new ExtensionLoadResult(
-                folderName,
-                null,
-                ExtensionStatus.UnsafePath,
-                $"Invalid path format: {ex.Message}",
-                null,
-                null,
-                null);
+            errorStatus = ExtensionStatus.UnsafePath;
+            errorDetail = $"Invalid path format: {ex.Message}";
+            return false;
         }
 
         string expectedPath = Path.Combine(fullRootPath, folderName).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -143,11 +127,31 @@ public static class ExtensionLoader
         if (!string.Equals(parentDir, fullRootPath, StringComparison.OrdinalIgnoreCase) ||
             !string.Equals(fullFolderPath, expectedPath, StringComparison.OrdinalIgnoreCase))
         {
+            errorStatus = ExtensionStatus.UnsafePath;
+            errorDetail = $"Extension folder '{fullFolderPath}' is outside ExtensionsRoot '{fullRootPath}'";
+            return false;
+        }
+
+        errorStatus = ExtensionStatus.Loaded;
+        errorDetail = null;
+        return true;
+    }
+
+    /// <summary>
+    /// Loads a single extension folder using the same rules and security checks as LoadAll.
+    /// Never throws exceptions out of this method, except ArgumentNullException if options is null.
+    /// </summary>
+    public static ExtensionLoadResult LoadFolder(string folder, ExtensionLoaderOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        if (!TryValidateFolder(folder, options.ExtensionsRoot, out string folderName, out var errorStatus, out var errorDetail))
+        {
             return new ExtensionLoadResult(
                 folderName,
                 null,
-                ExtensionStatus.UnsafePath,
-                $"Extension folder '{fullFolderPath}' is outside ExtensionsRoot '{fullRootPath}'",
+                errorStatus,
+                errorDetail ?? "Validation failed",
                 null,
                 null,
                 null);
@@ -156,7 +160,7 @@ public static class ExtensionLoader
         try
         {
             var loadedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            return LoadSingleFolder(folder, options, loadedIds);
+            return LoadSingleFolder(folder, options, loadedIds, inspectOnly: false);
         }
         catch (Exception ex)
         {
@@ -172,10 +176,56 @@ public static class ExtensionLoader
         }
     }
 
+    /// <summary>
+    /// Inspects an extension folder structurally and verifies all declared file hashes
+    /// without loading any code, creating an ALC, or loading native libraries.
+    /// Does not check trust, approvals, IsEnabled, or duplicates.
+    /// Never throws exceptions out of this method, except ArgumentNullException if options is null.
+    /// </summary>
+    public static ExtensionInspection Inspect(string folder, ExtensionLoaderOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        if (!TryValidateFolder(folder, options.ExtensionsRoot, out string folderName, out var errorStatus, out var errorDetail))
+        {
+            return new ExtensionInspection(
+                errorStatus,
+                errorDetail ?? "Validation failed",
+                null,
+                null,
+                false);
+        }
+
+        try
+        {
+            ExtensionLoadResult result = LoadSingleFolder(folder, options, loadedIds: null, inspectOnly: true);
+            bool isFirstParty = !string.IsNullOrWhiteSpace(result.ManifestSha256)
+                && options.FirstParty?.IsFirstParty(result.ManifestSha256) == true;
+
+            return new ExtensionInspection(
+                result.Status,
+                result.Detail,
+                result.Manifest,
+                result.ManifestSha256,
+                isFirstParty);
+        }
+        catch (Exception ex)
+        {
+            options.Log.SafeLog($"Unexpected error inspecting extension folder '{folderName}': {ex.Describe()}");
+            return new ExtensionInspection(
+                ExtensionStatus.LoadFailed,
+                $"Unexpected error: {ex.Describe()}",
+                null,
+                null,
+                false);
+        }
+    }
+
     internal static ExtensionLoadResult LoadSingleFolder(
         string dir,
         ExtensionLoaderOptions options,
-        HashSet<string> loadedIds)
+        HashSet<string>? loadedIds,
+        bool inspectOnly = false)
     {
         string folderName = Path.GetFileName(dir);
 
@@ -498,53 +548,55 @@ public static class ExtensionLoader
             }
         }
 
-        // 8. Trust decision based on manifest SHA-256
-        bool isFirstParty = options.FirstParty.IsFirstParty(manifestSha256);
-        if (options.HostIsElevated)
+        if (!inspectOnly)
         {
-            if (!isFirstParty)
+            // 8. Trust decision based on manifest SHA-256
+            bool isFirstParty = options.FirstParty.IsFirstParty(manifestSha256);
+            if (options.HostIsElevated)
             {
-                return new ExtensionLoadResult(
-                    folderName,
-                    manifest.Id,
-                    ExtensionStatus.NotTrustedWhenElevated,
-                    "Only first-party extensions can be loaded when host is elevated",
-                    manifestSha256,
-                    null,
-                    manifest);
-            }
-        }
-
-        else
-        {
-            if (!isFirstParty)
-            {
-                bool isApproved = options.Approvals?.IsApproved(manifest.Id, manifestSha256) == true;
-                if (!isApproved)
+                if (!isFirstParty)
                 {
                     return new ExtensionLoadResult(
                         folderName,
                         manifest.Id,
-                        ExtensionStatus.NotApproved,
-                        "Extension manifest is neither first-party nor approved by the user",
+                        ExtensionStatus.NotTrustedWhenElevated,
+                        "Only first-party extensions can be loaded when host is elevated",
                         manifestSha256,
                         null,
                         manifest);
                 }
             }
-        }
+            else
+            {
+                if (!isFirstParty)
+                {
+                    bool isApproved = options.Approvals?.IsApproved(manifest.Id, manifestSha256) == true;
+                    if (!isApproved)
+                    {
+                        return new ExtensionLoadResult(
+                            folderName,
+                            manifest.Id,
+                            ExtensionStatus.NotApproved,
+                            "Extension manifest is neither first-party nor approved by the user",
+                            manifestSha256,
+                            null,
+                            manifest);
+                    }
+                }
+            }
 
-        // 8b. If extension is not enabled in settings -> Disabled (do not read or hash files)
-        if (options.IsEnabled != null && !options.IsEnabled(manifest.Id))
-        {
-            return new ExtensionLoadResult(
-                folderName,
-                manifest.Id,
-                ExtensionStatus.Disabled,
-                "Extension is disabled in settings",
-                manifestSha256,
-                null,
-                manifest);
+            // 8b. If extension is not enabled in settings -> Disabled (do not read or hash files)
+            if (options.IsEnabled != null && !options.IsEnabled(manifest.Id))
+            {
+                return new ExtensionLoadResult(
+                    folderName,
+                    manifest.Id,
+                    ExtensionStatus.Disabled,
+                    "Extension is disabled in settings",
+                    manifestSha256,
+                    null,
+                    manifest);
+            }
         }
 
         // 9. Read every file once and verify every SHA-256 BEFORE loading anything. A native
@@ -565,7 +617,7 @@ public static class ExtensionLoader
                 FileStream? held = null;
                 try
                 {
-                    if (file.Native)
+                    if (!inspectOnly && file.Native)
                     {
                         held = new FileStream(resolved, FileMode.Open, FileAccess.Read, FileShare.Read);
                         using var ms = new MemoryStream();
@@ -614,6 +666,18 @@ public static class ExtensionLoader
                 }
             }
 
+            if (inspectOnly)
+            {
+                return new ExtensionLoadResult(
+                    folderName,
+                    manifest.Id,
+                    ExtensionStatus.Loaded,
+                    "Extension structurally valid and all files verified",
+                    manifestSha256,
+                    null,
+                    manifest);
+            }
+
             // 10. Verify entry assembly is declared in 'files' and is not native
             var entryFile = manifest.Files.FirstOrDefault(f =>
                 string.Equals(f.Path, manifest.Entry.Assembly, StringComparison.OrdinalIgnoreCase));
@@ -630,18 +694,18 @@ public static class ExtensionLoader
                     manifest);
             }
 
-        // 11. Duplicate ID check in the same run
-        if (loadedIds.Contains(manifest.Id))
-        {
-            return new ExtensionLoadResult(
-                folderName,
-                manifest.Id,
-                ExtensionStatus.DuplicateId,
-                $"An extension with id '{manifest.Id}' was already loaded in this run",
-                manifestSha256,
-                null,
-                manifest);
-        }
+            // 11. Duplicate ID check in the same run
+            if (loadedIds != null && loadedIds.Contains(manifest.Id))
+            {
+                return new ExtensionLoadResult(
+                    folderName,
+                    manifest.Id,
+                    ExtensionStatus.DuplicateId,
+                    $"An extension with id '{manifest.Id}' was already loaded in this run",
+                    manifestSha256,
+                    null,
+                    manifest);
+            }
 
             // Everything is verified: preload the native libraries while their files are still held.
             // Only this folder and System32 are searched for their imports. Every listed file was
@@ -774,7 +838,7 @@ public static class ExtensionLoader
 
             extInstance.Initialize(context);
 
-            loadedIds.Add(manifest.Id);
+            loadedIds?.Add(manifest.Id);
 
             var loadedExt = new LoadedExtension(
                 manifest,
