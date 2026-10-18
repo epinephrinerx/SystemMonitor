@@ -548,10 +548,10 @@ public static class ExtensionLoader
             }
         }
 
+        bool isFirstParty = options.FirstParty.IsFirstParty(manifestSha256);
         if (!inspectOnly)
         {
             // 8. Trust decision based on manifest SHA-256
-            bool isFirstParty = options.FirstParty.IsFirstParty(manifestSha256);
             if (options.HostIsElevated)
             {
                 if (!isFirstParty)
@@ -563,7 +563,8 @@ public static class ExtensionLoader
                         "Only first-party extensions can be loaded when host is elevated",
                         manifestSha256,
                         null,
-                        manifest);
+                        manifest,
+                        isFirstParty);
                 }
             }
             else
@@ -580,22 +581,28 @@ public static class ExtensionLoader
                             "Extension manifest is neither first-party nor approved by the user",
                             manifestSha256,
                             null,
-                            manifest);
+                            manifest,
+                            isFirstParty);
                     }
                 }
             }
 
-            // 8b. If extension is not enabled in settings -> Disabled (do not read or hash files)
+            // 8b. If extension is not enabled in settings, check if it should be kept loaded (e.g. for background metrics)
             if (options.IsEnabled != null && !options.IsEnabled(manifest.Id))
             {
-                return new ExtensionLoadResult(
-                    folderName,
-                    manifest.Id,
-                    ExtensionStatus.Disabled,
-                    "Extension is disabled in settings",
-                    manifestSha256,
-                    null,
-                    manifest);
+                bool keepLoaded = options.KeepLoaded?.Invoke(manifest, isFirstParty) ?? false;
+                if (!keepLoaded)
+                {
+                    return new ExtensionLoadResult(
+                        folderName,
+                        manifest.Id,
+                        ExtensionStatus.Disabled,
+                        "Extension is disabled in settings",
+                        manifestSha256,
+                        null,
+                        manifest,
+                        isFirstParty);
+                }
             }
         }
 
@@ -639,7 +646,8 @@ public static class ExtensionLoader
                         $"Failed to read file '{file.Path}': {ex.Describe()}",
                         manifestSha256,
                         null,
-                        manifest);
+                        manifest,
+                        isFirstParty);
                 }
 
                 string actualHash = ComputeSha256Hex(bytes);
@@ -653,7 +661,8 @@ public static class ExtensionLoader
                         $"File '{file.Path}' hash mismatch. Expected {file.Sha256}, got {actualHash}",
                         manifestSha256,
                         null,
-                        manifest);
+                        manifest,
+                        isFirstParty);
                 }
 
                 if (held != null)
@@ -675,7 +684,8 @@ public static class ExtensionLoader
                     "Extension structurally valid and all files verified",
                     manifestSha256,
                     null,
-                    manifest);
+                    manifest,
+                    isFirstParty);
             }
 
             // 10. Verify entry assembly is declared in 'files' and is not native
@@ -691,7 +701,8 @@ public static class ExtensionLoader
                     $"Entry assembly '{manifest.Entry.Assembly}' is not declared in 'files' or is marked as native",
                     manifestSha256,
                     null,
-                    manifest);
+                    manifest,
+                    isFirstParty);
             }
 
             // 11. Duplicate ID check in the same run
@@ -704,7 +715,8 @@ public static class ExtensionLoader
                     $"An extension with id '{manifest.Id}' was already loaded in this run",
                     manifestSha256,
                     null,
-                    manifest);
+                    manifest,
+                    isFirstParty);
             }
 
             // Everything is verified: preload the native libraries while their files are still held.
@@ -731,7 +743,8 @@ public static class ExtensionLoader
                         $"Failed to load native library '{file.Path}' via LoadLibraryEx (Win32 error {win32Err})",
                         manifestSha256,
                         null,
-                        manifest);
+                        manifest,
+                        isFirstParty);
                 }
 
                 string fileName = Path.GetFileName(resolved);
@@ -753,7 +766,8 @@ public static class ExtensionLoader
                 $"Failed reading or loading files: {ex.Describe()}",
                 manifestSha256,
                 null,
-                manifest);
+                manifest,
+                isFirstParty);
         }
         finally
         {
@@ -808,7 +822,8 @@ public static class ExtensionLoader
                     $"Entry type '{manifest.Entry.Type}' was not found in '{manifest.Entry.Assembly}' or does not implement IExtension",
                     manifestSha256,
                     null,
-                    manifest);
+                    manifest,
+                    isFirstParty);
             }
 
             object? createdObj = Activator.CreateInstance(extType);
@@ -823,7 +838,8 @@ public static class ExtensionLoader
                     $"Failed to cast instantiated entry '{manifest.Entry.Type}' to IExtension",
                     manifestSha256,
                     null,
-                    manifest);
+                    manifest,
+                    isFirstParty);
             }
 
             // Rule 11: Provide canonical/absolute path to IExtensionContext.ExtensionDirectory
@@ -854,7 +870,8 @@ public static class ExtensionLoader
                 "Extension loaded successfully",
                 manifestSha256,
                 loadedExt,
-                manifest);
+                manifest,
+                isFirstParty);
         }
         catch (Exception ex)
         {
@@ -871,7 +888,8 @@ public static class ExtensionLoader
                 $"Load or initialization threw an exception: {ex.Describe()}",
                 manifestSha256,
                 null,
-                manifest);
+                manifest,
+                isFirstParty);
         }
     }
 

@@ -22,6 +22,7 @@
     <ProjectReference Include="..\SysMonitor.Wpf\SysMonitor.Wpf.csproj" />
     <ProjectReference Include="..\SysMonitor.Setup\SysMonitor.Setup.csproj" />
     <ProjectReference Include="..\SysMonitor.Extensibility\SysMonitor.Extensibility.csproj" />
+    <ProjectReference Include="..\SysMonitor.Ext.Smart\SysMonitor.Ext.Smart.csproj" />
     <ProjectReference Include="..\SysMonitor.Tests.DummyExtension\SysMonitor.Tests.DummyExtension.csproj" />
   </ItemGroup>
 

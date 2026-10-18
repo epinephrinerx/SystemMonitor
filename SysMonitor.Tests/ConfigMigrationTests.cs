@@ -152,4 +152,20 @@ public class ConfigMigrationTests
             }
         }
     }
+
+    [TestMethod]
+    [DataRow("smart", "ext:smart:status")]
+    [DataRow("smart0", "ext:smart:disk0")]
+    [DataRow("smart1", "ext:smart:disk1")]
+    [DataRow("smart12", "ext:smart:disk12")]
+    [DataRow("smart0custom", "smart0custom")]
+    [DataRow("smartx", "smartx")]
+    [DataRow("cpu", "cpu")]
+    [DataRow("disk0", "disk0")]
+    public void FullTab_smart_migration_is_strict(string inputTab, string expectedTab)
+    {
+        AppConfig config = Load($$"""{ "full_tab": "{{inputTab}}" }""");
+        Assert.AreEqual(expectedTab, config.FullTab);
+    }
 }
+

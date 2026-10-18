@@ -8,4 +8,5 @@ namespace SysMonitor.Extensions;
 public sealed record ExtensionViewData(
     string Id,
     string DisplayName,
-    ExtensionView View);
+    ExtensionView View,
+    string? PlaceAfter = null);

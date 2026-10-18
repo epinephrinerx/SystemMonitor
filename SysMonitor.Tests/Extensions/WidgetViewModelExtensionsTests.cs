@@ -18,7 +18,6 @@ public class WidgetViewModelExtensionsTests
             ShowRam = true,
             ShowDisk = true,
             ShowNetwork = true,
-            ShowSmart = false,
         };
 
         var model = new WidgetViewModel(config);
@@ -49,7 +48,6 @@ public class WidgetViewModelExtensionsTests
             ShowRam = false,
             ShowDisk = false,
             ShowNetwork = false,
-            ShowSmart = false,
         };
 
         var model = new WidgetViewModel(config);
@@ -516,4 +514,83 @@ public class WidgetViewModelExtensionsTests
         Assert.AreEqual(string.Empty, model.Sections[0].Note, "Note must be empty after section rebuild");
         Assert.AreNotEqual("Ext Row", model.Sections[0].Rows[0].Title, "Rows must be core rows, not extension rows");
     }
+
+    [TestMethod]
+    public void WidgetViewModel_OverviewAndFullViewOrder_PlacedAfterDiskAndPlacedLast()
+    {
+        var config = new AppConfig
+        {
+            ShowCpu = true,
+            ShowRam = true,
+            ShowDisk = true,
+            ShowGpu = true,
+            ShowNetwork = true
+        };
+
+        var model = new WidgetViewModel(config);
+        var snap = new Snapshot
+        {
+            Ready = true,
+            CpuTotal = 15,
+            Cores = new[] { new Core { Usage = 15 } },
+            Ram = new Ram { Usage = 50, UsedGb = 8.0, TotalGb = 16.0 },
+            Disks = new[]
+            {
+                new Disk { Letter = "C", Media = "SSD", Bus = "NVMe", TotalGb = 500, UsedGb = 200, Usage = 40 }
+            },
+            Gpu = new Gpu { Present = true, Name = "RTX 3080", Usage = 25, Driver = "511.79" },
+            Adapters = new[]
+            {
+                new Adapter { Id = "eth0", Name = "Ethernet", SpeedMbps = 1000, DownMb = 5, UpMb = 1 }
+            },
+            Extensions = new[]
+            {
+                new ExtensionViewData(
+                    Id: "smart",
+                    DisplayName: "SMART Health",
+                    View: new ExtensionView(
+                        WidgetPages: new[] { new WidgetPage("SMART", "Good", "Detail", 45, 95, Severity.Good) },
+                        Overview: new OverviewSection("Note", new[] { new OverviewRow("Disk 0", "Detail", "Good", 95, Severity.Good, 45) }),
+                        Tabs: new[] { new DetailTab("status", "SMART", "Good", "Detail", "Hardware", Array.Empty<Fact>()) }
+                    ),
+                    PlaceAfter: "disk"
+                ),
+                new ExtensionViewData(
+                    Id: "custom",
+                    DisplayName: "Custom Ext",
+                    View: new ExtensionView(
+                        WidgetPages: Array.Empty<WidgetPage>(),
+                        Overview: new OverviewSection("Custom Note", new[] { new OverviewRow("C1", "D1", "Val", 10, Severity.Neutral, null) }),
+                        Tabs: new[] { new DetailTab("tab", "Custom Tab", "Sub", "Det", "Hw", Array.Empty<Fact>()) }
+                    ),
+                    PlaceAfter: null
+                )
+            }
+        };
+
+        // 1. Overview sections order: cpu, ram, disk, ext:smart, gpu, net, ext:custom
+        model.UpdateOverall(snap);
+        var sectionIds = model.Sections.Select(s => s.Id).ToList();
+        CollectionAssert.AreEqual(
+            new[] { "cpu", "ram", "disk", "ext:smart", "gpu", "net", "ext:custom" },
+            sectionIds,
+            "Overview sections order must be cpu, ram, disk, ext:smart, gpu, net, ext:custom");
+
+        // 2. Full-view tabs order: cpu, ram, disk (starts with disk), ext:smart:status, gpu, net (starts with net), ext:custom:tab
+        model.PushHistory(snap);
+        var tabKeys = model.Tabs.Select(t => t.Key).ToList();
+
+        int diskIndex = tabKeys.FindLastIndex(k => k.StartsWith("disk", StringComparison.Ordinal));
+        int smartIndex = tabKeys.IndexOf("ext:smart:status");
+        int gpuIndex = tabKeys.IndexOf("gpu");
+        int netIndex = tabKeys.FindIndex(k => k.StartsWith("net", StringComparison.Ordinal));
+        int customIndex = tabKeys.IndexOf("ext:custom:tab");
+
+        Assert.IsTrue(diskIndex >= 0, "Disk tab must exist");
+        Assert.AreEqual(diskIndex + 1, smartIndex, "SMART tab must immediately follow disk tabs");
+        Assert.IsTrue(smartIndex < gpuIndex, "SMART tab must be before GPU");
+        Assert.IsTrue(gpuIndex < netIndex, "GPU tab must be before Network");
+        Assert.IsTrue(customIndex > netIndex, "Extension without place_after must be placed at the end");
+    }
 }
+

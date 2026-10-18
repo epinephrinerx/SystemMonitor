@@ -1,13 +1,13 @@
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace SysMonitor.Native;
+namespace SysMonitor.Ext.Smart;
 
 /// <summary>What one pass over the disks came to.</summary>
 internal enum SmartScanStatus
 {
     Ok,
-    /// <summary>DiskInfoCore.dll is not next to the exe, or is not the version we speak.</summary>
+    /// <summary>DiskInfoCore.dll is not in the extension folder, or is not the version we speak.</summary>
     Unavailable,
     /// <summary>The library found nothing because the process is not elevated.</summary>
     NeedAdmin,
@@ -32,23 +32,38 @@ internal sealed record SmartReading(
     long? PowerOnHours = null);
 
 /// <summary>
+/// Seam for testing SMART scanning without invoking native code or real hardware.
+/// </summary>
+internal interface ISmartScanner
+{
+    bool IsAvailable { get; }
+    (SmartScanStatus Status, IReadOnlyList<SmartReading> Disks) Scan();
+}
+
+/// <summary>
+/// Real scanner that calls DiskInfoCore.dll via C ABI.
+/// </summary>
+internal sealed class RealSmartScanner : ISmartScanner
+{
+    public static readonly RealSmartScanner Instance = new();
+
+    public bool IsAvailable => SmartCore.IsAvailable;
+
+    public (SmartScanStatus Status, IReadOnlyList<SmartReading> Disks) Scan() => SmartCore.Scan();
+}
+
+/// <summary>
 /// The C ABI of DiskInfoCore.dll (DiskInfo repo, docs/CORE_ABI.md), which wraps
 /// CrystalDiskInfo's CAtaSmart. It needs an elevated process: without one it
 /// finds no disk at all and says so (DI_E_ACCESS).
 ///
 /// The scan takes seconds and starts COM on the calling thread, so it belongs on
-/// a thread of its own and never on the UI or the sampler's tick.
+/// a thread of its own and never on the UI.
 /// </summary>
 internal static class SmartCore
 {
     private const string Dll = "DiskInfoCore.dll";
 
-    // The app folder first, then System32. The app folder alone is not enough: the
-    // loader applies the same restricted search to the DLL's own imports (setupapi,
-    // wintrust, oleacc...), none of which live beside the exe, so the load fails
-    // with "or one of its dependencies" and the module reports the library missing.
-    private const DllImportSearchPath SearchPaths =
-        DllImportSearchPath.ApplicationDirectory | DllImportSearchPath.System32;
     private const int AbiMajor = 1;
     private const int DiAccess = -2;                 // DI_E_ACCESS
     private const int DiNa = int.MinValue;           // DI_NA
@@ -72,26 +87,31 @@ internal static class SmartCore
         public uint Source;
     }
 
-    [DllImport(Dll), DefaultDllImportSearchPaths(SearchPaths)]
+    [DllImport(Dll)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     private static extern uint di_abi_version();
 
-    [DllImport(Dll), DefaultDllImportSearchPaths(SearchPaths)]
+    [DllImport(Dll)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     private static extern int di_open(out IntPtr handle, uint flags);
 
-    [DllImport(Dll), DefaultDllImportSearchPaths(SearchPaths)]
+    [DllImport(Dll)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     private static extern void di_close(IntPtr handle);
 
-    [DllImport(Dll), DefaultDllImportSearchPaths(SearchPaths)]
+    [DllImport(Dll)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     private static extern int di_scan(IntPtr handle);
 
-    [DllImport(Dll), DefaultDllImportSearchPaths(SearchPaths)]
+    [DllImport(Dll)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     private static extern int di_disk_count(IntPtr handle);
 
-    [DllImport(Dll), DefaultDllImportSearchPaths(SearchPaths)]
+    [DllImport(Dll)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     private static extern int di_disk_info(IntPtr handle, int index, ref NativeDisk disk);
 
-    // Two locks, not one: a scan holds its lock for seconds, and the sampler
-    // asks IsAvailable on every temperature pass.
+    // Two locks, not one: a scan holds its lock for seconds, and IsAvailable is probed once.
     private static readonly object ProbeGate = new();
     private static readonly object ScanGate = new();
     private static bool? _available;

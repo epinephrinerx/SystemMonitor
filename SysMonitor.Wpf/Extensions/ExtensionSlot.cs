@@ -2,6 +2,12 @@ using SysMonitor.Extensibility;
 
 namespace SysMonitor.Extensions;
 
+internal sealed class DemandGate
+{
+    public readonly object Lock = new();
+    public volatile bool Dirty;
+}
+
 /// <summary>
 /// Lifetime gate for a loaded extension instance.
 /// Tracks concurrent in-flight usage and ensures safe teardown after retirement.
@@ -15,13 +21,30 @@ internal sealed class ExtensionSlot
     private int _userCount;
     private bool _retired;
     private bool _disposed;
+    private volatile bool _demandApplied;
+
+    /// <summary>
+    /// Serialises demand delivery to this instance. It belongs to the slot, not the id, so a callback
+    /// that blocks on a retired instance can never keep its replacement from receiving its demand.
+    /// </summary>
+    public DemandGate DemandGate { get; } = new();
 
     public LoadedExtension Extension => _extension;
+
+    /// <summary>
+    /// True if demand has been applied to this slot or the instance does not implement <see cref="IDemandAware"/>.
+    /// </summary>
+    public bool DemandApplied
+    {
+        get => _demandApplied;
+        set => _demandApplied = value;
+    }
 
     public ExtensionSlot(LoadedExtension extension, Action<string>? log)
     {
         _extension = extension ?? throw new ArgumentNullException(nameof(extension));
         _log = log;
+        _demandApplied = extension.Instance is not IDemandAware;
     }
 
     /// <summary>

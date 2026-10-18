@@ -44,5 +44,11 @@ public sealed class ExtensionLoaderOptions
     /// Optional predicate returning whether an extension id is enabled (null = all enabled).
     /// </summary>
     public Func<string, bool>? IsEnabled { get; init; }
+
+    /// <summary>
+    /// Optional predicate deciding whether an extension should remain loaded even if disabled
+    /// by the user (e.g. for first-party background metric providers like SMART temperature).
+    /// </summary>
+    public Func<ExtensionManifest, bool, bool>? KeepLoaded { get; init; }
 }
 

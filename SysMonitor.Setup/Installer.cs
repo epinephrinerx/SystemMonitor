@@ -52,6 +52,7 @@ public static class Installer
     /// DiskInfoCore.dll, optional: SMART for disks Windows will not report a
     /// temperature for. The app runs without it, so a setup built without it
     /// installs without it.
+    /// TODO(phase 4): in phase 4, DiskInfoCore.dll moves into extensions\smart\ as part of the SMART extension package.
     /// </summary>
     public const string CoreName = "DiskInfoCore.dll";
 

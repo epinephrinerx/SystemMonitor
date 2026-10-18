@@ -174,7 +174,11 @@ public partial class MainWindow
         else
         {
             target.Children.Add(Paragraph(lang["disk_smart_hint"]));
-            if (SmartCore.IsAvailable)
+            bool smartAvailable = _extensions?.Entries.Any(e =>
+                string.Equals(e.Id, "smart", StringComparison.OrdinalIgnoreCase) &&
+                e.Status == SysMonitor.Extensions.ExtensionStatus.Loaded) == true;
+
+            if (smartAvailable)
             {
                 target.Children.Add(NavButton("", lang["restart_admin"], () => Restart(asAdmin: true)));
             }

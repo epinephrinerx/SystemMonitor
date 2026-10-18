@@ -22,18 +22,16 @@ public static class DiskTemperature
     public static bool Plausible(int? celsius) => celsius is > 0 and < 150;
 
     /// <param name="storage">The storage-stack reading, null when it failed.</param>
-    /// <param name="smart">The SMART reading for this physical disk, null when none.</param>
-    /// <param name="elevated">Is the app running elevated? SMART is only read then.</param>
-    /// <param name="smartAvailable">Is DiskInfoCore.dll present and usable?</param>
-    public static TempResult Merge(int? storage, int? smart, bool elevated, bool smartAvailable)
+    /// <param name="external">The external reading (e.g. from an extension), null when none.</param>
+    public static TempResult Merge(int? storage, int? external)
     {
         if (Plausible(storage))
         {
             return new TempResult(storage, TempSource.Storage);
         }
-        if (elevated && smartAvailable && Plausible(smart))
+        if (Plausible(external))
         {
-            return new TempResult(smart, TempSource.Smart);
+            return new TempResult(external, TempSource.Smart);
         }
         return new TempResult(null, TempSource.None);
     }

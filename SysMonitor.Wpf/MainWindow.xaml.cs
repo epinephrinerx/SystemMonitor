@@ -1075,15 +1075,15 @@ public partial class MainWindow : Window
             _sampler.Nudge();
             Refresh();
         }));
-        Sidebar.Children.Add(Check(lang["show_smart"], _config.ShowSmart, value =>
-        {
-            _config.ShowSmart = value;
-            if (value)
-            {
-                _sampler.RequestSmart();
-            }
-            Refresh();
-        }));
+        // smart moved to extension
+
+
+
+
+
+
+
+
 
         Sidebar.Children.Add(Check(lang["show_network"], _config.ShowNetwork, value =>
         {

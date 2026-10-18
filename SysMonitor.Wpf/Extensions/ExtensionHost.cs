@@ -38,8 +38,18 @@ public sealed class ExtensionHost : IDisposable
     private readonly Dictionary<string, bool> _enabled = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, (string Language, string Name)> _cachedDisplayNames = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _loggedErrors = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (ExtensionSlot Slot, ExtensionDemand Demand)> _lastPushedDemand = new(StringComparer.OrdinalIgnoreCase);
+    private volatile bool _diskTemperatureDemand;
+    private (string Id, ExtensionSlot Slot)[] _sortedSlotsSnapshot = Array.Empty<(string Id, ExtensionSlot Slot)>();
     private IReadOnlyList<ExtensionEntry> _entries = Array.Empty<ExtensionEntry>();
     private bool _disposed;
+    internal Action<string>? OnReloadRetiring { get; set; }
+
+    /// <summary>
+    /// How long <see cref="Reload"/> waits for in-flight calls on the old instance before disposing it anyway.
+    /// Internal so a test can shorten it.
+    /// </summary>
+    internal TimeSpan ReloadRetireWait { get; set; } = TimeSpan.FromSeconds(5);
 
     public ExtensionHost(AppConfig config, ExtensionLoaderOptions baseOptions)
     {
@@ -141,6 +151,7 @@ public sealed class ExtensionHost : IDisposable
                 _slots.Clear();
                 _lastResults.Clear();
                 _cachedDisplayNames.Clear();
+                _lastPushedDemand.Clear();
 
                 foreach (ExtensionLoadResult res in results)
                 {
@@ -158,6 +169,7 @@ public sealed class ExtensionHost : IDisposable
                     _cachedDisplayNames[id] = (_config.Lang, name);
                 }
 
+                UpdateSortedSlotsSnapshotLocked();
                 Volatile.Write(ref _entries, BuildEntriesListLocked());
             }
         }
@@ -169,6 +181,12 @@ public sealed class ExtensionHost : IDisposable
                 slot.RetireAndDispose(TimeSpan.FromSeconds(5));
             }
             return;
+        }
+
+        // Push initial demand to IDemandAware after Initialize and before first GetView
+        foreach (var id in newSlots.Keys)
+        {
+            PushDemand(id);
         }
 
         // Retire any replaced slots outside _lock
@@ -197,8 +215,16 @@ public sealed class ExtensionHost : IDisposable
             FirstParty = _baseOptions.FirstParty,
             Approvals = _baseOptions.Approvals,
             Log = _baseOptions.Log,
-            IsEnabled = IsEnabledInConfig
+            IsEnabled = IsEnabledInConfig,
+            KeepLoaded = IsKeptLoadedManifest
         };
+    }
+
+    private static bool IsKeptLoadedManifest(ExtensionManifest manifest, bool isFirstParty)
+    {
+        return isFirstParty &&
+               manifest.Provides != null &&
+               manifest.Provides.Contains("disk-temperature", StringComparer.Ordinal);
     }
 
     private IReadOnlyList<ExtensionEntry> BuildEntriesListLocked()
@@ -257,6 +283,35 @@ public sealed class ExtensionHost : IDisposable
             await _lifecycle.WaitAsync().ConfigureAwait(false);
             try
             {
+                // Check if this extension is loaded and should remain loaded even when disabled
+                ExtensionSlot? slot = null;
+                bool isKeptLoaded = false;
+                lock (_lock)
+                {
+                    if (_slots.TryGetValue(id, out var s) &&
+                        _lastResults.TryGetValue(id, out var res) &&
+                        res.Manifest != null &&
+                        IsKeptLoadedManifest(res.Manifest, res.IsFirstParty))
+                    {
+                        slot = s;
+                        isKeptLoaded = true;
+                    }
+                }
+
+                if (isKeptLoaded && slot != null)
+                {
+                    // Extension stays loaded in its slot. Push updated demand and republish entries.
+                    PushDemand(id);
+                    lock (_lock)
+                    {
+                        if (!_disposed)
+                        {
+                            Volatile.Write(ref _entries, BuildEntriesListLocked());
+                        }
+                    }
+                    return;
+                }
+
                 ReconcileExtension(id, refresh: false);
             }
             finally
@@ -295,14 +350,17 @@ public sealed class ExtensionHost : IDisposable
                         return;
                     }
 
+                    _lastPushedDemand.Remove(id);
                     if (_slots.Remove(id, out var s))
                     {
                         slotToRetire = s;
+                        UpdateSortedSlotsSnapshotLocked();
                     }
                     _cachedDisplayNames.Remove(id);
                 }
 
-                slotToRetire?.RetireAndDispose(TimeSpan.FromSeconds(5));
+                OnReloadRetiring?.Invoke(id);
+                slotToRetire?.RetireAndDispose(ReloadRetireWait);
 
                 ReconcileExtension(id, refresh: true);
             }
@@ -327,7 +385,12 @@ public sealed class ExtensionHost : IDisposable
                     return;
                 }
 
-                desired = _enabled.TryGetValue(id, out bool en) && en;
+                bool en = _enabled.TryGetValue(id, out bool e) && e;
+                bool isKept = _lastResults.TryGetValue(id, out var prevRes) &&
+                             prevRes.Manifest != null &&
+                             IsKeptLoadedManifest(prevRes.Manifest, prevRes.IsFirstParty);
+                desired = en || isKept;
+
                 if (desired && _slots.ContainsKey(id))
                 {
                     // desired and a slot exists -> return, do nothing (no Shutdown, no Initialize)
@@ -336,9 +399,11 @@ public sealed class ExtensionHost : IDisposable
 
                 if (!desired)
                 {
+                    _lastPushedDemand.Remove(id);
                     if (_slots.Remove(id, out var s))
                     {
                         slotToRetire = s;
+                        UpdateSortedSlotsSnapshotLocked();
                     }
                     _cachedDisplayNames.Remove(id);
 
@@ -353,7 +418,8 @@ public sealed class ExtensionHost : IDisposable
                                 "Extension is disabled in settings",
                                 prev.ManifestSha256,
                                 null,
-                                prev.Manifest);
+                                prev.Manifest,
+                                prev.IsFirstParty);
                         }
                     }
                     else
@@ -386,7 +452,11 @@ public sealed class ExtensionHost : IDisposable
                 {
                     return;
                 }
-                desired = _enabled.TryGetValue(id, out bool en) && en;
+                bool en = _enabled.TryGetValue(id, out bool e) && e;
+                bool isKept = _lastResults.TryGetValue(id, out var prevRes) &&
+                             prevRes.Manifest != null &&
+                             IsKeptLoadedManifest(prevRes.Manifest, prevRes.IsFirstParty);
+                desired = en || isKept;
             }
         }
 
@@ -401,6 +471,7 @@ public sealed class ExtensionHost : IDisposable
         if (result.Status == ExtensionStatus.Loaded && result.LoadedExtension != null)
         {
             newSlot = new ExtensionSlot(result.LoadedExtension, _baseOptions.Log);
+
             if (result.LoadedExtension.Instance is IViewProvider vp && newSlot.TryAcquire())
             {
                 try
@@ -424,16 +495,37 @@ public sealed class ExtensionHost : IDisposable
         ExtensionSlot? slotToRetireOnAbort = null;
         lock (_lock)
         {
-            if (_disposed || (_enabled.TryGetValue(id, out bool curEn) && curEn) != desired)
+            bool curEn = _enabled.TryGetValue(id, out bool ce) && ce;
+            bool curKept = result.Manifest != null && IsKeptLoadedManifest(result.Manifest, result.IsFirstParty);
+            bool curDesired = curEn || curKept;
+
+            if (refresh && !_disposed)
             {
-                slotToRetireOnAbort = newSlot;
-            }
-            else
-            {
-                _lastResults[id] = result;
-                if (newSlot != null)
+                // Reload already removed the slot and the old result no longer says anything: whatever
+                // the loader found now (including a failure) is the truth and must be published.
+                ExtensionLoadResult toStore = result;
+                ExtensionSlot? slotToUse = newSlot;
+                if (newSlot != null && !curDesired)
                 {
-                    _slots[id] = newSlot;
+                    slotToRetireOnAbort = newSlot;
+                    slotToUse = null;
+                    toStore = new ExtensionLoadResult(
+                        result.FolderName,
+                        result.Id ?? id,
+                        ExtensionStatus.Disabled,
+                        "Extension is disabled in settings",
+                        result.ManifestSha256,
+                        null,
+                        result.Manifest,
+                        result.IsFirstParty);
+                }
+
+                _lastResults[id] = toStore;
+                if (slotToUse != null)
+                {
+                    _lastPushedDemand.Remove(id);
+                    _slots[id] = slotToUse;
+                    UpdateSortedSlotsSnapshotLocked();
                     if (displayName != null)
                     {
                         _cachedDisplayNames[id] = (_config.Lang, displayName);
@@ -442,6 +534,31 @@ public sealed class ExtensionHost : IDisposable
 
                 Volatile.Write(ref _entries, BuildEntriesListLocked());
             }
+            else if (_disposed || (!refresh && (result.Status == ExtensionStatus.Loaded ? !curDesired : curDesired != desired)))
+            {
+                slotToRetireOnAbort = newSlot;
+            }
+            else
+            {
+                _lastResults[id] = result;
+                if (newSlot != null)
+                {
+                    _lastPushedDemand.Remove(id);
+                    _slots[id] = newSlot;
+                    UpdateSortedSlotsSnapshotLocked();
+                    if (displayName != null)
+                    {
+                        _cachedDisplayNames[id] = (_config.Lang, displayName);
+                    }
+                }
+
+                Volatile.Write(ref _entries, BuildEntriesListLocked());
+            }
+        }
+
+        if (newSlot != null && slotToRetireOnAbort == null)
+        {
+            PushDemand(id);
         }
 
         // Retire outside _lock if aborted
@@ -470,6 +587,11 @@ public sealed class ExtensionHost : IDisposable
 
         foreach (ExtensionSlot slot in active)
         {
+            if (!slot.DemandApplied)
+            {
+                continue;
+            }
+
             if (!slot.TryAcquire())
             {
                 continue;
@@ -478,12 +600,22 @@ public sealed class ExtensionHost : IDisposable
             try
             {
                 LoadedExtension ext = slot.Extension;
+                string id = ext.Manifest.Id;
+
+                // Extensions kept loaded for background metrics must not produce views when disabled
+                lock (_lock)
+                {
+                    if (!_enabled.TryGetValue(id, out bool en) || !en)
+                    {
+                        continue;
+                    }
+                }
+
                 if (ext.Instance is not IViewProvider provider)
                 {
                     continue;
                 }
 
-                string id = ext.Manifest.Id;
                 string displayName;
                 ExtensionView rawView;
 
@@ -509,7 +641,7 @@ public sealed class ExtensionHost : IDisposable
                     rawView = provider.GetView(language);
                     ExtensionView sanitized = SanitizeView(rawView ?? ExtensionView.Empty);
 
-                    views.Add(new ExtensionViewData(id, displayName, sanitized));
+                    views.Add(new ExtensionViewData(id, displayName, sanitized, ext.Manifest.PlaceAfter));
                 }
                 catch (Exception ex)
                 {
@@ -534,6 +666,236 @@ public sealed class ExtensionHost : IDisposable
         }
 
         return views;
+    }
+
+    private void UpdateSortedSlotsSnapshotLocked()
+    {
+        _sortedSlotsSnapshot = _slots
+            .OrderBy(kv => kv.Key, StringComparer.Ordinal)
+            .Select(kv => (kv.Key, kv.Value))
+            .ToArray();
+    }
+
+    /// <summary>
+    /// Collects disk temperatures from all loaded extensions implementing <see cref="IDiskTemperatureSource"/>.
+    /// Iterates extensions in ordinal ID order, bounded to drive 0..255 and temperature 1..149 °C,
+    /// max 64 entries per extension. First extension to report a drive wins.
+    /// Safe to call on the sampler thread without stalling on lifecycle locks.
+    /// </summary>
+    public IReadOnlyDictionary<int, int> GetDiskTemperatures()
+    {
+        (string Id, ExtensionSlot Slot)[] active;
+        lock (_lock)
+        {
+            if (_disposed || _sortedSlotsSnapshot.Length == 0)
+            {
+                return new Dictionary<int, int>();
+            }
+            active = _sortedSlotsSnapshot;
+        }
+
+        var result = new Dictionary<int, int>();
+
+        foreach (var (id, slot) in active)
+        {
+            if (!slot.DemandApplied)
+            {
+                continue;
+            }
+
+            if (!slot.TryAcquire())
+            {
+                continue;
+            }
+
+            try
+            {
+                LoadedExtension ext = slot.Extension;
+                if (ext.Instance is not IDiskTemperatureSource tempSource)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    IEnumerable<KeyValuePair<int, int>>? dict = tempSource.GetDiskTemperatures();
+                    if (dict != null)
+                    {
+                        int inspected = 0;
+                        int validCount = 0;
+                        foreach (var kv in dict)
+                        {
+                            if (++inspected > 256)
+                            {
+                                break;
+                            }
+                            int drive = kv.Key;
+                            int celsius = kv.Value;
+                            if (drive is >= 0 and <= 255 && celsius is >= 1 and <= 149)
+                            {
+                                if (result.TryAdd(drive, celsius))
+                                {
+                                    if (++validCount >= 64)
+                                    {
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    SafeLogOnce(id, ex, "IDiskTemperatureSource");
+                }
+            }
+            finally
+            {
+                slot.Release();
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Updates the host's demand for disk temperature.
+    /// When demand changes for an extension, <see cref="IDemandAware.SetDemand"/> is called.
+    /// </summary>
+    public void SetDemand(bool diskTemperatureNeeded)
+    {
+        List<string> activeIds;
+        lock (_lock)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+            _diskTemperatureDemand = diskTemperatureNeeded;
+            activeIds = _slots.Keys.ToList();
+        }
+
+        foreach (string id in activeIds)
+        {
+            PushDemand(id);
+        }
+    }
+
+    private void PushDemand(string id)
+    {
+        ExtensionSlot? target;
+        lock (_lock)
+        {
+            if (_disposed || !_slots.TryGetValue(id, out target))
+            {
+                return;
+            }
+        }
+
+        // The gate belongs to the slot that is current now, so a blocked callback on a retired
+        // instance never holds the gate of its replacement.
+        DemandGate gate = target.DemandGate;
+
+        // Marked before the attempt: a holder that is about to leave must still see it.
+        gate.Dirty = true;
+        if (!Monitor.TryEnter(gate.Lock))
+        {
+            return;
+        }
+
+        try
+        {
+            while (true)
+            {
+                gate.Dirty = false;
+
+                ExtensionSlot? slot = null;
+                bool isEnabled = false;
+                bool tempDemand = _diskTemperatureDemand;
+                lock (_lock)
+                {
+                    if (_disposed)
+                    {
+                        return;
+                    }
+                    // Only the slot whose gate this is: if it was replaced, the replacement's own push covers it.
+                    if (_slots.TryGetValue(id, out var s) && ReferenceEquals(s, target))
+                    {
+                        slot = s;
+                        isEnabled = _enabled.TryGetValue(id, out bool en) && en;
+                    }
+                }
+
+                if (slot == null || slot.Extension.Instance is not IDemandAware demandAware)
+                {
+                    break;
+                }
+
+                ExtensionDemand desired = ExtensionDemand.None;
+                if (isEnabled)
+                {
+                    desired |= ExtensionDemand.Views;
+                }
+                if (tempDemand)
+                {
+                    desired |= ExtensionDemand.DiskTemperature;
+                }
+
+                bool alreadyApplied = false;
+                lock (_lock)
+                {
+                    if (_lastPushedDemand.TryGetValue(id, out var tracked) &&
+                        ReferenceEquals(tracked.Slot, slot) &&
+                        tracked.Demand == desired)
+                    {
+                        alreadyApplied = true;
+                    }
+                }
+
+                if (!alreadyApplied)
+                {
+                    if (slot.TryAcquire())
+                    {
+                        try
+                        {
+                            demandAware.SetDemand(desired);
+                            lock (_lock)
+                            {
+                                // A callback that returns after its slot was replaced must not record itself as current.
+                                if (_slots.TryGetValue(id, out var currentSlot) && ReferenceEquals(currentSlot, slot))
+                                {
+                                    _lastPushedDemand[id] = (slot, desired);
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            SafeLogOnce(id, ex, "IDemandAware");
+                        }
+                        finally
+                        {
+                            slot.DemandApplied = true;
+                            slot.Release();
+                        }
+                    }
+                }
+
+                if (!gate.Dirty)
+                {
+                    break;
+                }
+            }
+        }
+        finally
+        {
+            Monitor.Exit(gate.Lock);
+        }
+
+        // Re-check once more in case a thread set Dirty just as we were releasing the lock
+        if (gate.Dirty)
+        {
+            PushDemand(id);
+        }
     }
 
     private void SafeLogOnce(string id, Exception ex, string context)
@@ -738,6 +1100,8 @@ public sealed class ExtensionHost : IDisposable
             _slots.Clear();
             _lastResults.Clear();
             _cachedDisplayNames.Clear();
+            _lastPushedDemand.Clear();
+            _sortedSlotsSnapshot = Array.Empty<(string Id, ExtensionSlot Slot)>();
             Volatile.Write(ref _entries, Array.Empty<ExtensionEntry>());
         }
 

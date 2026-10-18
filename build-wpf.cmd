@@ -33,6 +33,8 @@ echo.
 echo [3/4] Building the installer...
 if not exist "SysMonitor.Setup\payload" mkdir "SysMonitor.Setup\payload"
 copy /y "SysMonitor.Wpf\%PUBLISH%\SystemMonitor.exe" "SysMonitor.Setup\payload\SystemMonitor.exe" >nul || exit /b 1
+rem TODO(phase 4): In phase 4, DiskInfoCore.dll and SysMonitor.Ext.Smart.dll will be packaged into
+rem the first-party extension folder payload\extensions\smart\ with extension.json, rather than payload root.
 rem DiskInfoCore.dll is optional: it lets the app read SMART for disks Windows will
 rem not report a temperature for (USB bridges, external NVMe). Point DISKINFOCORE at a
 rem build of it, or leave it to find the sibling DiskInfo checkout; without one the setup

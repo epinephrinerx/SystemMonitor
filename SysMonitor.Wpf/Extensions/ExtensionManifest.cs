@@ -27,10 +27,17 @@ public sealed class ExtensionManifest
     [JsonPropertyName("entry")]
     public ExtensionEntry Entry { get; set; } = new();
 
+    [JsonPropertyName("provides")]
+    public List<string> Provides { get; set; } = new();
+
+    [JsonPropertyName("place_after")]
+    public string? PlaceAfter { get; set; }
+
     [JsonPropertyName("files")]
     public List<ExtensionFile> Files { get; set; } = new();
 
     private static readonly Regex IdRegex = new(@"^[a-z0-9][a-z0-9._-]{0,63}\z", RegexOptions.Compiled);
+    private static readonly Regex ProvidesRegex = new(@"^[a-z0-9][a-z0-9-]{0,31}\z", RegexOptions.Compiled);
     private static readonly Regex Sha256Regex = new(@"^[a-fA-F0-9]{64}$", RegexOptions.Compiled);
 
     public static readonly JsonSerializerOptions JsonOptions = new()
@@ -118,6 +125,40 @@ public sealed class ExtensionManifest
         {
             error = "Manifest 'entry.type' is missing or empty";
             return false;
+        }
+
+        if (manifest.Provides != null)
+        {
+            if (manifest.Provides.Count > 8)
+            {
+                error = $"Manifest 'provides' cannot contain more than 8 entries (found {manifest.Provides.Count})";
+                return false;
+            }
+
+            var seenProvides = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var item in manifest.Provides)
+            {
+                if (item == null || !ProvidesRegex.IsMatch(item))
+                {
+                    error = $"Manifest 'provides' entry '{item ?? "<null>"}' is invalid. Must match ^[a-z0-9][a-z0-9-]{{0,31}}$";
+                    return false;
+                }
+
+                if (!seenProvides.Add(item))
+                {
+                    error = $"Manifest 'provides' contains duplicate entry '{item}'";
+                    return false;
+                }
+            }
+        }
+
+        if (manifest.PlaceAfter != null)
+        {
+            if (manifest.PlaceAfter is not ("cpu" or "ram" or "disk" or "gpu" or "network"))
+            {
+                error = $"Manifest 'place_after' ('{manifest.PlaceAfter}') is invalid. Must be one of: cpu, ram, disk, gpu, network";
+                return false;
+            }
         }
 
         if (manifest.Files == null || manifest.Files.Count == 0)

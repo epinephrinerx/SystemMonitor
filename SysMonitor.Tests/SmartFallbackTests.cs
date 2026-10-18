@@ -1,5 +1,8 @@
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
+using SysMonitor.Ext.Smart;
+using SysMonitor.Extensibility;
 using SysMonitor.Model;
 using SysMonitor.Native;
 using SysMonitor.Sensors;
@@ -17,34 +20,27 @@ public class SmartFallbackTests
 {
     // ---------------------------------------------------------------- merge
     [TestMethod]
-    public void The_storage_reading_wins_and_needs_no_elevation()
+    public void The_storage_reading_wins()
     {
-        TempResult r = DiskTemperature.Merge(storage: 45, smart: 51, elevated: false, smartAvailable: false);
+        TempResult r = DiskTemperature.Merge(storage: 45, external: 51);
 
         Assert.AreEqual(45, r.Celsius);
         Assert.AreEqual(TempSource.Storage, r.Source);
     }
 
     [TestMethod]
-    public void Smart_fills_in_when_the_storage_stack_has_nothing_and_the_app_is_elevated()
+    public void Smart_fills_in_when_the_storage_stack_has_nothing()
     {
-        TempResult r = DiskTemperature.Merge(storage: null, smart: 34, elevated: true, smartAvailable: true);
+        TempResult r = DiskTemperature.Merge(storage: null, external: 34);
 
         Assert.AreEqual(34, r.Celsius);
         Assert.AreEqual(TempSource.Smart, r.Source);
     }
 
     [TestMethod]
-    public void Smart_is_ignored_when_not_elevated_or_when_the_library_is_missing()
-    {
-        Assert.IsNull(DiskTemperature.Merge(null, 34, elevated: false, smartAvailable: true).Celsius);
-        Assert.IsNull(DiskTemperature.Merge(null, 34, elevated: true, smartAvailable: false).Celsius);
-    }
-
-    [TestMethod]
     public void A_zero_from_a_bridge_is_not_a_temperature()
     {
-        TempResult r = DiskTemperature.Merge(storage: null, smart: 0, elevated: true, smartAvailable: true);
+        TempResult r = DiskTemperature.Merge(storage: null, external: 0);
 
         Assert.IsNull(r.Celsius, "WMI said 0 C for a disk SMART read at 34 C");
         Assert.AreEqual(TempSource.None, r.Source);
@@ -55,11 +51,11 @@ public class SmartFallbackTests
     {
         // The storage parser accepts 0, and a bridge that answers 0 there would
         // otherwise show 0 C and stop SMART from ever being asked.
-        TempResult r = DiskTemperature.Merge(storage: 0, smart: 34, elevated: true, smartAvailable: true);
+        TempResult r = DiskTemperature.Merge(storage: 0, external: 34);
 
         Assert.AreEqual(34, r.Celsius);
         Assert.AreEqual(TempSource.Smart, r.Source);
-        Assert.IsNull(DiskTemperature.Merge(storage: 0, smart: null, elevated: false, smartAvailable: true).Celsius);
+        Assert.IsNull(DiskTemperature.Merge(storage: 0, external: null).Celsius);
     }
 
     [TestMethod]
@@ -77,7 +73,7 @@ public class SmartFallbackTests
     [TestMethod]
     public void No_reading_anywhere_stays_null_rather_than_being_estimated()
     {
-        TempResult r = DiskTemperature.Merge(null, null, elevated: true, smartAvailable: true);
+        TempResult r = DiskTemperature.Merge(null, null);
 
         Assert.IsNull(r.Celsius);
         Assert.AreEqual(TempSource.None, r.Source);
@@ -154,22 +150,64 @@ public class SmartFallbackTests
         Assert.AreEqual("ไทย", SmartCore.Utf8(Encoding.UTF8.GetBytes("ไทย\0")));
     }
 
+    private sealed class FallbackMockScanner : ISmartScanner
+    {
+        public bool IsAvailable => false;
+        public int ScanCount { get; private set; }
+        public (SmartScanStatus Status, IReadOnlyList<SmartReading> Disks) Scan()
+        {
+            ScanCount++;
+            return (SmartScanStatus.Unavailable, Array.Empty<SmartReading>());
+        }
+    }
+
+    private sealed class FallbackMockContext : IExtensionContext
+    {
+        public string ExtensionDirectory => @"C:\FakeExt";
+        public string Language => "en";
+        public bool HostIsElevated => true;
+        public Version HostContractVersion => new(1, 1);
+        public System.Collections.Concurrent.ConcurrentQueue<string> Logs { get; } = new();
+        public void Log(string message) => Logs.Enqueue(message);
+    }
+
     [TestMethod]
     public void A_missing_library_is_reported_once_as_unavailable_and_never_throws()
     {
-        // The test host has no DiskInfoCore.dll beside it unless a build placed one there.
-        (SmartScanStatus status, IReadOnlyList<SmartReading> disks) = SmartCore.Scan();
+        var scanner = new FallbackMockScanner();
+        var ctx = new FallbackMockContext();
+        long tick = 1000;
+        using var ext = new SmartExtension(scanner, clock: () => tick, elevatedOverride: true);
+        ext.Initialize(ctx);
 
-        if (!SmartCore.IsAvailable)
+        ext.SetDemand(ExtensionDemand.Views);
+
+        // Wait for first scan
+        for (int i = 0; i < 50 && ctx.Logs.IsEmpty; i++)
         {
-            Assert.AreEqual(SmartScanStatus.Unavailable, status);
-            Assert.AreEqual(0, disks.Count);
+            Thread.Sleep(20);
         }
-        else
+
+        Assert.AreEqual(1, ctx.Logs.Count);
+        ctx.Logs.TryPeek(out string? firstLog);
+        StringAssert.Contains(firstLog, "Unavailable");
+
+        // Advance clock by 3 minutes to trigger another scan pass
+        tick += (long)TimeSpan.FromMinutes(3).TotalMilliseconds;
+        ext.SetDemand(ExtensionDemand.Views);
+
+        for (int i = 0; i < 50 && scanner.ScanCount < 2; i++)
         {
-            // With the library present a non-elevated test run must be told to elevate.
-            Assert.IsTrue(status is SmartScanStatus.Ok or SmartScanStatus.NeedAdmin);
+            Thread.Sleep(20);
         }
+
+        Assert.IsTrue(scanner.ScanCount >= 2);
+        // Status did not change, so it is reported only once
+        Assert.AreEqual(1, ctx.Logs.Count);
+
+        ExtensionView view = ext.GetView("en");
+        StringAssert.Contains(view.WidgetPages[0].Message, "DiskInfoCore.dll");
+        Assert.AreEqual(0, ext.GetDiskTemperatures().Count);
     }
 
     // ------------------------------------------------------------ elevation
@@ -226,6 +264,8 @@ public class SmartFallbackTests
     [DataRow("restart_admin")]
     [DataRow("admin_active")]
     [DataRow("admin_missing_core")]
+    [DataRow("manual_10_h")]
+    [DataRow("manual_10_t")]
     public void The_administrator_option_is_worded_in_both_languages(string key)
     {
         string th = new Lang("th")[key];
@@ -240,5 +280,106 @@ public class SmartFallbackTests
     public void The_hint_promises_the_app_never_elevates_on_its_own()
     {
         StringAssert.Contains(new Lang("en")["disk_smart_hint"], "never asks");
+    }
+
+    [TestMethod]
+    public void Every_DllImport_in_SmartCore_has_DefaultDllImportSearchPaths_set_to_System32()
+    {
+        var smartCoreType = typeof(SmartCore);
+        var typesToCheck = new List<Type> { smartCoreType };
+        typesToCheck.AddRange(smartCoreType.GetNestedTypes(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic));
+
+        int dllImportCount = 0;
+        foreach (var type in typesToCheck)
+        {
+            var methods = type.GetMethods(System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+            foreach (var m in methods)
+            {
+                var dllImport = m.GetCustomAttribute<DllImportAttribute>();
+                if (dllImport != null)
+                {
+                    dllImportCount++;
+                    var searchPaths = m.GetCustomAttribute<DefaultDllImportSearchPathsAttribute>();
+                    Assert.IsNotNull(searchPaths, $"Method {m.Name} in {type.Name} is missing [DefaultDllImportSearchPaths]");
+                    Assert.AreEqual(DllImportSearchPath.System32, searchPaths.Paths,
+                        $"Method {m.Name} in {type.Name} must have search path exactly System32, but was {searchPaths.Paths}");
+                }
+            }
+        }
+
+        Assert.IsTrue(dllImportCount > 0, "Expected to find at least one DllImport in SmartCore");
+    }
+
+    private sealed class CountingScanner : ISmartScanner
+    {
+        private int _scanCount;
+        public bool IsAvailable => true;
+        public int ScanCount => Volatile.Read(ref _scanCount);
+        public (SmartScanStatus Status, IReadOnlyList<SmartReading> Disks) Scan()
+        {
+            Interlocked.Increment(ref _scanCount);
+            var reading = new SmartReading(0, "TestSSD", 35, 100, SmartHealth.Good, true);
+            return (SmartScanStatus.Ok, new[] { reading });
+        }
+    }
+
+    [TestMethod]
+    public void Demand_change_none_to_disk_temperature_keeps_two_minute_interval_while_views_resets_immediately()
+    {
+        var scanner = new CountingScanner();
+        var ctx = new FallbackMockContext();
+        long tick = 1000;
+
+        // Every pass of the worker reports the demand and the clock value it decided on, so the test can
+        // wait for the pass that has seen a change instead of sleeping and hoping.
+        var passes = new System.Collections.Concurrent.ConcurrentQueue<(ExtensionDemand Demand, long Now)>();
+        using var passSignal = new AutoResetEvent(false);
+        using var ext = new SmartExtension(
+            scanner,
+            clock: () => Volatile.Read(ref tick),
+            elevatedOverride: true,
+            onPassProcessed: (demand, now) =>
+            {
+                passes.Enqueue((demand, now));
+                passSignal.Set();
+            });
+        ext.Initialize(ctx);
+
+        bool WaitForPass(Func<(ExtensionDemand Demand, long Now), bool> match)
+        {
+            DateTime deadline = DateTime.UtcNow.AddSeconds(5);
+            while (DateTime.UtcNow < deadline)
+            {
+                if (passes.Any(match))
+                {
+                    return true;
+                }
+                passSignal.WaitOne(TimeSpan.FromMilliseconds(100));
+            }
+            return passes.Any(match);
+        }
+
+        // 1. Initial demand DiskTemperature: first scan runs immediately because none has run yet
+        ext.SetDemand(ExtensionDemand.DiskTemperature);
+        Assert.IsTrue(WaitForPass(p => p.Demand == ExtensionDemand.DiskTemperature && p.Now == 1000),
+            "The worker must process the first demand");
+        Assert.AreEqual(1, scanner.ScanCount, "First scan runs immediately on initial demand");
+
+        // 2. Flip demand to None, advance clock by only 30 seconds (less than 2 minutes)
+        ext.SetDemand(ExtensionDemand.None);
+        Volatile.Write(ref tick, 31_000);
+
+        // 3. Flip demand None -> DiskTemperature right after scan: the worker must process this change
+        //    (a pass that saw DiskTemperature at the new clock value) and still not scan a second time.
+        ext.SetDemand(ExtensionDemand.DiskTemperature);
+        Assert.IsTrue(WaitForPass(p => p.Demand == ExtensionDemand.DiskTemperature && p.Now == 31_000),
+            "The worker must process None -> DiskTemperature");
+        Assert.AreEqual(1, scanner.ScanCount, "None -> DiskTemperature must not trigger a second scan before 2 minutes");
+
+        // 4. Turning Views on (Views off -> on) discards old state and rescans immediately!
+        ext.SetDemand(ExtensionDemand.Views | ExtensionDemand.DiskTemperature);
+        Assert.IsTrue(WaitForPass(p => p.Demand == (ExtensionDemand.Views | ExtensionDemand.DiskTemperature) && p.Now == 31_000),
+            "The worker must process Views off -> on");
+        Assert.AreEqual(2, scanner.ScanCount, "Views off -> on must rescan immediately");
     }
 }

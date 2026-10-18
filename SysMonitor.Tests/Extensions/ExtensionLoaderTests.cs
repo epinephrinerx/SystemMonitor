@@ -1206,6 +1206,132 @@ public class ExtensionLoaderTests
         Assert.IsFalse(inspection.IsFirstParty);
     }
 
+    [TestMethod]
+    public void LoadAll_Provides_InvalidFormat_ReturnsManifestInvalid()
+    {
+        string folder = Path.Combine(_tempDir, "invalid_provides_format");
+        Directory.CreateDirectory(folder);
+
+        string manifest = """
+        {
+            "id": "invalid_provides_format",
+            "name": "Invalid Provides",
+            "version": "1.0.0",
+            "contract": "1.1",
+            "provides": [ "-invalid-start" ],
+            "entry": { "assembly": "test.dll", "type": "Test" },
+            "files": [ { "path": "test.dll", "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" } ]
+        }
+        """;
+        File.WriteAllText(Path.Combine(folder, "extension.json"), manifest);
+
+        var options = new ExtensionLoaderOptions { ExtensionsRoot = _tempDir, HostVersion = new Version(4, 2, 0) };
+        IReadOnlyList<ExtensionLoadResult> results = ExtensionLoader.LoadAll(options);
+
+        Assert.AreEqual(1, results.Count);
+        Assert.AreEqual(ExtensionStatus.ManifestInvalid, results[0].Status);
+        StringAssert.Contains(results[0].Detail, "provides");
+    }
+
+    [TestMethod]
+    public void LoadAll_Provides_CountExceeds8_ReturnsManifestInvalid()
+    {
+        string folder = Path.Combine(_tempDir, "exceeds_provides_count");
+        Directory.CreateDirectory(folder);
+
+        string manifest = """
+        {
+            "id": "exceeds_provides_count",
+            "name": "Exceeds Provides",
+            "version": "1.0.0",
+            "contract": "1.1",
+            "provides": [ "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9" ],
+            "entry": { "assembly": "test.dll", "type": "Test" },
+            "files": [ { "path": "test.dll", "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" } ]
+        }
+        """;
+        File.WriteAllText(Path.Combine(folder, "extension.json"), manifest);
+
+        var options = new ExtensionLoaderOptions { ExtensionsRoot = _tempDir, HostVersion = new Version(4, 2, 0) };
+        IReadOnlyList<ExtensionLoadResult> results = ExtensionLoader.LoadAll(options);
+
+        Assert.AreEqual(1, results.Count);
+        Assert.AreEqual(ExtensionStatus.ManifestInvalid, results[0].Status);
+        StringAssert.Contains(results[0].Detail, "provides");
+    }
+
+    [TestMethod]
+    public void LoadAll_Provides_Duplicates_ReturnsManifestInvalid()
+    {
+        string folder = Path.Combine(_tempDir, "dup_provides");
+        Directory.CreateDirectory(folder);
+
+        string manifest = """
+        {
+            "id": "dup_provides",
+            "name": "Duplicate Provides",
+            "version": "1.0.0",
+            "contract": "1.1",
+            "provides": [ "disk-temperature", "disk-temperature" ],
+            "entry": { "assembly": "test.dll", "type": "Test" },
+            "files": [ { "path": "test.dll", "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" } ]
+        }
+        """;
+        File.WriteAllText(Path.Combine(folder, "extension.json"), manifest);
+
+        var options = new ExtensionLoaderOptions { ExtensionsRoot = _tempDir, HostVersion = new Version(4, 2, 0) };
+        IReadOnlyList<ExtensionLoadResult> results = ExtensionLoader.LoadAll(options);
+
+        Assert.AreEqual(1, results.Count);
+        Assert.AreEqual(ExtensionStatus.ManifestInvalid, results[0].Status);
+        StringAssert.Contains(results[0].Detail, "provides");
+    }
+
+    [TestMethod]
+    public void LoadAll_KeepLoaded_OverridesDisabled_ReturnsLoaded()
+    {
+        string extDir = CreateExtensionDirectory("keep_loaded_ext", out string manifestSha256);
+
+        var options = new ExtensionLoaderOptions
+        {
+            ExtensionsRoot = _tempDir,
+            HostVersion = new Version(4, 2, 0),
+            FirstParty = new FirstPartyAllowlist(new[] { manifestSha256 }),
+            IsEnabled = _ => false,
+            KeepLoaded = (m, isFirstParty) => isFirstParty && m.Id == "keep_loaded_ext"
+        };
+
+        IReadOnlyList<ExtensionLoadResult> results = ExtensionLoader.LoadAll(options);
+
+        Assert.AreEqual(1, results.Count);
+        Assert.AreEqual(ExtensionStatus.Loaded, results[0].Status, "KeepLoaded should override Disabled status");
+        Assert.IsNotNull(results[0].LoadedExtension);
+        results[0].LoadedExtension!.Dispose();
+    }
+
+    [TestMethod]
+    public void LoadAll_KeepLoaded_RunsAfterTrust_UntrustedElevatedReturnsNotTrustedWhenElevated()
+    {
+        string extDir = CreateExtensionDirectory("untrusted_keep_loaded", out string manifestSha256);
+
+        var options = new ExtensionLoaderOptions
+        {
+            ExtensionsRoot = _tempDir,
+            HostVersion = new Version(4, 2, 0),
+            HostIsElevated = true,
+            FirstParty = FirstPartyAllowlist.Empty,
+            Approvals = null,
+            IsEnabled = _ => false,
+            KeepLoaded = (m, isFirstParty) => true
+        };
+
+        IReadOnlyList<ExtensionLoadResult> results = ExtensionLoader.LoadAll(options);
+
+        Assert.AreEqual(1, results.Count);
+        Assert.AreEqual(ExtensionStatus.NotTrustedWhenElevated, results[0].Status,
+            "KeepLoaded must run after trust validation so untrusted extensions are never kept loaded");
+    }
+
     #region Helper Methods
 
     private string CreateExtensionDirectory(

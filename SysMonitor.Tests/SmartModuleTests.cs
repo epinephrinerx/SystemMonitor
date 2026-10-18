@@ -1,13 +1,12 @@
-using SysMonitor.Model;
-using SysMonitor.Native;
-using SysMonitor.Sensors;
-using SysMonitor.ViewModels;
+using SysMonitor.Ext.Smart;
+using SysMonitor.Extensibility;
 
 namespace SysMonitor.Tests;
 
 /// <summary>
-/// The SMART module (R-002): what the sampler decides to show, and where it
-/// appears -- the widget rotation, the overall view and the full view.
+/// Unit tests for the SMART extension package and its components (SmartBoard, SmartCore,
+/// SmartStrings, SmartViewBuilder, SmartExtension). Tests run against deterministic mocks
+/// and memory structures; never against real disks or native DLLs.
 /// </summary>
 [TestClass]
 public class SmartModuleTests
@@ -27,72 +26,43 @@ public class SmartModuleTests
                                   string iface = "NVMe", string media = "SSD", bool full = true) =>
         new(drive, model, "SER" + drive, "FW" + drive, iface, media, temp, life, health, hours, full);
 
-    private static Snapshot Sample(SmartInfo smart) => new()
-    {
-        Ready = true,
-        CpuTotal = 10,
-        Cores = new[] { new Core { Usage = 10 } },
-        Ram = new Ram { Usage = 40, UsedGb = 8, TotalGb = 16 },
-        Smart = smart,
-    };
-
-    /// <summary>How many pages the rotation has with the SMART module off.</summary>
-    private static int BaselinePages(Snapshot snap)
-    {
-        var off = Model(show: false);
-        off.RebuildViews(snap);
-        return off.ViewCount;
-    }
-
-    private static WidgetViewModel Model(bool show = true, string lang = "en") =>
-        new(new AppConfig { Lang = lang, ShowSmart = show });
-
-    // ------------------------------------------------------------- the state
-    [TestMethod]
-    public void Switched_off_it_is_off_whatever_else_is_true()
-    {
-        SmartInfo info = SmartBoard.Build(false, true, true, SmartScanStatus.Ok, Readings(Reading(0)));
-        Assert.AreEqual(SmartState.Off, info.State);
-        Assert.AreEqual(0, info.Disks.Count);
-    }
-
+    // ------------------------------------------------------------- SmartBoard
     [TestMethod]
     public void Without_the_library_it_says_so()
     {
         Assert.AreEqual(SmartState.Unavailable,
-            SmartBoard.Build(true, false, true, SmartScanStatus.Ok, Readings()).State);
+            SmartBoard.Build(available: false, elevated: true, SmartScanStatus.Ok, Readings()).State);
     }
 
     [TestMethod]
     public void Without_administrator_rights_it_says_so_and_never_waits_for_a_scan_that_cannot_run()
     {
         Assert.AreEqual(SmartState.NeedAdmin,
-            SmartBoard.Build(true, true, false, null, Readings()).State);
+            SmartBoard.Build(available: true, elevated: false, null, Readings()).State);
     }
 
     [TestMethod]
     public void Before_the_first_scan_returns_it_waits()
     {
         Assert.AreEqual(SmartState.Waiting,
-            SmartBoard.Build(true, true, true, null, Readings()).State);
+            SmartBoard.Build(available: true, elevated: true, null, Readings()).State);
     }
 
     [TestMethod]
-    [DataRow(1, SmartState.Unavailable)]
-    [DataRow(2, SmartState.NeedAdmin)]
-    [DataRow(3, SmartState.Failed)]
-    public void A_scan_that_did_not_succeed_shows_why_and_not_the_old_disks(int status, SmartState expected)
+    [DataRow(1, "Unavailable")]
+    [DataRow(2, "NeedAdmin")]
+    [DataRow(3, "Failed")]
+    public void A_scan_that_did_not_succeed_shows_why_and_not_the_old_disks(int status, string expectedName)
     {
-        // 1..3 are SmartScanStatus.Unavailable, NeedAdmin, Failed (Ok is 0).
-        SmartInfo info = SmartBoard.Build(true, true, true, (SmartScanStatus)status, Readings(Reading(0)));
-        Assert.AreEqual(expected, info.State);
+        SmartInfo info = SmartBoard.Build(available: true, elevated: true, (SmartScanStatus)status, Readings(Reading(0)));
+        Assert.AreEqual(Enum.Parse<SmartState>(expectedName), info.State);
         Assert.AreEqual(0, info.Disks.Count, "a failed pass must not leave the last disks on screen");
     }
 
     [TestMethod]
     public void A_good_scan_lists_the_disks_in_drive_order()
     {
-        SmartInfo info = SmartBoard.Build(true, true, true, SmartScanStatus.Ok,
+        SmartInfo info = SmartBoard.Build(available: true, elevated: true, SmartScanStatus.Ok,
             Readings(Reading(3, "C"), Reading(0, "A"), Reading(1, "B")));
 
         Assert.AreEqual(SmartState.Ok, info.State);
@@ -173,377 +143,668 @@ public class SmartModuleTests
         return bytes;
     }
 
-    // ------------------------------------------------------------ the views
+    // ------------------------------------------------------------- SmartStrings
     [TestMethod]
-    public void The_full_view_gets_a_tab_per_disk_with_the_facts_that_were_read()
+    public void StringTable_has_full_key_parity_between_en_and_th()
     {
-        WidgetViewModel model = Model();
-        model.PushHistory(Sample(Info(Disk(0), Disk(1, "TOSHIBA MQ04ABF100", 45, null, hours: 17000,
-                                              iface: "SATA", media: "HDD"))));
-
-        DeviceTab nvme = model.Tabs.First(t => t.Key == "smart0");
-        Assert.AreEqual("SMART 0", nvme.Title);
-        Assert.AreEqual("Good", nvme.Summary);
-        Assert.AreEqual("WDS250G3X0C", nvme.Hardware);
-        Assert.IsTrue(nvme.Facts.Any(f => f.Name == "Life left" && f.Value == "96%"));
-        Assert.IsTrue(nvme.Facts.Any(f => f.Name == "Power-on time" && f.Value == "947 h (39 days)"));
-        Assert.IsTrue(nvme.Facts.Any(f => f.Value == "NVMe SSD"));
-        Assert.IsTrue(nvme.Facts.Any(f => f.Value == "SER0"));
-
-        DeviceTab hdd = model.Tabs.First(t => t.Key == "smart1");
-        Assert.IsFalse(hdd.Facts.Any(f => f.Name == "Life left"), "a hard disk has no wear gauge; nothing is invented");
-        Assert.IsTrue(hdd.Facts.Any(f => f.Value == "17,000 h (708 days)"));
+        var missing = SmartStrings.MissingKeys();
+        Assert.AreEqual(0, missing.Count, string.Join("; ", missing));
     }
 
     [TestMethod]
-    public void A_disk_whose_reading_is_partial_says_so()
-    {
-        WidgetViewModel model = Model();
-        model.PushHistory(Sample(Info(Disk(0, full: false))));
-
-        Assert.IsTrue(model.Tabs.First(t => t.Key == "smart0").Facts
-            .Any(f => f.Value.Contains("incomplete")));
-    }
-
-    [TestMethod]
-    public void Switched_off_it_leaves_no_tab_section_or_page()
-    {
-        WidgetViewModel model = Model(show: false);
-        Snapshot snap = Sample(Info(Disk(0)));
-        model.PushHistory(snap);
-        model.UpdateOverall(snap);
-        model.RebuildViews(snap);
-
-        Assert.IsFalse(model.Tabs.Any(t => t.Key.StartsWith("smart", StringComparison.Ordinal)));
-        Assert.IsFalse(model.Sections.Any(s => s.Title == "SMART"));
-        Assert.AreEqual(BaselinePages(snap), model.ViewCount, "only the pages the other modules give");
-    }
-
-    [TestMethod]
-    [DataRow(SmartState.NeedAdmin, "administrator")]
-    [DataRow(SmartState.Unavailable, "DiskInfoCore.dll")]
-    [DataRow(SmartState.Waiting, "Reading")]
-    [DataRow(SmartState.Failed, "try again")]
-    public void With_no_disks_the_tab_and_section_say_why(SmartState state, string phrase)
-    {
-        WidgetViewModel model = Model();
-        Snapshot snap = Sample(new SmartInfo(state, Array.Empty<SmartDisk>()));
-        model.PushHistory(snap);
-        model.UpdateOverall(snap);
-
-        DeviceTab tab = model.Tabs.First(t => t.Key == "smart");
-        StringAssert.Contains(tab.Detail, phrase);
-        Section section = model.Sections.First(s => s.Title == "SMART");
-        StringAssert.Contains(section.Note, phrase);
-        Assert.AreEqual(0, section.Rows.Count);
-    }
-
-    [TestMethod]
-    public void A_status_tab_gives_way_to_the_disk_tabs_when_the_scan_returns()
-    {
-        WidgetViewModel model = Model();
-        model.PushHistory(Sample(new SmartInfo(SmartState.Waiting, Array.Empty<SmartDisk>())));
-        Assert.IsTrue(model.Tabs.Any(t => t.Key == "smart"));
-
-        model.PushHistory(Sample(Info(Disk(0))));
-        Assert.IsFalse(model.Tabs.Any(t => t.Key == "smart"));
-        Assert.IsTrue(model.Tabs.Any(t => t.Key == "smart0"));
-    }
-
-    [TestMethod]
-    public void The_overall_view_has_a_row_per_disk_with_the_verdict_and_temperature()
-    {
-        WidgetViewModel model = Model();
-        model.UpdateOverall(Sample(Info(Disk(0), Disk(1, health: DiskHealth.Caution, life: null, temp: null))));
-
-        Section section = model.Sections.First(s => s.Title == "SMART");
-        Assert.AreEqual(2, section.Rows.Count);
-
-        Assert.AreEqual("Disk 0", section.Rows[0].Title);
-        Assert.AreEqual(96, section.Rows[0].Percent);
-        Assert.AreEqual("Good", section.Rows[0].ValueText);
-        Assert.AreEqual(51, section.Rows[0].Temp);
-
-        Assert.AreEqual(100, section.Rows[1].Percent, "no gauge: a full bar coloured by the verdict");
-        Assert.AreEqual("Caution", section.Rows[1].ValueText, "and the text is the verdict, not '100%'");
-        Assert.IsNull(section.Rows[1].Temp);
-    }
-
-    [TestMethod]
-    public void The_widget_rotation_gets_a_page_per_disk()
-    {
-        WidgetViewModel model = Model();
-        Snapshot snap = Sample(Info(Disk(0), Disk(1, "TOSHIBA", 45, null, iface: "SATA", media: "HDD")));
-        model.RebuildViews(snap);
-
-        Assert.AreEqual(BaselinePages(snap) + 2, model.ViewCount, "the other modules' pages, then one per disk");
-    }
-
-    [TestMethod]
-    public void A_smart_page_carries_the_verdict_and_the_temperature()
-    {
-        WidgetViewModel model = Model();
-        Snapshot snap = Sample(Info(Disk(0)));
-        model.RebuildViews(snap);
-        model.ViewIndex = model.ViewCount - 1;
-        model.UpdateWidget(snap);
-
-        Assert.AreEqual("SMART DISK 0", model.WidgetTitle);
-        Assert.AreEqual("Good", model.WidgetValue);
-        Assert.AreEqual(51, model.WidgetHeader.Temp);
-        StringAssert.Contains(model.WidgetDetail, "947 h");
-        Assert.AreEqual(96, model.WidgetRows[0].Percent);
-    }
-
-    [TestMethod]
-    public void A_smart_page_with_no_disks_says_why_instead_of_drawing_a_bar()
-    {
-        WidgetViewModel model = Model();
-        Snapshot snap = Sample(new SmartInfo(SmartState.NeedAdmin, Array.Empty<SmartDisk>()));
-        model.RebuildViews(snap);
-        model.ViewIndex = model.ViewCount - 1;
-        model.UpdateWidget(snap);
-
-        Assert.IsTrue(model.ShowMessage);
-        StringAssert.Contains(model.Message, "administrator");
-    }
-
-    [TestMethod]
-    public void The_pages_follow_the_disks_when_the_first_scan_returns()
-    {
-        WidgetViewModel model = Model();
-        Snapshot waiting = Sample(new SmartInfo(SmartState.Waiting, Array.Empty<SmartDisk>()));
-        model.RebuildViews(waiting);
-        int before = model.ViewCount;
-
-        model.UpdateWidget(Sample(Info(Disk(0), Disk(1), Disk(2))));
-
-        Assert.AreEqual(before + 2, model.ViewCount, "one page said 'reading'; three disks now have a page each");
-    }
-
-    [TestMethod]
-    public void One_status_page_becoming_one_disk_page_is_noticed_although_the_count_is_the_same()
-    {
-        WidgetViewModel model = Model();
-        model.RebuildViews(Sample(new SmartInfo(SmartState.Waiting, Array.Empty<SmartDisk>())));
-        model.ViewIndex = model.ViewCount - 1;
-
-        model.UpdateWidget(Sample(Info(Disk(0))));
-
-        Assert.IsFalse(model.ShowMessage, "the page now draws the disk instead of the waiting message");
-        Assert.AreEqual("Good", model.WidgetValue);
-    }
-
-    [TestMethod]
-    public void Turning_the_module_off_drops_its_pages_at_the_next_update()
-    {
-        var config = new AppConfig { Lang = "en", ShowSmart = true };
-        var model = new WidgetViewModel(config);
-        Snapshot snap = Sample(Info(Disk(0)));
-        model.RebuildViews(snap);
-        int with = model.ViewCount;
-
-        config.ShowSmart = false;
-        model.UpdateWidget(snap);
-
-        Assert.AreEqual(with - 1, model.ViewCount);
-    }
-
-    [TestMethod]
-    public void A_real_sampler_with_the_module_on_reports_a_state_that_matches_the_machine()
-    {
-        var config = new AppConfig { ShowSmart = true };
-        using var sampler = new Sampler(config);
-        sampler.Start();
-        Snapshot snap = sampler.Current;
-        for (int i = 0; i < 300 && !snap.Ready; i++)
-        {
-            Thread.Sleep(100);
-            snap = sampler.Current;
-        }
-
-        Assert.IsTrue(snap.Ready, "the sampler published a snapshot");
-        if (!SmartCore.IsAvailable)
-        {
-            Assert.AreEqual(SmartState.Unavailable, snap.Smart.State);
-        }
-        else if (!sampler.Elevated)
-        {
-            Assert.AreEqual(SmartState.NeedAdmin, snap.Smart.State,
-                "a normal run says it needs administrator rather than waiting for a scan that cannot run");
-        }
-        else
-        {
-            Assert.IsTrue(snap.Smart.State is SmartState.Waiting or SmartState.Ok or SmartState.Failed);
-        }
-    }
-
-    [TestMethod]
-    public void A_real_sampler_with_the_module_off_reports_it_off()
-    {
-        using var sampler = new Sampler(new AppConfig { ShowSmart = false });
-        sampler.Start();
-        Snapshot snap = sampler.Current;
-        for (int i = 0; i < 300 && !snap.Ready; i++)
-        {
-            Thread.Sleep(100);
-            snap = sampler.Current;
-        }
-        Assert.IsTrue(snap.Ready, "without a published snapshot the default (Off) would pass by itself");
-        Assert.AreEqual(SmartState.Off, snap.Smart.State);
-    }
-
-    [TestMethod]
-    public void The_chosen_smart_tab_survives_its_key_changing_as_the_scan_comes_and_goes()
-    {
-        var config = new AppConfig { Lang = "en", ShowSmart = true, FullTab = "smart" };
-        var model = new WidgetViewModel(config);
-
-        // Waiting: the only SMART tab is "smart", and it is the one the user is on.
-        model.PushHistory(Sample(new SmartInfo(SmartState.Waiting, Array.Empty<SmartDisk>())));
-        Assert.AreEqual("smart", model.SelectedTab!.Key);
-
-        // The scan returns: "smart" is replaced by "smart0". The view stays on SMART, not CPU.
-        model.PushHistory(Sample(Info(Disk(0))));
-        Assert.AreEqual("smart0", model.SelectedTab!.Key);
-
-        // A failed pass swaps back, and the choice is still honoured.
-        config.FullTab = "smart0";
-        model.PushHistory(Sample(new SmartInfo(SmartState.Failed, Array.Empty<SmartDisk>())));
-        Assert.AreEqual("smart", model.SelectedTab!.Key);
-    }
-
-    [TestMethod]
-    public void A_remembered_smart_tab_that_does_not_exist_yet_does_not_leave_the_pane_blank()
-    {
-        var model = new WidgetViewModel(new AppConfig { Lang = "en", ShowSmart = true, FullTab = "smart0" });
-        model.PushHistory(Sample(new SmartInfo(SmartState.Waiting, Array.Empty<SmartDisk>())));
-
-        Assert.AreEqual("smart", model.SelectedTab!.Key);
-    }
-
-    [TestMethod]
-    public void A_snapshot_from_before_the_module_was_switched_on_says_reading_not_no_disks()
-    {
-        WidgetViewModel model = Model();
-        model.UpdateOverall(Sample(SmartInfo.Off));
-
-        Section section = model.Sections.First(s => s.Title == "SMART");
-        StringAssert.Contains(section.Note, "Reading");
-    }
-
-    [TestMethod]
-    public void Every_import_may_load_the_library_s_own_dependencies_from_system32()
-    {
-        // Found by running the real app: with only the app folder searched, a DiskInfoCore.dll that
-        // sits right beside the exe still failed to load, because its imports (setupapi, wintrust,
-        // oleacc...) are in System32. Nothing else in the suite loads the real library.
-        var imports = typeof(SmartCore).GetMethods(System.Reflection.BindingFlags.Static
-                                                    | System.Reflection.BindingFlags.NonPublic
-                                                    | System.Reflection.BindingFlags.Public)
-            .Where(m => m.GetCustomAttributes(typeof(System.Runtime.InteropServices.DllImportAttribute), false).Length > 0)
-            .ToList();
-
-        Assert.IsTrue(imports.Count >= 6, "di_abi_version, di_open, di_close, di_scan, di_disk_count, di_disk_info");
-        foreach (var import in imports)
-        {
-            var search = (System.Runtime.InteropServices.DefaultDllImportSearchPathsAttribute?)import
-                .GetCustomAttributes(typeof(System.Runtime.InteropServices.DefaultDllImportSearchPathsAttribute), false)
-                .FirstOrDefault();
-            Assert.IsNotNull(search, import.Name);
-            Assert.IsTrue(search!.Paths.HasFlag(System.Runtime.InteropServices.DllImportSearchPath.ApplicationDirectory), import.Name);
-            Assert.IsTrue(search.Paths.HasFlag(System.Runtime.InteropServices.DllImportSearchPath.System32), import.Name);
-        }
-    }
-
-    // ------------------------------------------------------------ the config
-    [TestMethod]
-    public void It_is_off_by_default_because_it_needs_administrator_and_can_wake_a_drive()
-    {
-        Assert.IsFalse(new AppConfig().ShowSmart);
-    }
-
-    [TestMethod]
-    public void A_config_written_before_it_existed_loads_with_it_off()
-    {
-        string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"smart-{Guid.NewGuid():N}.json");
-        try
-        {
-            System.IO.File.WriteAllText(path, "{\"lang\":\"th\",\"show_gpu\":false}");
-            AppConfig loaded = AppConfig.LoadFrom(path);
-            Assert.IsFalse(loaded.ShowSmart);
-            Assert.IsFalse(loaded.ShowGpu, "and the other keys still count");
-        }
-        finally
-        {
-            System.IO.File.Delete(path);
-        }
-    }
-
-    [TestMethod]
-    public void The_setting_round_trips_under_its_snake_case_name()
-    {
-        var options = new System.Text.Json.JsonSerializerOptions
-        {
-            PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.SnakeCaseLower,
-        };
-        string json = System.Text.Json.JsonSerializer.Serialize(new AppConfig { ShowSmart = true }, options);
-        StringAssert.Contains(json, "\"show_smart\":true");
-        Assert.IsTrue(System.Text.Json.JsonSerializer.Deserialize<AppConfig>(json, options)!.ShowSmart);
-    }
-
-    // ------------------------------------------------------------ the wording
-    [TestMethod]
-    [DataRow("show_smart")]
-    [DataRow("smart_health")]
-    [DataRow("smart_life")]
-    [DataRow("smart_hours")]
-    [DataRow("smart_hours_fmt")]
-    [DataRow("smart_serial")]
-    [DataRow("smart_firmware")]
     [DataRow("smart_good")]
     [DataRow("smart_caution")]
     [DataRow("smart_bad")]
     [DataRow("smart_unknown")]
-    [DataRow("smart_partial")]
     [DataRow("smart_waiting")]
     [DataRow("smart_need_admin")]
     [DataRow("smart_missing_core")]
     [DataRow("smart_failed")]
     [DataRow("smart_none")]
-    [DataRow("manual_10_h")]
-    [DataRow("manual_10_t")]
-    public void Every_word_of_the_module_exists_in_both_languages(string key)
+    public void StringTable_translations_differ_between_languages(string key)
     {
-        string th = new Lang("th")[key];
-        string en = new Lang("en")[key];
-
-        Assert.AreNotEqual(key, th, "a missing key reads as its own name");
+        string en = SmartStrings.Get(key, "en");
+        string th = SmartStrings.Get(key, "th");
         Assert.AreNotEqual(key, en);
-        Assert.AreNotEqual(th, en, "a Thai string that fell back to English would be equal");
+        Assert.AreNotEqual(key, th);
+        Assert.AreNotEqual(en, th);
+    }
+
+    // ------------------------------------------------------------- SmartViewBuilder
+    [TestMethod]
+    public void SmartViewBuilder_builds_views_with_disks()
+    {
+        SmartInfo info = Info(Disk(0), Disk(1, "TOSHIBA MQ04ABF100", 45, null, hours: 17000, iface: "SATA", media: "HDD"));
+        ExtensionView view = SmartViewBuilder.Build(info, "en");
+
+        Assert.IsNotNull(view.WidgetPages);
+        Assert.AreEqual(2, view.WidgetPages.Count);
+        Assert.AreEqual("SMART Disk 0", view.WidgetPages[0].Title);
+        Assert.AreEqual("Good", view.WidgetPages[0].Verdict);
+        Assert.AreEqual(51, view.WidgetPages[0].TemperatureC);
+        Assert.AreEqual(96, view.WidgetPages[0].Percent);
+        Assert.AreEqual(Severity.Good, view.WidgetPages[0].Severity);
+
+        Assert.IsNotNull(view.Overview);
+        Assert.AreEqual(2, view.Overview.Rows.Count);
+        Assert.AreEqual("Disk 0", view.Overview.Rows[0].Title);
+        Assert.AreEqual("Good", view.Overview.Rows[0].ValueText);
+        Assert.AreEqual(51, view.Overview.Rows[0].TemperatureC);
+
+        Assert.IsNotNull(view.Tabs);
+        Assert.AreEqual(2, view.Tabs.Count);
+        Assert.AreEqual("disk0", view.Tabs[0].Key);
+        Assert.AreEqual("SMART 0", view.Tabs[0].Title);
+        Assert.AreEqual("WDS250G3X0C", view.Tabs[0].Hardware);
+        Assert.IsTrue(view.Tabs[0].Facts.Any(f => f.Name == "Life left" && f.Value == "96%"));
+        Assert.IsTrue(view.Tabs[0].Facts.Any(f => f.Name == "Power-on time" && f.Value == "947 h (39 days)"));
+
+        Assert.AreEqual("disk1", view.Tabs[1].Key);
+        Assert.IsFalse(view.Tabs[1].Facts.Any(f => f.Name == "Life left"));
     }
 
     [TestMethod]
-    public void The_thai_tab_is_worded_in_thai()
+    [DataRow("NeedAdmin", "administrator")]
+    [DataRow("Unavailable", "DiskInfoCore.dll")]
+    [DataRow("Waiting", "Reading")]
+    [DataRow("Failed", "try again")]
+    [DataRow("Ok", "No disk reported")]
+    public void SmartViewBuilder_when_no_disks_shows_message_in_page_overview_and_tab(string stateName, string phrase)
     {
-        WidgetViewModel model = Model(lang: "th");
-        model.PushHistory(Sample(Info(Disk(0))));
+        SmartInfo info = new(Enum.Parse<SmartState>(stateName), Array.Empty<SmartDisk>());
+        ExtensionView view = SmartViewBuilder.Build(info, "en");
 
-        DeviceTab tab = model.Tabs.First(t => t.Key == "smart0");
-        Assert.AreEqual("ดี", tab.Summary);
-        Assert.IsTrue(tab.Facts.Any(f => f.Name == "อายุที่เหลือ"));
-        Assert.IsTrue(tab.Facts.Any(f => f.Value == "947 ชม. (39 วัน)"));
+        Assert.AreEqual(1, view.WidgetPages.Count);
+        StringAssert.Contains(view.WidgetPages[0].Message, phrase);
+
+        Assert.IsNotNull(view.Overview);
+        StringAssert.Contains(view.Overview.Note, phrase);
+        Assert.AreEqual(0, view.Overview.Rows.Count);
+
+        Assert.AreEqual(1, view.Tabs.Count);
+        Assert.AreEqual("status", view.Tabs[0].Key);
+        StringAssert.Contains(view.Tabs[0].Detail, phrase);
     }
 
     [TestMethod]
-    public void The_hours_format_takes_both_arguments_in_both_languages()
+    public void SmartViewBuilder_ssd_with_all_values_exact_fields()
     {
-        foreach (string code in new[] { "th", "en" })
+        SmartDisk ssd = new(
+            Drive: 0,
+            Model: "WDS250G3X0C",
+            Serial: "20448E802492",
+            Firmware: "111110WD",
+            Interface: "NVMe",
+            Media: "SSD",
+            TempC: 51,
+            LifePercent: 96,
+            Health: DiskHealth.Good,
+            PowerOnHours: 947,
+            Full: true);
+
+        SmartInfo info = Info(ssd);
+        ExtensionView view = SmartViewBuilder.Build(info, "en");
+
+        // Widget page
+        Assert.AreEqual(1, view.WidgetPages.Count);
+        WidgetPage p = view.WidgetPages[0];
+        Assert.AreEqual("SMART Disk 0", p.Title);
+        Assert.AreEqual("Good", p.Verdict);
+        Assert.AreEqual("Life left 96%  ·  947 h (39 days)", p.Line);
+        Assert.AreEqual(51, p.TemperatureC);
+        Assert.AreEqual(96, p.Percent);
+        Assert.AreEqual(Severity.Good, p.Severity);
+        Assert.IsNull(p.Message);
+
+        // Overview
+        Assert.IsNotNull(view.Overview);
+        Assert.AreEqual(string.Empty, view.Overview.Note);
+        Assert.AreEqual(1, view.Overview.Rows.Count);
+        OverviewRow r = view.Overview.Rows[0];
+        Assert.AreEqual("Disk 0", r.Title);
+        Assert.AreEqual("WDS250G3X0C  ·  NVMe SSD  ·  Life left 96%  ·  947 h (39 days)", r.Detail);
+        Assert.AreEqual("Good", r.ValueText);
+        Assert.AreEqual(96, r.Percent);
+        Assert.AreEqual(Severity.Good, r.Severity);
+        Assert.AreEqual(51, r.TemperatureC);
+
+        // Detail tab
+        Assert.AreEqual(1, view.Tabs.Count);
+        DetailTab t = view.Tabs[0];
+        Assert.AreEqual("disk0", t.Key);
+        Assert.AreEqual("SMART 0", t.Title);
+        Assert.AreEqual("Good", t.Subtitle);
+        Assert.AreEqual("51°C  ·  96%", t.Detail);
+        Assert.AreEqual("WDS250G3X0C", t.Hardware);
+
+        var facts = t.Facts;
+        Assert.AreEqual(7, facts.Count);
+        Assert.AreEqual("Health", facts[0].Name);
+        Assert.AreEqual("Good", facts[0].Value);
+        Assert.AreEqual("Temp", facts[1].Name);
+        Assert.AreEqual("51°C", facts[1].Value);
+        Assert.AreEqual("Life left", facts[2].Name);
+        Assert.AreEqual("96%", facts[2].Value);
+        Assert.AreEqual("Power-on time", facts[3].Name);
+        Assert.AreEqual("947 h (39 days)", facts[3].Value);
+        Assert.AreEqual("Type", facts[4].Name);
+        Assert.AreEqual("NVMe SSD", facts[4].Value);
+        Assert.AreEqual("Serial number", facts[5].Name);
+        Assert.AreEqual("20448E802492", facts[5].Value);
+        Assert.AreEqual("Firmware", facts[6].Name);
+        Assert.AreEqual("111110WD", facts[6].Value);
+    }
+
+    [TestMethod]
+    public void SmartViewBuilder_hdd_without_life_defaults_to_100_percent()
+    {
+        SmartDisk hdd = new(
+            Drive: 1,
+            Model: "ST1000DM010",
+            Serial: "W9A12345",
+            Firmware: "CC43",
+            Interface: "SATA",
+            Media: "HDD",
+            TempC: 38,
+            LifePercent: null,
+            Health: DiskHealth.Good,
+            PowerOnHours: 12500,
+            Full: true);
+
+        SmartInfo info = Info(hdd);
+        ExtensionView view = SmartViewBuilder.Build(info, "en");
+
+        Assert.AreEqual(100, view.WidgetPages[0].Percent);
+        Assert.AreEqual("Good", view.WidgetPages[0].Verdict);
+        Assert.AreEqual("12,500 h (520 days)", view.WidgetPages[0].Line);
+
+        Assert.AreEqual(100, view.Overview.Rows[0].Percent);
+        Assert.AreEqual("38°C", view.Tabs[0].Detail);
+        Assert.IsFalse(view.Tabs[0].Facts.Any(f => f.Name == "Life left"));
+    }
+
+    [TestMethod]
+    public void SmartViewBuilder_disk_without_temperature_and_partial_full_false()
+    {
+        SmartDisk disk = new(
+            Drive: 2,
+            Model: "Generic USB",
+            Serial: "",
+            Firmware: "",
+            Interface: "USB",
+            Media: "",
+            TempC: null,
+            LifePercent: 80,
+            Health: DiskHealth.Caution,
+            PowerOnHours: null,
+            Full: false);
+
+        SmartInfo info = Info(disk);
+        ExtensionView view = SmartViewBuilder.Build(info, "en");
+
+        Assert.IsNull(view.WidgetPages[0].TemperatureC);
+        Assert.AreEqual(Severity.Caution, view.WidgetPages[0].Severity);
+        Assert.AreEqual("80%", view.Tabs[0].Detail);
+        Assert.IsTrue(view.Tabs[0].Facts.Any(f => f.Name == "SMART" && f.Value.Contains("incomplete", StringComparison.OrdinalIgnoreCase)));
+        Assert.IsFalse(view.Tabs[0].Facts.Any(f => f.Name == "Temp"));
+    }
+
+    [TestMethod]
+    public void SmartViewBuilder_severities_caution_and_bad()
+    {
+        SmartDisk cautionDisk = Disk(0, health: DiskHealth.Caution);
+        SmartDisk badDisk = Disk(1, health: DiskHealth.Bad);
+
+        SmartInfo info = Info(cautionDisk, badDisk);
+        ExtensionView view = SmartViewBuilder.Build(info, "en");
+
+        Assert.AreEqual(Severity.Caution, view.WidgetPages[0].Severity);
+        Assert.AreEqual("Caution", view.WidgetPages[0].Verdict);
+        Assert.AreEqual(Severity.Bad, view.WidgetPages[1].Severity);
+        Assert.AreEqual("Bad", view.WidgetPages[1].Verdict);
+    }
+
+    [TestMethod]
+    public void SmartViewBuilder_long_power_on_hours_formatting_both_languages()
+    {
+        SmartDisk disk = Disk(0, hours: 123456);
+        SmartInfo info = Info(disk);
+
+        ExtensionView enView = SmartViewBuilder.Build(info, "en");
+        StringAssert.Contains(enView.Tabs[0].Facts.First(f => f.Name == "Power-on time").Value, "123,456 h (5,144 days)");
+
+        ExtensionView thView = SmartViewBuilder.Build(info, "th");
+        StringAssert.Contains(thView.Tabs[0].Facts.First(f => f.Name == "เวลาที่เปิดใช้งาน").Value, "123,456 ชม. (5,144 วัน)");
+    }
+
+    [TestMethod]
+    public void SmartViewBuilder_thai_output_page_overview_and_tab()
+    {
+        SmartDisk disk = Disk(0, health: DiskHealth.Good);
+        SmartInfo info = Info(disk);
+
+        ExtensionView view = SmartViewBuilder.Build(info, "th");
+        Assert.AreEqual("ดี", view.WidgetPages[0].Verdict);
+        Assert.AreEqual("ดี", view.Overview.Rows[0].ValueText);
+        Assert.AreEqual("ดี", view.Tabs[0].Subtitle);
+        Assert.IsTrue(view.Tabs[0].Facts.Any(f => f.Name == "สุขภาพ" && f.Value == "ดี"));
+    }
+
+    [TestMethod]
+    public void SmartViewBuilder_two_disks_keep_drive_order()
+    {
+        SmartInfo info = Info(Disk(0), Disk(1));
+        ExtensionView view = SmartViewBuilder.Build(info, "en");
+
+        Assert.AreEqual("SMART Disk 0", view.WidgetPages[0].Title);
+        Assert.AreEqual("SMART Disk 1", view.WidgetPages[1].Title);
+        Assert.AreEqual("Disk 0", view.Overview.Rows[0].Title);
+        Assert.AreEqual("Disk 1", view.Overview.Rows[1].Title);
+        Assert.AreEqual("disk0", view.Tabs[0].Key);
+        Assert.AreEqual("disk1", view.Tabs[1].Key);
+    }
+
+    // ------------------------------------------------------------- SmartExtension
+    private sealed class MockScanner : ISmartScanner
+    {
+        public bool IsAvailable { get; set; } = true;
+        public SmartScanStatus Status { get; set; } = SmartScanStatus.Ok;
+        public List<SmartReading> Disks { get; set; } = new();
+        public int ScanCount { get; private set; }
+        public Func<(SmartScanStatus Status, IReadOnlyList<SmartReading> Disks)>? OnScan { get; set; }
+
+        public (SmartScanStatus Status, IReadOnlyList<SmartReading> Disks) Scan()
         {
-            string text = string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                                        new Lang(code)["smart_hours_fmt"], 48L, 2L);
-            StringAssert.Contains(text, "48");
-            StringAssert.Contains(text, "2");
+            ScanCount++;
+            if (OnScan != null)
+            {
+                return OnScan();
+            }
+            return (Status, Disks);
         }
     }
+
+    private sealed class MockContext : IExtensionContext
+    {
+        public string ExtensionDirectory => @"C:\FakeExt";
+        public string Language => "en";
+        public bool HostIsElevated => true;
+        public Version HostContractVersion => new(1, 1);
+        public System.Collections.Concurrent.ConcurrentQueue<string> Logs { get; } = new();
+        public void Log(string message) => Logs.Enqueue(message);
+    }
+
+    [TestMethod]
+    public void SmartExtension_elevated_scans_on_demand_and_provides_temperatures()
+    {
+        var scanner = new MockScanner
+        {
+            Disks = new List<SmartReading>
+            {
+                Reading(0, "Micron_3400", temp: 42, life: 98),
+                Reading(1, "Samsung_980", temp: 48, life: 95)
+            }
+        };
+
+        long currentTick = 1000;
+        using var ext = new SmartExtension(scanner, clock: () => currentTick, elevatedOverride: true);
+        var ctx = new MockContext();
+        ext.Initialize(ctx);
+
+        // Before demand, temperatures are empty and demand is None
+        Assert.AreEqual(0, ext.GetDiskTemperatures().Count);
+
+        // Set demand
+        ext.SetDemand(ExtensionDemand.Views | ExtensionDemand.DiskTemperature);
+
+        // Allow scan thread to process with bounded poll
+        for (int i = 0; i < 100 && ext.GetDiskTemperatures().Count == 0; i++)
+        {
+            Thread.Sleep(20);
+        }
+
+        var temps = ext.GetDiskTemperatures();
+        Assert.AreEqual(2, temps.Count);
+        Assert.AreEqual(42, temps[0]);
+        Assert.AreEqual(48, temps[1]);
+
+        ExtensionView view = ext.GetView("en");
+        Assert.AreEqual(2, view.WidgetPages.Count);
+        Assert.AreEqual(2, view.Tabs.Count);
+
+        ext.Shutdown();
+    }
+
+    [TestMethod]
+    public void SmartExtension_demand_none_does_zero_scans()
+    {
+        var scanner = new MockScanner();
+        long currentTick = 1000;
+        using var passObserved = new ManualResetEventSlim(false);
+        using var ext = new SmartExtension(
+            scanner,
+            clock: () => currentTick,
+            elevatedOverride: true,
+            pinLibrary: null,
+            onLoopPass: () => passObserved.Set());
+        var ctx = new MockContext();
+        ext.Initialize(ctx);
+
+        ext.SetDemand(ExtensionDemand.None);
+        bool passed = passObserved.Wait(TimeSpan.FromSeconds(5));
+        Assert.IsTrue(passed, "Loop pass should have been observed");
+
+        Assert.AreEqual(0, scanner.ScanCount);
+        Assert.AreEqual(0, ext.GetDiskTemperatures().Count);
+        ext.Shutdown();
+    }
+
+    [TestMethod]
+    public void SmartExtension_disk_temperature_only_scans_and_provides_temps_while_views_still_available()
+    {
+        var scanner = new MockScanner
+        {
+            Disks = new List<SmartReading> { Reading(0, temp: 45) }
+        };
+
+        using var ext = new SmartExtension(scanner, elevatedOverride: true);
+        var ctx = new MockContext();
+        ext.Initialize(ctx);
+
+        ext.SetDemand(ExtensionDemand.DiskTemperature);
+
+        for (int i = 0; i < 100 && ext.GetDiskTemperatures().Count == 0; i++)
+        {
+            Thread.Sleep(20);
+        }
+
+        Assert.AreEqual(1, ext.GetDiskTemperatures().Count);
+        Assert.AreEqual(45, ext.GetDiskTemperatures()[0]);
+
+        // View is still available from the shared ScanState
+        ExtensionView view = ext.GetView("en");
+        Assert.AreEqual(1, view.WidgetPages.Count);
+        Assert.AreEqual(45, view.WidgetPages[0].TemperatureC);
+
+        ext.Shutdown();
+    }
+
+    [TestMethod]
+    public void SmartExtension_failed_pass_clears_readings_and_temperatures()
+    {
+        var scanner = new MockScanner
+        {
+            Disks = new List<SmartReading> { Reading(0, temp: 45) }
+        };
+
+        long tick = 1000;
+        using var ext = new SmartExtension(scanner, clock: () => tick, elevatedOverride: true);
+        var ctx = new MockContext();
+        ext.Initialize(ctx);
+
+        ext.SetDemand(ExtensionDemand.Views | ExtensionDemand.DiskTemperature);
+
+        for (int i = 0; i < 100 && ext.GetDiskTemperatures().Count == 0; i++)
+        {
+            Thread.Sleep(20);
+        }
+        Assert.AreEqual(1, ext.GetDiskTemperatures().Count);
+
+        // Next pass fails
+        scanner.Status = SmartScanStatus.Failed;
+        scanner.Disks.Clear();
+        tick += (long)TimeSpan.FromMinutes(3).TotalMilliseconds;
+        ext.SetDemand(ExtensionDemand.Views | ExtensionDemand.DiskTemperature);
+
+        for (int i = 0; i < 100 && ext.GetDiskTemperatures().Count > 0; i++)
+        {
+            Thread.Sleep(20);
+        }
+
+        Assert.AreEqual(0, ext.GetDiskTemperatures().Count);
+        ExtensionView view = ext.GetView("en");
+        StringAssert.Contains(view.WidgetPages[0].Message, "try again");
+
+        ext.Shutdown();
+    }
+
+    [TestMethod]
+    public void SmartExtension_throwing_scanner_publishes_failed_state_without_crashing()
+    {
+        var scanner = new MockScanner
+        {
+            OnScan = () => throw new InvalidOperationException("disk I/O error")
+        };
+
+        using var ext = new SmartExtension(scanner, elevatedOverride: true);
+        var ctx = new MockContext();
+        ext.Initialize(ctx);
+
+        ext.SetDemand(ExtensionDemand.Views);
+
+        for (int i = 0; i < 100 && ctx.Logs.IsEmpty; i++)
+        {
+            Thread.Sleep(20);
+        }
+
+        Assert.IsTrue(ctx.Logs.Any(l => l.Contains("SMART scan failed")));
+        ExtensionView view = ext.GetView("en");
+        StringAssert.Contains(view.WidgetPages[0].Message, "try again");
+        Assert.AreEqual(0, ext.GetDiskTemperatures().Count);
+
+        ext.Shutdown();
+    }
+
+    [TestMethod]
+    public void SmartExtension_views_off_to_on_discards_old_state_and_rescans_immediately()
+    {
+        using var unblockSecondScan = new ManualResetEventSlim(false);
+        using var secondScanStarted = new ManualResetEventSlim(false);
+        int scanIndex = 0;
+
+        var scanner = new MockScanner
+        {
+            OnScan = () =>
+            {
+                int current = Interlocked.Increment(ref scanIndex);
+                if (current == 1)
+                {
+                    return (SmartScanStatus.Ok, new List<SmartReading> { Reading(0, temp: 40) });
+                }
+                secondScanStarted.Set();
+                unblockSecondScan.Wait(TimeSpan.FromSeconds(5));
+                return (SmartScanStatus.Ok, new List<SmartReading> { Reading(0, temp: 45) });
+            }
+        };
+
+        using var ext = new SmartExtension(scanner, elevatedOverride: true);
+        var ctx = new MockContext();
+        ext.Initialize(ctx);
+
+        ext.SetDemand(ExtensionDemand.DiskTemperature);
+        for (int i = 0; i < 100 && ext.GetDiskTemperatures().Count == 0; i++)
+        {
+            Thread.Sleep(20);
+        }
+        Assert.AreEqual(40, ext.GetDiskTemperatures()[0]);
+
+        // Now turn Views on: state should immediately become Waiting before new scan completes
+        ext.SetDemand(ExtensionDemand.Views | ExtensionDemand.DiskTemperature);
+
+        // Right after SetDemand(Views) and before fake scanner is released, assert discard:
+        // GetView shows the Waiting sentence and GetDiskTemperatures() is empty.
+        ExtensionView viewWhileWaiting = ext.GetView("en");
+        StringAssert.Contains(viewWhileWaiting.WidgetPages[0].Message, "Reading SMART for the first time");
+        Assert.AreEqual(0, ext.GetDiskTemperatures().Count, "Temps must be discarded and empty while waiting");
+
+        // Release the second scan
+        unblockSecondScan.Set();
+
+        // Rescan result appears
+        for (int i = 0; i < 100 && ext.GetDiskTemperatures().Count == 0; i++)
+        {
+            Thread.Sleep(20);
+        }
+
+        Assert.IsTrue(scanner.ScanCount >= 2);
+        Assert.AreEqual(45, ext.GetDiskTemperatures()[0]);
+        ExtensionView viewAfter = ext.GetView("en");
+        Assert.AreEqual(45, viewAfter.WidgetPages[0].TemperatureC);
+        ext.Shutdown();
+    }
+
+    [TestMethod]
+    public void SmartExtension_scan_started_before_views_off_to_on_cannot_publish_over_the_discard()
+    {
+        using var firstStarted = new ManualResetEventSlim(false);
+        using var releaseFirst = new ManualResetEventSlim(false);
+        using var secondStarted = new ManualResetEventSlim(false);
+        using var releaseSecond = new ManualResetEventSlim(false);
+        int scanIndex = 0;
+
+        var scanner = new MockScanner
+        {
+            OnScan = () =>
+            {
+                // The long waits are safety nets; the test releases both scans itself.
+                if (Interlocked.Increment(ref scanIndex) == 1)
+                {
+                    firstStarted.Set();
+                    releaseFirst.Wait(TimeSpan.FromSeconds(30));
+                    return (SmartScanStatus.Ok, new List<SmartReading> { Reading(0, temp: 40) });
+                }
+
+                secondStarted.Set();
+                releaseSecond.Wait(TimeSpan.FromSeconds(30));
+                return (SmartScanStatus.Ok, new List<SmartReading> { Reading(0, temp: 45) });
+            }
+        };
+
+        using var ext = new SmartExtension(scanner, elevatedOverride: true);
+        var ctx = new MockContext();
+        ext.Initialize(ctx);
+
+        // Views is off: only the temperature demand starts the old scan, and it blocks inside the scanner.
+        ext.SetDemand(ExtensionDemand.DiskTemperature);
+        Assert.IsTrue(firstStarted.Wait(TimeSpan.FromSeconds(5)), "The first scan must start");
+
+        // Views off -> on while that scan runs: the state is discarded.
+        ext.SetDemand(ExtensionDemand.Views | ExtensionDemand.DiskTemperature);
+        StringAssert.Contains(ext.GetView("en").WidgetPages[0].Message, "Reading SMART for the first time");
+        Assert.AreEqual(0, ext.GetDiskTemperatures().Count);
+
+        // The old scan finishes. Its result is stale and must be dropped; the new scan starts and blocks.
+        releaseFirst.Set();
+        Assert.IsTrue(secondStarted.Wait(TimeSpan.FromSeconds(5)), "A new scan must start after the stale result is dropped");
+
+        StringAssert.Contains(ext.GetView("en").WidgetPages[0].Message, "Reading SMART for the first time");
+        Assert.AreEqual(0, ext.GetDiskTemperatures().Count, "The old scan must not publish over the discard");
+
+        // The new scan finishes and its result appears.
+        releaseSecond.Set();
+        for (int i = 0; i < 250 && ext.GetDiskTemperatures().Count == 0; i++)
+        {
+            Thread.Sleep(20);
+        }
+
+        Assert.AreEqual(45, ext.GetDiskTemperatures()[0]);
+        Assert.AreEqual(45, ext.GetView("en").WidgetPages[0].TemperatureC);
+        ext.Shutdown();
+    }
+
+    [TestMethod]
+    public void SmartExtension_shutdown_stops_thread_is_idempotent_and_no_scans_after()
+    {
+        var scanner = new MockScanner
+        {
+            Disks = new List<SmartReading> { Reading(0, temp: 40) }
+        };
+
+        var ext = new SmartExtension(scanner, elevatedOverride: true);
+        var ctx = new MockContext();
+        ext.Initialize(ctx);
+        ext.SetDemand(ExtensionDemand.Views);
+
+        for (int i = 0; i < 100 && scanner.ScanCount == 0; i++)
+        {
+            Thread.Sleep(20);
+        }
+
+        ext.Shutdown();
+        int countAtShutdown = scanner.ScanCount;
+
+        // Idempotent call
+        ext.Shutdown();
+        ext.Dispose();
+
+        ext.SetDemand(ExtensionDemand.Views);
+        Thread.Sleep(50);
+        Assert.AreEqual(countAtShutdown, scanner.ScanCount);
+    }
+
+    [TestMethod]
+    public void SmartExtension_shutdown_with_scan_outliving_bound_returns_and_pins_library()
+    {
+        using var unblockScan = new ManualResetEventSlim(false);
+        using var scanStarted = new ManualResetEventSlim(false);
+        var scanner = new MockScanner
+        {
+            OnScan = () =>
+            {
+                scanStarted.Set();
+                // Released only by the test after Shutdown has returned; the long bound is a safety net
+                // so a broken test cannot hang, never what ends the scan.
+                unblockScan.Wait(TimeSpan.FromSeconds(60));
+                return (SmartScanStatus.Ok, Array.Empty<SmartReading>());
+            }
+        };
+
+        string? pinnedPath = null;
+        Func<string, bool> pinFake = path =>
+        {
+            pinnedPath = path;
+            return true;
+        };
+
+        var ext = new SmartExtension(scanner, clock: null, elevatedOverride: true, pinLibrary: pinFake);
+        var ctx = new MockContext();
+        ext.Initialize(ctx);
+
+        ext.SetDemand(ExtensionDemand.Views);
+
+        // Wait until scanner enters OnScan with 5 s event
+        bool started = scanStarted.Wait(TimeSpan.FromSeconds(5));
+        Assert.IsTrue(started, "Scan must start before shutdown is initiated");
+
+        // Shutdown will join for 4 seconds, time out, and pin library
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        ext.Shutdown();
+        sw.Stop();
+        bool scanStillBlockedAtReturn = !unblockScan.IsSet;
+        unblockScan.Set();
+
+        Assert.IsTrue(scanStillBlockedAtReturn, "The scan must still be running when Shutdown returns");
+        Assert.IsTrue(sw.Elapsed >= TimeSpan.FromSeconds(3), $"Shutdown must have waited for the join bound, took {sw.Elapsed}");
+        Assert.IsTrue(sw.Elapsed < TimeSpan.FromSeconds(30), "Shutdown must return after the bound, not wait for the scan");
+        Assert.IsNotNull(pinnedPath);
+        StringAssert.Contains(pinnedPath, "DiskInfoCore.dll");
+        Assert.IsTrue(ctx.Logs.Any(l => l.Contains("library pinned")));
+    }
+
+    [TestMethod]
+    public void SmartExtension_non_elevated_reports_NeedAdmin_without_scanning()
+    {
+        var scanner = new MockScanner();
+        using var ext = new SmartExtension(scanner, elevatedOverride: false);
+        var ctx = new MockContext();
+        ext.Initialize(ctx);
+
+        ExtensionView view = ext.GetView("en");
+        Assert.AreEqual(1, view.WidgetPages.Count);
+        StringAssert.Contains(view.WidgetPages[0].Message, "administrator");
+
+        Assert.AreEqual(0, ext.GetDiskTemperatures().Count);
+        ext.Shutdown();
+    }
 }
+

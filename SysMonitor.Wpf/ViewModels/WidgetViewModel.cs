@@ -300,10 +300,6 @@ public sealed partial class WidgetViewModel : INotifyPropertyChanged
                 _views.Add(("net", null, null));
             }
         }
-        if (_config.ShowSmart)
-        {
-            AddSmartViews(snap);
-        }
         AddExtensionViews(snap);
         if (_views.Count == 0)
         {
@@ -327,7 +323,7 @@ public sealed partial class WidgetViewModel : INotifyPropertyChanged
             ShowMessage = true;
             return;
         }
-        if (_views.Count == 0 || SmartViewsStale(snap) || ExtensionViewsStale(snap))
+        if (_views.Count == 0 || ExtensionViewsStale(snap))
         {
             RebuildViews(snap);
         }
@@ -424,10 +420,6 @@ public sealed partial class WidgetViewModel : INotifyPropertyChanged
                 break;
             }
 
-            case "smart":
-                UpdateSmartPage(snap, from);
-                break;
-
             case string k when k.StartsWith("ext:", StringComparison.Ordinal):
                 UpdateExtensionPage(snap, k, from);
                 break;
@@ -496,10 +488,6 @@ public sealed partial class WidgetViewModel : INotifyPropertyChanged
         {
             wanted.Add("disk");
         }
-        if (_config.ShowSmart)
-        {
-            wanted.Add("smart");
-        }
         // Only when the driver publishes counters: a remote session or a very
         // old adapter has none, and an empty heading helps nobody.
         if (_config.ShowGpu && snap.Gpu.Present)
@@ -513,12 +501,27 @@ public sealed partial class WidgetViewModel : INotifyPropertyChanged
 
         if (snap.Extensions != null)
         {
-            foreach (SysMonitor.Extensions.ExtensionViewData ext in snap.Extensions)
+            var extList = snap.Extensions
+                .Where(e => e.View.Overview != null)
+                .OrderBy(e => e.Id, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            // The same placement rule as the full-view tabs (PlanExtensionPlacement).
+            var (placed, appended) = PlanExtensionPlacement(
+                extList, e => e.Id, e => e.PlaceAfter, idx => wanted.Contains(CanonicalModules[idx]));
+
+            var insertedAfter = new Dictionary<int, int>();
+            foreach (var (ext, anchor) in placed)
             {
-                if (ext.View.Overview != null)
-                {
-                    wanted.Add("ext:" + ext.Id);
-                }
+                int basePos = anchor < 0 ? 0 : wanted.IndexOf(CanonicalModules[anchor]) + 1;
+                insertedAfter.TryGetValue(anchor, out int already);
+                wanted.Insert(basePos + already, "ext:" + ext.Id);
+                insertedAfter[anchor] = already + 1;
+            }
+
+            foreach (SysMonitor.Extensions.ExtensionViewData ext in appended)
+            {
+                wanted.Add("ext:" + ext.Id);
             }
         }
 
@@ -581,10 +584,6 @@ public sealed partial class WidgetViewModel : INotifyPropertyChanged
                     // The biggest thing in memory, beside the heading.
                     string top = MemoryViewModel.TopLine(MemoryBoard.Group(snap.Processes));
                     section.Note = top.Length == 0 ? string.Empty : string.Format(_lang["mem_top"], top);
-                    break;
-
-                case "smart":
-                    FillSmartSection(section, snap.Smart);
                     break;
 
                 case string k when k.StartsWith("ext:", StringComparison.Ordinal):
@@ -858,11 +857,6 @@ public sealed partial class WidgetViewModel : INotifyPropertyChanged
                 .OrderBy(d => d.Letter, StringComparer.OrdinalIgnoreCase)
                 .ToList();
             AddLetterGroup(wanted, "disknetwork", _lang["network_drives"], networkDrives);
-        }
-
-        if (_config.ShowSmart)
-        {
-            AddSmartTabs(wanted, snap.Smart);
         }
 
         if (_config.ShowGpu && snap.Gpu.Present)
@@ -1284,11 +1278,9 @@ public sealed partial class WidgetViewModel : INotifyPropertyChanged
             bool exactMatch = !string.IsNullOrEmpty(remembered) && Tabs.Any(t => t.Key == remembered);
             string? pick = exactMatch
                 ? remembered
-                : remembered.StartsWith("smart", StringComparison.Ordinal)
-                    ? Tabs.FirstOrDefault(t => t.Key.StartsWith("smart", StringComparison.Ordinal))?.Key
-                    : remembered.StartsWith("ext:", StringComparison.Ordinal)
-                        ? GetExtensionFallbackTabKey(remembered)
-                        : null;
+                : remembered.StartsWith("ext:", StringComparison.Ordinal)
+                    ? GetExtensionFallbackTabKey(remembered)
+                    : null;
 
             string targetKey = pick ?? Tabs[0].Key;
             _isFallbackSelection = !exactMatch;
@@ -1421,7 +1413,6 @@ public sealed partial class WidgetViewModel : INotifyPropertyChanged
             "cpu" => _lang["cpu"],
             "ram" => _lang["memory"],
             "gpu" => _lang["gpu"],
-            "smart" => _lang["smart"],
             "net" => _lang["network"],
             _ => _lang["disk"],
         };

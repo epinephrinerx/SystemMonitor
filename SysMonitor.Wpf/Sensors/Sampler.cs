@@ -44,15 +44,7 @@ public sealed class Sampler : IDisposable
     private readonly Dictionary<string, TempResult> _tempInfo = new();
     private readonly Dictionary<string, long> _slowUntil = new();
 
-    // SMART through DiskInfoCore: only for an elevated process, on a thread of
-    // its own because a scan takes seconds. The reading is replaced whole, so
-    // the sampler thread can read it without a lock.
-    private static readonly TimeSpan SmartEvery = TimeSpan.FromMinutes(2);
     private readonly bool _elevated = Win32.IsElevated();
-    private SmartResult _smartResult = SmartResult.None;
-    private volatile bool _smartNeeded;
-    private volatile bool _smartReset;
-    private Thread? _smartLoop;
     private readonly HashSet<string> _networkDrives = new(StringComparer.OrdinalIgnoreCase);
     private List<string> _drives = new();
     private readonly NetworkSensor _network = new();
@@ -91,93 +83,10 @@ public sealed class Sampler : IDisposable
         Win32.QuietErrorDialogs();
         _prevCpu = Win32.CpuTimes();
         _loop = Task.Run(RunAsync);
-        if (_elevated)
-        {
-            _smartLoop = new Thread(SmartLoop) { IsBackground = true, Name = "smart-scan" };
-            _smartLoop.SetApartmentState(ApartmentState.STA);   // what the DiskInfo GUI uses for COM
-            _smartLoop.Start();
-        }
     }
 
-    /// <summary>How the last scan ended and what it found, published as one piece.</summary>
-    private sealed record SmartResult(SmartScanStatus? Status, IReadOnlyDictionary<int, SmartReading> Readings)
-    {
-        public static readonly SmartResult None = new(null, new Dictionary<int, SmartReading>());
-    }
-
-    private SmartInfo BuildSmart()
-    {
-        SmartResult result = Volatile.Read(ref _smartResult);
-        return SmartBoard.Build(_config.ShowSmart, SmartCore.IsAvailable, _elevated,
-                                result.Status, result.Readings);
-    }
-
-    /// <summary>Is the app running elevated, so that SMART can be read at all?</summary>
+    /// <summary>Is the app running elevated?</summary>
     public bool Elevated => _elevated;
-
-    /// <summary>Scan now rather than at the next beat, e.g. when the SMART module was just switched on.</summary>
-    public void RequestSmart()
-    {
-        // Whatever was read before the module was off may be hours old (a disk
-        // since unplugged): show "waiting" until a fresh scan, not those disks.
-        Volatile.Write(ref _smartResult, SmartResult.None);
-        _smartReset = true;
-        Nudge();
-    }
-
-    /// <summary>
-    /// Read SMART now and then, but only while some disk has no temperature from
-    /// the storage stack: a SMART command can wake a sleeping drive, and there is
-    /// nothing to gain from asking when the answer is already on screen.
-    /// </summary>
-    private void SmartLoop()
-    {
-        try
-        {
-            var last = SmartScanStatus.Ok;
-            long next = 0;
-            while (!_stop.IsCancellationRequested)
-            {
-                if (_smartReset)
-                {
-                    _smartReset = false;
-                    next = 0;
-                }
-                // The SMART module asks for readings of every disk; the temperature
-                // fallback only asks while some disk has no temperature of its own.
-                if ((_smartNeeded || _config.ShowSmart) && Environment.TickCount64 >= next)
-                {
-                    next = Environment.TickCount64 + (long)SmartEvery.TotalMilliseconds;
-                    try
-                    {
-                        (SmartScanStatus status, IReadOnlyList<SmartReading> disks) = SmartCore.Scan();
-                        // A pass that did not succeed must not leave the last good readings
-                        // standing: a disk that stopped answering would keep its old number.
-                        // One write, so a reader never pairs this pass's status with the last pass's disks.
-                        Volatile.Write(ref _smartResult, new SmartResult(status, status == SmartScanStatus.Ok
-                            ? disks.GroupBy(d => d.Drive).ToDictionary(g => g.Key, g => g.First())
-                            : new Dictionary<int, SmartReading>()));
-                        if (status != last)
-                        {
-                            Diag.Write($"SMART scan: {status} ({disks.Count} disks)");
-                            last = status;
-                        }
-                    }
-                    catch (Exception error)
-                    {
-                        Volatile.Write(ref _smartResult,
-                                       new SmartResult(SmartScanStatus.Failed, new Dictionary<int, SmartReading>()));
-                        Diag.ReportException("SMART scan", error);
-                    }
-                }
-                _stop.Token.WaitHandle.WaitOne(3000);   // short, so a disk that just lost its reading is noticed
-            }
-        }
-        catch (ObjectDisposedException)
-        {
-            // Dispose() ran while a scan was finishing: the app is closing.
-        }
-    }
 
     /// <summary>Read processes and services again at once, e.g. after one was ended.</summary>
     public void RefreshMemory()
@@ -335,7 +244,6 @@ public sealed class Sampler : IDisposable
             Disks = CollectDisks(),
             Adapters = CollectAdapters(),
             Gpu = CollectGpu(),
-            Smart = BuildSmart(),
             Modules = _modules,
             Extensions = _extensions != null ? _extensions.CollectViews(_config.Lang) : Array.Empty<SysMonitor.Extensions.ExtensionViewData>(),
             Processes = _processes,
@@ -518,8 +426,9 @@ public sealed class Sampler : IDisposable
     {
         var seen = new Dictionary<int, int?>();
         bool wantSmart = false;
-        bool smartAvailable = SmartCore.IsAvailable;
-        IReadOnlyDictionary<int, SmartReading> smart = Volatile.Read(ref _smartResult).Readings;
+        IReadOnlyDictionary<int, int> extTemps = _extensions?.GetDiskTemperatures()
+            ?? new Dictionary<int, int>();
+
         foreach (string letter in _drives)
         {
             int? number = _hardware.TryGetValue(letter, out var hardware) ? hardware.Number : null;
@@ -536,12 +445,13 @@ public sealed class Sampler : IDisposable
 
             int? storage = seen[number.Value];
             wantSmart |= !DiskTemperature.Plausible(storage);
-            int? fromSmart = smart.TryGetValue(number.Value, out SmartReading? reading) ? reading.TempC : null;
-            TempResult result = DiskTemperature.Merge(storage, fromSmart, _elevated, smartAvailable);
+            int? fromExt = extTemps.TryGetValue(number.Value, out int extTemp) ? extTemp : null;
+            TempResult result = DiskTemperature.Merge(storage, fromExt);
             _temps[letter] = result.Celsius;
             _tempInfo[letter] = result;
         }
-        _smartNeeded = wantSmart;
+
+        _extensions?.SetDemand(wantSmart);
         RefreshCpuTemperature();
 
         // Installed memory does not change while the widget runs, so this

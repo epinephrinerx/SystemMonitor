@@ -6,7 +6,7 @@ public enum TempSource
     None,
     /// <summary>The Windows storage stack. Needs no elevation.</summary>
     Storage,
-    /// <summary>SMART through DiskInfoCore. Needs an elevated process.</summary>
+    /// <summary>From an extension (e.g. SMART through DiskInfoCore).</summary>
     Smart,
 }
 

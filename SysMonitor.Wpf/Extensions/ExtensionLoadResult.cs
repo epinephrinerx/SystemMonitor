@@ -40,6 +40,11 @@ public sealed class ExtensionLoadResult
     /// </summary>
     public ExtensionManifest? Manifest { get; }
 
+    /// <summary>
+    /// True if the extension's manifest hash was found in the first-party allowlist.
+    /// </summary>
+    public bool IsFirstParty { get; }
+
     public ExtensionLoadResult(
         string folderName,
         string? id,
@@ -47,7 +52,8 @@ public sealed class ExtensionLoadResult
         string detail,
         string? manifestSha256,
         LoadedExtension? loadedExtension,
-        ExtensionManifest? manifest = null)
+        ExtensionManifest? manifest = null,
+        bool isFirstParty = false)
     {
         FolderName = folderName;
         Id = id;
@@ -56,6 +62,7 @@ public sealed class ExtensionLoadResult
         ManifestSha256 = manifestSha256;
         LoadedExtension = loadedExtension;
         Manifest = manifest ?? loadedExtension?.Manifest;
+        IsFirstParty = isFirstParty;
     }
 }
 

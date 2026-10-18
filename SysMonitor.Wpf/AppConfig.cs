@@ -47,11 +47,13 @@ public sealed class AppConfig
     public bool ShowGpu { get; set; } = true;
 
     /// <summary>
-    /// The SMART module: health, life and hours for each physical disk. Off by
-    /// default because it needs administrator rights and the commands behind it
-    /// can wake a sleeping drive every couple of minutes.
+    /// Legacy setting for SMART module, migrated to Extensions["smart"] on load.
+    /// Ignored when writing to JSON so it is never re-persisted.
     /// </summary>
-    public bool ShowSmart { get; set; }
+    [JsonPropertyName("show_smart")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? LegacyShowSmart { get; set; }
+
     public bool IncludeWireless { get; set; } = true;
     public string NetworkMode { get; set; } = "separated";  // separated | total
     public string CpuMode { get; set; } = "separated";   // separated | total
@@ -244,19 +246,46 @@ public sealed class AppConfig
         if (Extensions == null)
         {
             Extensions = new Dictionary<string, ExtensionSetting>(StringComparer.OrdinalIgnoreCase);
-            return;
+        }
+        else
+        {
+            var normalized = new Dictionary<string, ExtensionSetting>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (key, value) in Extensions)
+            {
+                if (key != null && value != null)
+                {
+                    normalized[key] = value;
+                }
+            }
+            Extensions = normalized;
         }
 
-        var normalized = new Dictionary<string, ExtensionSetting>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (key, value) in Extensions)
+        // Migrate legacy show_smart to Extensions["smart"]
+        if (LegacyShowSmart != null)
         {
-            if (key != null && value != null)
+            if (!Extensions.ContainsKey("smart"))
             {
-                normalized[key] = value;
+                Extensions["smart"] = new ExtensionSetting { Enabled = LegacyShowSmart.Value };
+            }
+            LegacyShowSmart = null;
+        }
+
+        // Migrate legacy FullTab values ("smart" -> "ext:smart:status", "smart<digits>" -> "ext:smart:disk<digits>")
+        if (!string.IsNullOrEmpty(FullTab))
+        {
+            var match = FullTabSmartRegex.Match(FullTab);
+            if (match.Success)
+            {
+                string digits = match.Groups[1].Value;
+                FullTab = string.IsNullOrEmpty(digits)
+                    ? "ext:smart:status"
+                    : "ext:smart:disk" + digits;
             }
         }
-        Extensions = normalized;
     }
+
+    private static readonly System.Text.RegularExpressions.Regex FullTabSmartRegex =
+        new(@"^smart(\d+)?$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     /// <summary>
     /// Carry settings over from the key names used before the three views were
@@ -312,15 +341,19 @@ public sealed class AppConfig
             ? parsed
             : fallback;
 
+    public void SaveTo(string path)
+    {
+        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
+        string temp = path + ".tmp";
+        File.WriteAllText(temp, JsonSerializer.Serialize(this, Options));
+        File.Move(temp, path, overwrite: true);
+    }
+
     public void Save()
     {
         try
         {
-            string path = Path;
-            Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
-            string temp = path + ".tmp";
-            File.WriteAllText(temp, JsonSerializer.Serialize(this, Options));
-            File.Move(temp, path, overwrite: true);
+            SaveTo(Path);
         }
         catch (Exception)
         {
