@@ -1,5 +1,35 @@
 # Change log
 
+## v4.2.1 — 2026-10-20 — SMART becomes an extension
+
+**Extensions.** System Monitor can now load extra features from DLLs placed in
+`extensions\<name>\` next to the program. Nothing is loaded unless the extension
+is listed in the side panel and enabled; a missing, damaged or incompatible one
+is skipped with a message and never stops the program. The contract (version
+1.1) is in `SysMonitor.Extensibility`.
+
+**Trust.** Every file of an extension is checked against the SHA-256 in its
+`extension.json`. Extensions shipped with the installer are recognised by a hash
+list built into `SystemMonitor.exe`. Any other extension needs your approval,
+given once through a UAC prompt you confirm yourself; the approval is kept in
+`%ProgramData%\SystemMonitor` and is only honoured when that location is
+writable by administrators alone. The program still never elevates itself.
+
+**SMART.** The SMART reading is now the first extension (`extensions\smart`),
+with `DiskInfoCore.dll` inside it. It supplies the disk temperature for drives
+Windows does not report one for (USB bridges, external NVMe) and the SMART pages
+of the widget, overall and full views. The installer moves a `DiskInfoCore.dll`
+left next to the program by an older build into the extension.
+
+**Disk temperature.** Fixes the storage property id that made the temperature
+come back empty on some disks.
+
+**For extension authors.** `SysMonitor.PackTool` builds the manifest and the
+hashes; `build-wpf.cmd` also leaves a working sample in
+`dist-wpf\sample-extension\`. The installer writes and removes only the files it
+owns, so third-party extension folders survive an uninstall.
+
+
 ## v4.2.0 — 2026-10-07 — the RAM tab lists what is in memory
 
 **Processes.** The full view's RAM tab now lists every process, grouped by name
