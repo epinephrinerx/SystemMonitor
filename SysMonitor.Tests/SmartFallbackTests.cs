@@ -254,6 +254,8 @@ public class SmartFallbackTests
 
         Assert.IsTrue(owned.Any(p => System.IO.Path.GetFileName(p) == SysMonitor.Setup.Installer.CoreName),
             "an unlisted DiskInfoCore.dll would be left behind and keep the folder from being removed");
+        Assert.IsTrue(owned.Contains(SysMonitor.Setup.Installer.CorePath),
+            "legacy root DiskInfoCore.dll must remain owned so upgrades from earlier versions clean it up");
         Assert.IsTrue(owned.All(p => System.IO.Path.GetFileName(p) is not (null or "")));
     }
 

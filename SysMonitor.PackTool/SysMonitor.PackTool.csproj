@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>SysMonitor.PackTool</RootNamespace>
+    <AssemblyName>SysMonitor.PackTool</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SysMonitor.Extensibility\SysMonitor.Extensibility.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\SysMonitor.Wpf\Extensions\ExtensionManifest.cs" Link="ExtensionManifest.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>SysMonitor.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+</Project>

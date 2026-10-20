@@ -24,6 +24,10 @@
     <ProjectReference Include="..\SysMonitor.Extensibility\SysMonitor.Extensibility.csproj" />
     <ProjectReference Include="..\SysMonitor.Ext.Smart\SysMonitor.Ext.Smart.csproj" />
     <ProjectReference Include="..\SysMonitor.Tests.DummyExtension\SysMonitor.Tests.DummyExtension.csproj" />
+    <!-- The tool compiles ExtensionManifest.cs into itself, so it is reachable only through an
+         alias; otherwise that type would exist twice in the test project. -->
+    <ProjectReference Include="..\SysMonitor.PackTool\SysMonitor.PackTool.csproj" Aliases="PackToolAsm" />
+    <ProjectReference Include="..\SysMonitor.Ext.Sample\SysMonitor.Ext.Sample.csproj" />
   </ItemGroup>
 
   <ItemGroup>

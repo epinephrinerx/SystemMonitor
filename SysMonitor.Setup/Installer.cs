@@ -2,9 +2,26 @@ using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using Microsoft.Win32;
 
 namespace SysMonitor.Setup;
+
+/// <summary>
+/// A file in an extension payload to be installed or inspected.
+/// </summary>
+public sealed record PayloadFile(string Id, string Name, Func<Stream> Open)
+{
+    public PayloadFile(string id, string name, byte[] content)
+        : this(id, name, () => new MemoryStream(content))
+    {
+    }
+
+    public PayloadFile(string id, string name, string content)
+        : this(id, name, () => new MemoryStream(System.Text.Encoding.UTF8.GetBytes(content)))
+    {
+    }
+}
 
 /// <summary>
 /// Per-user install and uninstall: files, registry, shortcuts.
@@ -49,10 +66,9 @@ public static class Installer
     public const string UninstallName = "uninstall.exe";
 
     /// <summary>
-    /// DiskInfoCore.dll, optional: SMART for disks Windows will not report a
-    /// temperature for. The app runs without it, so a setup built without it
-    /// installs without it.
-    /// TODO(phase 4): in phase 4, DiskInfoCore.dll moves into extensions\smart\ as part of the SMART extension package.
+    /// Legacy root DiskInfoCore.dll from phase 3 and earlier.
+    /// In phase 4, DiskInfoCore.dll is packaged inside extensions\smart\.
+    /// Kept here so upgrades and uninstalls can clean up the legacy root file.
     /// </summary>
     public const string CoreName = "DiskInfoCore.dll";
 
@@ -79,6 +95,9 @@ public static class Installer
 
     public static string ExePath => Path.Combine(InstallDir, ExeName);
     public static string UninstallPath => Path.Combine(InstallDir, UninstallName);
+    /// <summary>
+    /// Legacy root path for DiskInfoCore.dll in earlier versions.
+    /// </summary>
     public static string CorePath => Path.Combine(InstallDir, CoreName);
 
     public static string DesktopShortcut => Path.Combine(
@@ -98,6 +117,10 @@ public static class Installer
         foreach (string name in ProgramFiles)
         {
             yield return Path.Combine(InstallDir, name);
+        }
+        foreach (string extPath in ExtensionOwnedPaths(ReadExtensionPayload()))
+        {
+            yield return extPath;
         }
         yield return DesktopShortcut;
         yield return StartMenuShortcut;
@@ -268,7 +291,11 @@ public static class Installer
 
         StopRunningApp();
         WritePayload(ExePath);
-        WriteCore();
+
+        IReadOnlyList<PayloadFile> extensions = ReadExtensionPayload();
+        IReadOnlyList<string> notWritten = WriteExtensions(InstallDir, extensions);
+        RemoveLegacyCore(InstallDir);
+
         // The uninstaller is this same executable; it decides what to do from
         // where it was started.
         File.Copy(Environment.ProcessPath!, UninstallPath, overwrite: true);
@@ -277,6 +304,31 @@ public static class Installer
         Shortcuts.Write(startMenu, StartMenuShortcut, ExePath, InstallDir);
         SetAutostart(autostart);
         RegisterUninstall();
+
+        // Everything else is in place by now, so a package that could not be completed does not
+        // leave the application half-installed; it is still reported rather than hidden.
+        if (notWritten.Count > 0)
+        {
+            throw new IOException(
+                "The application was installed, but these extension files could not be written "
+                + "(close System Monitor and run the setup again): " + string.Join(", ", notWritten));
+        }
+    }
+
+    private static void RemoveLegacyCore(string installDir)
+    {
+        string legacyCorePath = Path.Combine(installDir, CoreName);
+        if (File.Exists(legacyCorePath) && IsSafeTarget(legacyCorePath, installDir))
+        {
+            try
+            {
+                File.Delete(legacyCorePath);
+            }
+            catch (Exception)
+            {
+                // In use or locked: leave it.
+            }
+        }
     }
 
     private static void WritePayload(string destination)
@@ -289,31 +341,284 @@ public static class Installer
         source.CopyTo(target);
     }
 
+    private static readonly Regex ExtensionIdRegex = new(
+        @"^[a-z0-9][a-z0-9._-]{0,63}\z",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
     /// <summary>
-    /// Lay down DiskInfoCore.dll when this setup carries one. If the library
-    /// is in use the old one stays, which is harmless: the app checks its ABI
-    /// version and does without a library it cannot use.
-    ///
-    /// Known limit: an elevated copy of the app cannot be stopped from an
-    /// un-elevated setup, so WritePayload fails on the running exe before this
-    /// is reached and the install aborts. Close the elevated app first.
+    /// Validates payload files. Rejects invalid extension IDs, directory traversal or separators
+    /// in file names, empty names, and duplicate file names within the same extension ID.
     /// </summary>
-    private static void WriteCore()
+    public static void ValidatePayload(IEnumerable<PayloadFile> files)
     {
-        using Stream? source = Assembly.GetExecutingAssembly().GetManifestResourceStream(CoreName);
-        if (source is null)
+        ArgumentNullException.ThrowIfNull(files);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (PayloadFile file in files)
         {
-            return;
+            if (file is null)
+            {
+                throw new InvalidOperationException("Payload file cannot be null.");
+            }
+            if (string.IsNullOrEmpty(file.Id) || !ExtensionIdRegex.IsMatch(file.Id))
+            {
+                throw new InvalidOperationException($"Invalid extension id '{file.Id}'.");
+            }
+            if (string.IsNullOrWhiteSpace(file.Name))
+            {
+                throw new InvalidOperationException("Payload file name cannot be empty.");
+            }
+            if (file.Name.Contains('/') || file.Name.Contains('\\') || file.Name.Contains(".."))
+            {
+                throw new InvalidOperationException($"Payload file name '{file.Name}' contains invalid path characters.");
+            }
+            if (Path.IsPathFullyQualified(file.Name) || !string.IsNullOrEmpty(Path.GetPathRoot(file.Name)))
+            {
+                throw new InvalidOperationException($"Payload file name '{file.Name}' cannot be an absolute path.");
+            }
+            if (file.Name == "." || file.Name == ".." || Path.GetFileName(file.Name) != file.Name)
+            {
+                throw new InvalidOperationException($"Payload file name '{file.Name}' is not a valid file name.");
+            }
+            // Windows rewrites a trailing dot or space onto another name and ':' opens an alternate
+            // data stream, so none of them can be allowed to dodge the duplicate check below.
+            if (file.Name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0
+                || file.Name.EndsWith('.') || file.Name.EndsWith(' ') || file.Name.StartsWith(' '))
+            {
+                throw new InvalidOperationException($"Payload file name '{file.Name}' is not a valid file name.");
+            }
+
+            string key = $"{file.Id}/{file.Name}";
+            if (!seen.Add(key))
+            {
+                throw new InvalidOperationException($"Duplicate payload file '{key}'.");
+            }
         }
-        try
+    }
+
+    /// <summary>
+    /// Reads embedded extension payload files from the current assembly's resources (named ext:id/file).
+    /// </summary>
+    public static IReadOnlyList<PayloadFile> ReadExtensionPayload() =>
+        ReadExtensionPayload(typeof(Installer).Assembly);
+
+    /// <summary>
+    /// Reads embedded extension payload files from the specified assembly's resources (named ext:id/file).
+    /// </summary>
+    public static IReadOnlyList<PayloadFile> ReadExtensionPayload(Assembly assembly)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        string[] resourceNames = assembly.GetManifestResourceNames();
+        var files = new List<PayloadFile>();
+
+        foreach (string resName in resourceNames)
         {
-            using var target = new FileStream(CorePath, FileMode.Create, FileAccess.Write);
-            source.CopyTo(target);
+            if (!resName.StartsWith("ext:", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            string rest = resName.Substring("ext:".Length).Replace('\\', '/');
+            int slashIndex = rest.IndexOf('/');
+            if (slashIndex <= 0 || slashIndex == rest.Length - 1)
+            {
+                throw new InvalidOperationException(
+                    $"Invalid extension resource name '{resName}'. Expected 'ext:<id>/<filename>'.");
+            }
+
+            string id = rest.Substring(0, slashIndex);
+            string fileName = rest.Substring(slashIndex + 1);
+
+            if (fileName.Contains('/') || fileName.Contains('\\'))
+            {
+                throw new InvalidOperationException(
+                    $"Extension resource '{resName}' contains unexpected path separators in file name.");
+            }
+
+            string capturedName = resName;
+            files.Add(new PayloadFile(
+                id,
+                fileName,
+                () => assembly.GetManifestResourceStream(capturedName)
+                      ?? throw new InvalidOperationException($"Resource '{capturedName}' not found.")));
         }
-        catch (IOException)
+
+        ValidatePayload(files);
+        return files;
+    }
+
+    /// <summary>
+    /// Writes packaged extension files to installDir\extensions\&lt;id&gt;\.
+    /// extension.json is written last for each package.
+    /// Returns a list of file paths that failed to write due to being locked or in use.
+    /// </summary>
+    public static IReadOnlyList<string> WriteExtensions(string installDir, IReadOnlyList<PayloadFile> files)
+    {
+        ArgumentNullException.ThrowIfNull(installDir);
+        ArgumentNullException.ThrowIfNull(files);
+
+        ValidatePayload(files);
+
+        if (files.Count == 0)
         {
-            // In use: keep what is there.
+            return Array.Empty<string>();
         }
+
+        string extensionsRoot = Path.Combine(installDir, "extensions");
+        if (Directory.Exists(installDir))
+        {
+            RequireOwnDirectory(installDir);
+        }
+        if (Directory.Exists(extensionsRoot))
+        {
+            RequireOwnDirectory(extensionsRoot);
+        }
+
+        var failedFiles = new List<string>();
+        var idGroups = files.GroupBy(f => f.Id, StringComparer.Ordinal);
+
+        foreach (var group in idGroups)
+        {
+            string targetDir = Path.Combine(extensionsRoot, group.Key);
+            if (Directory.Exists(targetDir))
+            {
+                RequireOwnDirectory(targetDir);
+            }
+            Directory.CreateDirectory(targetDir);
+            RequireOwnDirectory(targetDir);
+
+            // Delete files directly inside extensions\<id> that are not part of the new package
+            // (non-recursive, IsSafeTarget guarded, subfolders untouched)
+            var packageFileNames = new HashSet<string>(
+                group.Select(f => f.Name),
+                StringComparer.OrdinalIgnoreCase);
+
+            bool packageIntact = true;
+            foreach (string existingFilePath in Directory.EnumerateFiles(targetDir))
+            {
+                string fileName = Path.GetFileName(existingFilePath);
+                if (!packageFileNames.Contains(fileName))
+                {
+                    if (IsSafeTarget(existingFilePath, targetDir))
+                    {
+                        try
+                        {
+                            File.Delete(existingFilePath);
+                        }
+                        catch (Exception)
+                        {
+                            // In use or locked: it stays, and the loader rejects a package with an
+                            // unlisted file, so the package counts as not written.
+                            failedFiles.Add(existingFilePath);
+                            packageIntact = false;
+                        }
+                    }
+                }
+            }
+
+            // Write the package files: extension.json is written last, and only when every other
+            // file of the package was written, so a half-written package is never made to look
+            // complete. A locked/in-use file must not abort the other ids; report which failed.
+            var orderedFiles = group.OrderBy(f =>
+                string.Equals(f.Name, "extension.json", StringComparison.OrdinalIgnoreCase) ? 1 : 0);
+
+            foreach (PayloadFile file in orderedFiles)
+            {
+                string destPath = Path.Combine(targetDir, file.Name);
+                bool isManifest = string.Equals(file.Name, "extension.json", StringComparison.OrdinalIgnoreCase);
+                if (isManifest && !packageIntact)
+                {
+                    failedFiles.Add(destPath);
+                    continue;
+                }
+
+                try
+                {
+                    // FileMode.Create would follow a file link and truncate whatever it points at.
+                    if (File.Exists(destPath)
+                        && (File.GetAttributes(destPath) & FileAttributes.ReparsePoint) != 0)
+                    {
+                        throw new IOException($"{destPath} is a link and will not be written through.");
+                    }
+                    using Stream source = file.Open();
+                    using var target = new FileStream(destPath, FileMode.Create, FileAccess.Write, FileShare.None);
+                    source.CopyTo(target);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    failedFiles.Add(destPath);
+                    packageIntact = false;
+                }
+            }
+        }
+
+        return failedFiles;
+    }
+
+    /// <summary>
+    /// Enumerates paths of all extension files in the payload for the current install directory.
+    /// </summary>
+    public static IEnumerable<string> ExtensionOwnedPaths(IEnumerable<PayloadFile> files) =>
+        ExtensionOwnedPaths(InstallDir, files);
+
+    /// <summary>
+    /// Enumerates paths of all extension files in the payload under the given install directory.
+    /// </summary>
+    public static IEnumerable<string> ExtensionOwnedPaths(string installDir, IEnumerable<PayloadFile> files)
+    {
+        ArgumentNullException.ThrowIfNull(installDir);
+        ArgumentNullException.ThrowIfNull(files);
+        var list = files.ToList();
+        ValidatePayload(list);
+        foreach (PayloadFile file in list)
+        {
+            yield return Path.Combine(installDir, "extensions", file.Id, file.Name);
+        }
+    }
+
+    /// <summary>
+    /// Removes only the owned extension files and cleans up empty extension directories.
+    /// Third-party extension folders and user files are left intact.
+    /// </summary>
+    public static void UninstallExtensions(string installDir, IEnumerable<PayloadFile> files)
+    {
+        ArgumentNullException.ThrowIfNull(installDir);
+        ArgumentNullException.ThrowIfNull(files);
+
+        var fileList = files.ToList();
+        // Same rules as the write side: an id or name that is not plain must never turn into a
+        // path outside extensions\<id>.
+        ValidatePayload(fileList);
+        string extensionsRoot = Path.Combine(installDir, "extensions");
+
+        var idGroups = fileList.GroupBy(f => f.Id, StringComparer.Ordinal);
+        foreach (var group in idGroups)
+        {
+            string extDir = Path.Combine(extensionsRoot, group.Key);
+            foreach (PayloadFile file in group)
+            {
+                string filePath = Path.Combine(extDir, file.Name);
+                if (IsSafeTarget(filePath, extDir))
+                {
+                    try
+                    {
+                        if (File.Exists(filePath))
+                        {
+                            File.Delete(filePath);
+                        }
+                    }
+                    catch (Exception)
+                    {
+                        // In use or locked: leave it.
+                    }
+                }
+            }
+
+            RemoveIfEmpty(extDir);
+        }
+
+        RemoveIfEmpty(extensionsRoot);
+        RemoveIfEmpty(installDir);
     }
 
     /// <summary>A running copy holds its own file open; ask it to go first.</summary>
@@ -358,8 +663,35 @@ public static class Installer
         key.SetValue("QuietUninstallString", "\"" + UninstallPath + "\" /S");
         key.SetValue("NoModify", 1, RegistryValueKind.DWord);
         key.SetValue("NoRepair", 1, RegistryValueKind.DWord);
-        key.SetValue("EstimatedSize", FileSizeKb(ExePath) + (File.Exists(CorePath) ? FileSizeKb(CorePath) : 0),
-                     RegistryValueKind.DWord);
+        key.SetValue("EstimatedSize", CalculateEstimatedSizeKb(), RegistryValueKind.DWord);
+    }
+
+    private static int CalculateEstimatedSizeKb()
+    {
+        long totalBytes = 0;
+        if (File.Exists(ExePath))
+        {
+            totalBytes += new FileInfo(ExePath).Length;
+        }
+        if (File.Exists(CorePath))
+        {
+            totalBytes += new FileInfo(CorePath).Length;
+        }
+        string extensionsRoot = Path.Combine(InstallDir, "extensions");
+        if (Directory.Exists(extensionsRoot))
+        {
+            try
+            {
+                foreach (string file in Directory.EnumerateFiles(extensionsRoot, "*", SearchOption.AllDirectories))
+                {
+                    totalBytes += new FileInfo(file).Length;
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+        return (int)(totalBytes / 1024);
     }
 
     private static int FileSizeKb(string path)
@@ -402,22 +734,33 @@ public static class Installer
     {
         SetAutostart(false);
 
-        foreach (string path in OwnedPaths(removeSettings))
+        UninstallExtensions(InstallDir, ReadExtensionPayload());
+
+        foreach (string path in ProgramFiles)
         {
+            string full = Path.Combine(InstallDir, path);
             if (skip is not null
-                && string.Equals(Path.GetFullPath(path), Path.GetFullPath(skip),
+                && string.Equals(Path.GetFullPath(full), Path.GetFullPath(skip),
                                  StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
-            Delete(path);
+            Delete(full);
+        }
+
+        Delete(DesktopShortcut);
+        Delete(StartMenuShortcut);
+
+        if (removeSettings)
+        {
+            foreach (string name in SettingsFiles)
+            {
+                Delete(Path.Combine(SettingsDir, name));
+            }
+            RemoveIfEmpty(SettingsDir);
         }
 
         RemoveIfEmpty(InstallDir);
-        if (removeSettings)
-        {
-            RemoveIfEmpty(SettingsDir);
-        }
 
         try
         {
@@ -431,6 +774,8 @@ public static class Installer
 
     private static void Delete(string path)
     {
+        // Extension files go through UninstallExtensions, which guards each folder itself; nothing
+        // under extensions\ is deleted from here.
         string[] parents =
         {
             InstallDir, SettingsDir,
@@ -458,7 +803,7 @@ public static class Installer
     /// Remove the directory only when nothing is left in it. Anything the user
     /// put there keeps the directory, and keeps their file.
     /// </summary>
-    private static void RemoveIfEmpty(string directory)
+    public static void RemoveIfEmpty(string directory)
     {
         try
         {

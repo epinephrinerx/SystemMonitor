@@ -124,4 +124,13 @@ public class InstallerSafetyTests
         CollectionAssert.DoesNotContain(owned, "config.json");
         CollectionAssert.DoesNotContain(owned, "sysmonitor.log");
     }
+
+    [TestMethod]
+    public void Legacy_root_DiskInfoCore_dll_is_in_owned_paths_and_is_safe_target()
+    {
+        string[] owned = Installer.OwnedPaths(includeSettings: false).ToArray();
+        Assert.IsTrue(owned.Contains(Installer.CorePath), "legacy root DiskInfoCore.dll must remain owned");
+        Assert.IsTrue(Installer.IsSafeTarget(Installer.CorePath, Installer.InstallDir),
+            "legacy root DiskInfoCore.dll directly in install dir must be accepted as safe target");
+    }
 }

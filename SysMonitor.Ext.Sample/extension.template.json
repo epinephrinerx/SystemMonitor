@@ -1,0 +1,16 @@
+{
+  "id": "sample",
+  "name": "Sample extension",
+  "version": "$VERSION",
+  "contract": "1.1",
+  "min_host": "4.2.0",
+  "entry": {
+    "assembly": "SysMonitor.Ext.Sample.dll",
+    "type": "SysMonitor.Ext.Sample.SampleExtension"
+  },
+  "files": [
+    {
+      "path": "SysMonitor.Ext.Sample.dll"
+    }
+  ]
+}

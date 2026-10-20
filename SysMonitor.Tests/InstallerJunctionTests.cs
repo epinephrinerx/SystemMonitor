@@ -125,17 +125,18 @@ public class InstallerJunctionTests
     {
         // The fix must not make the installer unable to remove its own files.
         string[] owned = Installer.OwnedPaths(includeSettings: true).ToArray();
-        string[] parents =
+        var parents = new List<string>
         {
             Installer.InstallDir,
             Installer.SettingsDir,
             Path.GetDirectoryName(Installer.DesktopShortcut)!,
             Path.GetDirectoryName(Installer.StartMenuShortcut)!,
         };
+        parents.AddRange(Installer.ReadExtensionPayload().Select(f => Path.Combine(Installer.InstallDir, "extensions", f.Id)).Distinct());
 
         foreach (string path in owned)
         {
-            Assert.IsTrue(Installer.IsSafeTarget(path, parents),
+            Assert.IsTrue(Installer.IsSafeTarget(path, parents.ToArray()),
                 $"{path} is one of ours and should still be removable");
         }
     }

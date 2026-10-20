@@ -1,0 +1,25 @@
+{
+  "id": "smart",
+  "name": "SMART",
+  "version": "$VERSION",
+  "contract": "1.1",
+  "min_host": "4.2.0",
+  "entry": {
+    "assembly": "SysMonitor.Ext.Smart.dll",
+    "type": "SysMonitor.Ext.Smart.SmartExtension"
+  },
+  "provides": [
+    "disk-temperature"
+  ],
+  "place_after": "disk",
+  "files": [
+    {
+      "path": "SysMonitor.Ext.Smart.dll"
+    },
+    {
+      "path": "DiskInfoCore.dll",
+      "native": true,
+      "optional": true
+    }
+  ]
+}

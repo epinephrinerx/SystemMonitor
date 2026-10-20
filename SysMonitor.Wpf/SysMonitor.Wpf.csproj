@@ -43,4 +43,8 @@
     <ProjectReference Include="..\SysMonitor.Extensibility\SysMonitor.Extensibility.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="first-party-extensions.json" LogicalName="first-party-extensions.json" Condition="Exists('first-party-extensions.json')" />
+  </ItemGroup>
+
 </Project>
