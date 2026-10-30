@@ -1,6 +1,6 @@
 # Requirements — SystemMonitor4.0
 
-บันทึกสิ่งที่ตกลงกันไว้ · อัปเดตล่าสุด 2026-10-07
+บันทึกสิ่งที่ตกลงกันไว้ · อัปเดตล่าสุด 2026-10-30 (branch `Mac`: R-020–R-025)
 **intake ปิดแล้ว (2026-09-30)** — ทุกข้อได้รับการรับรอง; งานถัดไป: handoff ให้ Coding Owner ประเมินและแบ่งเฟส
 บริบทของโปรเจกต์อยู่ที่ `AGENTS.md` / `CLAUDE.md` (root) — ไฟล์นี้ไม่เล่าซ้ำ
 
@@ -13,6 +13,170 @@
 | ✔️ เสร็จแล้ว | คุณตรวจรับแล้ว ผ่านเกณฑ์ครบทุกข้อ |
 | ⚠️ ขัดแย้ง | ขัดกับข้ออื่น ต้องตัดสินก่อน |
 | ⛔ ยกเลิก | ถูกแทนที่ด้วยข้ออื่น หรือไม่เอาแล้ว |
+
+---
+
+> **เลข R-019 ไม่ใช้บน branch นี้** — ถูกใช้แล้วบน branch `agent/*` (SMART / DiskInfoCore) จึงเริ่ม Mac Edition ที่ R-020 เพื่อไม่ให้รหัสชนกันเมื่อรวม branch
+
+## R-020 · Mac Edition — สร้าง SystemMonitor เวอร์ชัน macOS แบบ native
+
+| | |
+|---|---|
+| สถานะ | ✅ ตกลงแล้ว (แนวทางและแผน 5 เฟส) — ผู้ใช้สั่ง "บันทึกลง Requirements.md แล้วเริ่มเฟส 1 เลยครับ" 2026-10-30 |
+| วันที่ | 2026-10-30 |
+| แตะส่วนไหน | โฟลเดอร์ใหม่ `SysMonitor.Mac/` (Swift Package) บน branch `Mac` ที่แตกจาก `v4.0.0` (a2b4e80, v4.2.0) — ไม่แตะ `SysMonitor.Wpf` / `SysMonitor.Setup` / `SysMonitor.Tests` |
+| เกี่ยวกับ | [[R-021]] เฟส 1 · [[R-022]]–[[R-025]] การตัดสินใจเฉพาะ Mac |
+
+**คุณระบุ:**
+> อ่านโครงสร้างแล้ววิเคราะห์แนวทางการสร้าง Mac Edition แล้วแตก Branch เป็น Mac ครับ
+
+> บันทึกลง Requirements.md แล้วเริ่มเฟส 1 เลยครับ
+
+**ผมเข้าใจว่า:**
+- เขียนใหม่เป็น **Swift + SwiftUI/AppKit** เพราะ WPF รันบน macOS ไม่ได้ และโค้ด C# ผูกกับ Win32/WMI/PDH/IOCTL/Registry เกือบทุกชั้น — ที่นำมาใช้ได้คือ *ตรรกะและความรู้* (Snapshot, History, IoRate, threshold ใน Palette, ตารางภาษา I18n, WindowGeometry, การแบ่งรอบ sampling เร็ว/ช้า)
+- คงกฎเดิมของโปรเจกต์: **ไม่ใช้ package ภายนอก** ใช้เฉพาะ framework ของระบบ (Darwin/Mach, IOKit, SystemConfiguration, SwiftUI/AppKit)
+- แยก target: `SysMonitorCore` (โมเดล + เซ็นเซอร์ ทดสอบได้โดยไม่เปิดหน้าต่าง) และแอป UI
+- แผนเฟส (แต่ละเฟสจะเปิดเป็นข้อ R- ของตัวเองเมื่อเริ่ม):
+  1. Core: เซ็นเซอร์ CPU/RAM/Disk/Network, Snapshot, Sampler + tests → [[R-021]]
+  2. Widget mini + Overall, ธีม light/dark (light เป็นค่าเริ่มต้น), ไทย/อังกฤษ, config
+  3. หน้า Full แบบแท็บ + กราฟ
+  4. แท็บ RAM (process), menu bar item, เปิดอัตโนมัติตอน login
+  5. อุณหภูมิ, GPU, แพ็กเป็น `.dmg`
+- การจับคู่ API: CPU `host_processor_info` · RAM `host_statistics64` + `hw.memsize` · Disk `statfs`/URL resource values + IOKit `IOBlockStorageDriver` · Network `sysctl NET_RT_IFLIST2` + SystemConfiguration · Tray → `NSStatusItem` · Autostart → `SMAppService` · ติดตั้ง → `.app` ใน `.dmg` (ไม่มี uninstaller)
+- **หมายเหตุผู้ลงมือ:** `Docs/AI_WORKFLOW.md` §1 ระบุ Writing Owner = agy แต่ผู้ใช้สั่ง Claude Code (Opus 5.5) ลงมือเฟส 1 โดยตรง ถือตามคำสั่งล่าสุดของผู้ใช้ (§2 ข้อ 1)
+
+**ไม่รวม:**
+- ไม่แก้หรือลบโค้ด Windows บน branch นี้ (เก็บไว้เป็นต้นแบบอ้างอิง)
+- ไม่ทำ build ข้ามแพลตฟอร์ม (Avalonia/.NET) และไม่แชร์โค้ด C# กับ Swift
+- ไม่ push branch `Mac` ขึ้น GitHub จนกว่าผู้ใช้สั่ง
+
+**ตรวจรับเมื่อ:** แต่ละเฟสตรวจรับตามข้อ R- ของเฟสนั้น ข้อนี้ปิดเมื่อเฟส 1–5 ปิดครบ
+
+---
+
+## R-021 · Mac เฟส 1 — Core: เซ็นเซอร์ CPU/RAM/Disk/Network + Snapshot + Sampler
+
+| | |
+|---|---|
+| สถานะ | 🧪 รอตรวจรับ — ทำเสร็จ 2026-10-30 (Claude Code · Opus 5.5) · ต้องใช้ Xcode เพราะ Command Line Tools อย่างเดียวไม่มี XCTest และ macro ของ swift-testing |
+| วันที่ | 2026-10-30 |
+| แตะส่วนไหน | `SysMonitor.Mac/Package.swift` · `Sources/SysMonitorCore/{Model,Sensors}` · `Sources/sysmon-probe` (CLI อ่านค่าครั้งเดียวแล้วพิมพ์) · `Tests/SysMonitorCoreTests` · `.gitignore` |
+| เกี่ยวกับ | [[R-020]] · [[R-022]] (เวอร์ชัน macOS ขั้นต่ำ) |
+
+**คุณระบุ:**
+> บันทึกลง Requirements.md แล้วเริ่มเฟส 1 เลยครับ
+
+**ผมเข้าใจว่า:**
+- **Snapshot** (value type ไม่เปลี่ยนหลัง publish) มี: cores รายคอร์ + รวม, CpuInfo (ชื่อชิป, จำนวน P-core/E-core/logical), RAM (ใช้/ทั้งหมด แบบเดียวกับ Activity Monitor = app + wired + compressed, swap, memory pressure), Disk ต่อ volume (ชื่อ, mount point, ระบบไฟล์, ใช้/ทั้งหมด, SSD/HDD, interconnect, internal/external, รุ่นอุปกรณ์, อัตราอ่าน/เขียน), Adapter (Wi-Fi/Ethernet, link speed, down/up, ยอดสะสม)
+- **History** (ring buffer ขนาดคงที่) และ **IoRate** พอร์ตจาก C# ตรรกะเดิม
+- **Sampler** ทำงานบน background queue แบ่งรอบตาม `RefreshSpeed` เดียวกับ C# (eco 5 s/30 s · balanced 2.5 s/15 s · fast 1 s/10 s) และ backoff 5 นาทีเมื่อ probe ช้าเกิน 250 ms เหมือนเดิม
+- อัตรา I/O ของดิสก์บน macOS นับได้**ต่ออุปกรณ์จริง** ไม่ใช่ต่อ volume — volume ที่อยู่บนดิสก์เดียวกันจะแสดงอัตราเดียวกัน และ Snapshot บอกว่า volume ไหนอยู่บนอุปกรณ์ไหน
+- หน่วย: RAM ใช้ฐาน 1024 (ตรงกับ Activity Monitor) ดิสก์ใช้ฐาน 1000 (ตรงกับ Finder)
+- อุณหภูมิทุกตัวเป็น `nil` ในเฟสนี้ (ตาม [[R-023]] เฟส 5)
+
+**ไม่รวม:**
+- ไม่มีหน้าต่าง/UI ใด ๆ (เฟส 2)
+- ไม่มี config file และ log file (เฟส 2)
+- ไม่อ่าน process/service, GPU, อุณหภูมิ
+- ไม่มีการทดสอบที่สร้างภาระเครื่อง (CPU spinner, ดิสก์ churn) — ตรวจแบบ passive เท่านั้น
+
+**ตรวจรับเมื่อ:**
+- [x] `swift build` ผ่านโดยไม่มี warning จากโค้ดของเรา — ทดสอบ: `swift build` และ `swift build -c release --arch arm64 --arch x86_64` ได้ไฟล์ Universal minos 13.0 (ตรวจด้วย `lipo -info`, `otool -l`) · warning เดียวมาจาก toolchain ว่า x86_64 deprecated บน macOS 27
+- [x] `swift test` ผ่าน: การคำนวณ CPU% (รวมกรณี counter วนรอบ UInt32), RAM used, IoRate (300 MB/300 s = 1 MB/s, counter reset ไม่ติดลบ), History ring, Adapter usage, การแปลง media/bus — 32 tests / 6 suites ผ่าน รวม live sensor test ที่อ่านค่าอย่างเดียวไม่สร้าง load
+- [x] `swift run sysmon-probe` บนเครื่องนี้แสดง: จำนวน logical core = `sysctl hw.logicalcpu`, RAM รวม = `hw.memsize`, volume "Macintosh HD" พร้อมขนาดใกล้เคียง Finder, ชนิด SSD และรุ่นดิสก์, Wi-Fi/Ethernet ที่เชื่อมต่ออยู่ — volume ของเครื่องนี้ชื่อ "MainHDD" ไม่ใช่ "Macintosh HD"
+- [x] Sampler ทำงานต่อเนื่อง 1 นาทีใน probe โดยไม่ crash และค่าที่ได้เปลี่ยนตามรอบ — `sysmon-probe --seconds 60`: 24 รอบห่างกัน 2.5 s, ready=true ตั้งแต่รอบที่สอง
+
+**ผลที่ผมเห็นบนเครื่องนี้ (M1, 8 GB):** logical 8 = `hw.logicalcpu` (4P + 4E) · RAM 8.0 GB = `hw.memsize` · MainHDD 245.1 GB = `df -H` 245G ใช้ 145.7 GB (นับ purgeable เป็นที่ว่างแบบ Finder) · APPLE SSD AP0256Q · SSD · Apple Fabric · internal ตรงกับ `diskutil info /` · Wi-Fi en1 link 467 Mbps · disk image ที่ mount อยู่แสดงเป็น "Disk Image" external
+
+**ที่ต้องให้คุณตรวจเอง:** RAM เทียบกับ Activity Monitor และพื้นที่ดิสก์เทียบกับ Finder (Get Info) — ผมไม่ได้เปิดสองหน้าต่างนี้เทียบ · ยังไม่ได้ทดสอบกับ Ethernet และไดรฟ์ USB ภายนอกจริง
+
+---
+
+## R-022 · Mac — เวอร์ชัน macOS ขั้นต่ำและสถาปัตยกรรมที่รองรับ
+
+| | |
+|---|---|
+| สถานะ | ✅ ตกลงแล้ว — ผู้ใช้เลือกใน AskUserQuestion 2026-10-30 |
+| วันที่ | 2026-10-30 |
+| เกี่ยวกับ | [[R-020]] · [[R-021]] |
+
+**คุณระบุ:** (ตอบคำถามที่ผมเปิดไว้ 2026-10-30)
+> รับรอง (Recommended)
+
+**ผมเข้าใจว่า (ข้อเสนอ):** macOS 13 Ventura ขึ้นไป (`SMAppService`, `kIOMainPortDefault`), build แบบ Universal (arm64 + x86_64) แต่ทดสอบจริงบน Apple Silicon เท่านั้น — เฟส 1 ตั้งค่าเป็น macOS 13 ไว้ก่อน เปลี่ยนได้โดยไม่กระทบโค้ด
+
+**ไม่รวม:** ไม่รองรับ macOS 12 ลงไป
+
+**ตัดสินแล้ว:** macOS 13 Ventura ขึ้นไป · Universal (arm64 + x86_64) · ทดสอบจริงบน Apple Silicon
+
+**ตรวจรับเมื่อ:**
+- [x] ผู้ใช้เลือกเวอร์ชันขั้นต่ำและสถาปัตยกรรม — 2026-10-30
+
+---
+
+## R-023 · Mac — อ่านอุณหภูมิ CPU ผ่าน API ที่ Apple ไม่เปิดเผย (SMC / IOHID)
+
+| | |
+|---|---|
+| สถานะ | ✅ ตกลงแล้ว — ผู้ใช้เลือกใน AskUserQuestion 2026-10-30 |
+| วันที่ | 2026-10-30 |
+| เกี่ยวกับ | [[R-020]] เฟส 5 |
+
+**คุณระบุ:** (ตอบคำถามที่ผมเปิดไว้ 2026-10-30)
+> ใช้ private API
+
+**ผมเข้าใจว่า (ข้อเสนอ):** macOS ไม่มี API สาธารณะสำหรับอุณหภูมิ CPU ทางเลือกคือ IOHID event system (Apple Silicon) หรือ SMC ซึ่งอ่านได้โดยไม่ต้องใช้ admin แต่ Apple ไม่รับประกันว่าจะยังทำงานในเวอร์ชันถัดไป ถ้าไม่เอา จะแสดง `n/a` พร้อม thermal state (`ProcessInfo.thermalState`: nominal/fair/serious/critical) แทน — สอดคล้องกับหลักเดิมของโปรเจกต์ที่ไม่แสดงตัวเลขที่ไม่ได้วัดจริง
+
+**ไม่รวม:** ไม่ใช้ kernel extension · ไม่ประมาณค่าจาก load
+
+**ตัดสินแล้ว:** ใช้ SMC/IOHID อ่านอุณหภูมิจริง ถ้าอ่านไม่ได้ (เช่น macOS รุ่นหน้าปิดช่องทาง) ถอยไปแสดง `n/a` + thermal state — ไม่ประมาณค่า
+
+**ตรวจรับเมื่อ:**
+- [x] ผู้ใช้ตัดสินว่าจะใช้ private API หรือไม่ — 2026-10-30
+
+---
+
+## R-024 · Mac — ขอบเขตของ "Service" (launchd) ในแท็บ RAM
+
+| | |
+|---|---|
+| สถานะ | ✅ ตกลงแล้ว — ผู้ใช้เลือกใน AskUserQuestion 2026-10-30 |
+| วันที่ | 2026-10-30 |
+| เกี่ยวกับ | [[R-018]] (เวอร์ชัน Windows) · [[R-020]] เฟส 4 |
+
+**คุณระบุ:** (ตอบคำถามที่ผมเปิดไว้ 2026-10-30)
+> Agent ผู้ใช้ ดูอย่างเดียว (Recommended)
+
+**ผมเข้าใจว่า (ข้อเสนอ):** process list + kill (พร้อมกล่องยืนยัน, ห้าม kill process ระบบและตัวเอง) ทำได้ตรงกับ R-018 ส่วน service บน macOS คือ launchd agent/daemon ซึ่งจัดการต่างจาก Windows SCM มาก — เสนอให้แสดง**เฉพาะ LaunchAgent ของผู้ใช้**แบบดูอย่างเดียวก่อน ไม่ stop/start system daemon (ต้องใช้ admin และเสี่ยงทำเครื่องเสีย)
+
+**ไม่รวม:** stop/start system daemon · แก้ไฟล์ plist
+
+**ตัดสินแล้ว:** แสดง LaunchAgent ของผู้ใช้แบบดูอย่างเดียว ไม่มีปุ่ม stop/start · process list + kill ตาม R-018
+
+**ตรวจรับเมื่อ:**
+- [x] ผู้ใช้กำหนดขอบเขต service และสิทธิ์ที่จะให้ทำ — 2026-10-30
+
+---
+
+## R-025 · Mac — Code signing และ notarization
+
+| | |
+|---|---|
+| สถานะ | ✅ ตกลงแล้ว — ผู้ใช้เลือกใน AskUserQuestion 2026-10-30 |
+| วันที่ | 2026-10-30 |
+| เกี่ยวกับ | [[R-020]] เฟส 5 |
+
+**คุณระบุ:** (ตอบคำถามที่ผมเปิดไว้ 2026-10-30)
+> Unsigned/ad-hoc ไปก่อน
+
+**ผมเข้าใจว่า (ข้อเสนอ):** ถ้าไม่ sign ด้วย Apple Developer ID (ค่าสมาชิกรายปี) Gatekeeper จะบล็อกตอนเปิดครั้งแรก ผู้ใช้ต้องเปิดผ่าน System Settings → Privacy & Security → Open Anyway (เทียบเท่า SmartScreen บน Windows) — ระหว่างพัฒนาใช้ ad-hoc signing ไปก่อน
+
+**ไม่รวม:** ไม่ส่งขึ้น Mac App Store (sandbox จะปิดการอ่าน IOKit/process บางส่วน)
+
+**ตัดสินแล้ว:** ใช้ ad-hoc signing แจกแบบ unsigned ยอมให้ Gatekeeper เตือน — ทบทวนใหม่ถ้าจะแจกวงกว้าง
+
+**ตรวจรับเมื่อ:**
+- [x] ผู้ใช้ตัดสินว่าจะ sign/notarize หรือแจกแบบ unsigned — 2026-10-30
 
 ---
 
