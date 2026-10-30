@@ -57,6 +57,8 @@ func sampleSnapshot(cores: Int = 8, diskUsage: Int = 50) -> Snapshot {
     gpu.rendererUsage = 29
     gpu.tilerUsage = 8
     gpu.memoryUsedGb = 0.8
+    gpu.temp = 59
+    s.cpuTemp = 82
     s.gpus = [gpu]
     return s
 }

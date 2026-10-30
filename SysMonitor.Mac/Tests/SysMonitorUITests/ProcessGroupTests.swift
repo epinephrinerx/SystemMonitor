@@ -61,6 +61,16 @@ struct ProcessGroupTests {
         #expect(store.history("proc.p9")?.latest == 10)
     }
 
+    @Test func temperaturesReachThePagesAndTabs() {
+        let pages = WidgetPages.build(sampleSnapshot(), AppConfig(), Strings("en"))
+        #expect(pages.first { $0.kind == .gpu(0) }?.temp == .reading(59))
+        #expect(pages.first { $0.kind == .cpuBlock(0) }?.temp == .reading(82))
+        let cpu = FullTabs.build(sampleSnapshot(), Strings("th"))[0]
+        #expect(cpu.facts.contains { $0.name == "อุณหภูมิ" && $0.value == "82°C" })
+        #expect(cpu.facts.contains { $0.name == "สถานะความร้อน" && $0.value == "ปกติ" })
+        #expect(AppConfig().readTemperatures)
+    }
+
     @Test func memoryGraphsScaleToTheirPeak() {
         #expect(ChartMath.ceiling(.megabytes, peak: 800) == 800)
         #expect(ChartMath.ceilingLabel(.megabytes, peak: 2048) == "2.0 GB")

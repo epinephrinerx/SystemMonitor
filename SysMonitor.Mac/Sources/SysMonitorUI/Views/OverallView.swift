@@ -85,7 +85,8 @@ public struct OverallView: View {
 
         if c.showCpu {
             Card(title: t("cpu"), note: s.cpuInfo.name, theme: theme, metrics: m,
-                 columns: c.cpuMode == "total" ? 1 : 2) {
+                 columns: c.cpuMode == "total" ? 1 : 2,
+                 temp: c.cpuMode == "total" ? .none : .reading(s.cpuTemp)) {
                 if c.cpuMode == "total" {
                     MeterRow(title: t("cpu"), percent: s.cpuTotal, accent: .cpu,
                              detail: cpuDetail(s, t), temp: .reading(s.cpuTemp), theme: theme, metrics: m)
@@ -144,7 +145,7 @@ public struct OverallView: View {
             ForEach(Array(s.gpus.enumerated()), id: \.offset) { _, g in
                 Card(title: t("gpu"), note: g.name, theme: theme, metrics: m) {
                     MeterRow(title: t("gpu"), percent: g.usage, accent: .gpu,
-                             detail: WidgetPages.gpuDetail(g, t), theme: theme, metrics: m)
+                             detail: WidgetPages.gpuDetail(g, t), temp: .reading(g.temp), theme: theme, metrics: m)
                     if let renderer = g.rendererUsage {
                         MeterRow(title: t("renderer"), percent: renderer, accent: .gpu, theme: theme, metrics: m)
                     }
@@ -207,6 +208,8 @@ struct Card<Rows: View>: View {
     var theme: Theme
     var metrics: Metrics
     var columns = 1
+    /// A badge beside the note, for a card whose rows carry none of their own.
+    var temp = TempDisplay.none
     @ViewBuilder var rows: () -> Rows
 
     var body: some View {
@@ -221,6 +224,9 @@ struct Card<Rows: View>: View {
                     .font(.system(size: m.type(Metrics.Font.small)))
                     .foregroundStyle(theme.label.color)
                     .lineLimit(1)
+                if case .reading(let celsius) = temp {
+                    TempBadge(celsius: celsius, theme: theme, metrics: m)
+                }
             }
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: m.len(16), alignment: .top),
                                      count: columns),

@@ -120,7 +120,7 @@ public enum WidgetPages {
                 pages.append(WidgetPage(kind: .gpu(i), title: s.gpus.count > 1 ? "\(t("gpu")) \(i + 1)" : t("gpu"),
                                         headline: g.usage,
                                         bars: [WidgetBar(label: "", percent: g.usage, accent: .gpu)],
-                                        detail: gpuDetail(g, t)))
+                                        detail: gpuDetail(g, t), temp: .reading(g.temp)))
             }
         }
 

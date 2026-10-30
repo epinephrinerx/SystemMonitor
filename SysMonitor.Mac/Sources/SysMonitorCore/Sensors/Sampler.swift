@@ -56,6 +56,7 @@ public final class Sampler: @unchecked Sendable {
     private let lock = NSLock()
     private var published = Snapshot()
     private var currentSpeed: RefreshSpeed
+    private var temperaturesOn = true
     private var publishHandler: (@Sendable (Snapshot) -> Void)?
 
     private var timer: DispatchSourceTimer?
@@ -70,6 +71,8 @@ public final class Sampler: @unchecked Sendable {
     private var processes: [ProcessEntry] = []
     private var launchAgents: [LaunchAgent] = []
     private var nextProcesses: UInt64 = 0
+    private var temperatures = Temperatures()
+    private var nextTemps: UInt64 = 0
     private var cpuInfo = CpuInfo()
     private var nextSpace: UInt64 = 0
     private var nextHardware: UInt64 = 0
@@ -93,6 +96,16 @@ public final class Sampler: @unchecked Sendable {
         set {
             lock.withLock { currentSpeed = newValue }
             queue.async { [weak self] in self?.schedule() }
+        }
+    }
+
+    /// Whether to read the temperature sensors at all. Off means the private
+    /// interface is never called (R-030).
+    public var readTemperatures: Bool {
+        get { lock.withLock { temperaturesOn } }
+        set {
+            lock.withLock { temperaturesOn = newValue }
+            queue.async { [weak self] in self?.nextTemps = 0 }
         }
     }
 
@@ -166,12 +179,27 @@ public final class Sampler: @unchecked Sendable {
             previousCpu = ticks
         }
 
+        if now >= nextTemps {
+            temperatures = readTemperatures
+                ? guarded("temperature", budgetMs: 1000, { TemperatureSensor.read() }) ?? temperatures
+                : Temperatures()
+            nextTemps = now + UInt64(speed.temps * 1000)
+        }
+        snapshot.cpuTemp = temperatures.cpu
+        snapshot.thermalState = ThermalState.current
+
         if let ram = MemorySensor.read() {
             lastRam = ram
         }
         snapshot.ram = lastRam
         snapshot.disks = disksWithRates()
-        snapshot.gpus = guarded("gpu", { GpuSensor.read() }) ?? []
+        snapshot.gpus = (guarded("gpu", { GpuSensor.read() }) ?? []).map { gpu in
+            // The GPU sensors belong to the Apple GPU; a discrete card's are
+            // behind its own driver.
+            var gpu = gpu
+            if gpu.name.hasPrefix("Apple") { gpu.temp = temperatures.gpu }
+            return gpu
+        }
         snapshot.adapters = connectedAdapters()
         if now >= nextProcesses {
             processes = guarded("processes", budgetMs: 2000) { ProcessSensor.read() } ?? processes
@@ -224,6 +252,10 @@ public final class Sampler: @unchecked Sendable {
         return volumes.map { volume in
             var disk = volume
             disk.device = devices[volume.bsdName]
+            // The flash sensors are the internal Apple SSD's.
+            if let device = disk.device, device.isInternal, device.bus == "Apple Fabric" {
+                disk.temp = temperatures.nand
+            }
             if let driver = disk.device?.driverID, let rate = rates[driver] {
                 disk.readMb = rate.readMb
                 disk.writeMb = rate.writeMb

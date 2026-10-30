@@ -10,7 +10,7 @@ Same rule as the Windows build: **no package dependencies.** Everything comes
 from the system frameworks -- Darwin/Mach, IOKit, SystemConfiguration, and
 SwiftUI/AppKit from phase 2.
 
-Plan and decisions: `Requirements.md`, R-020 to R-029.
+Plan and decisions: `Requirements.md`, R-020 to R-030.
 
 ## Status
 
@@ -26,6 +26,8 @@ Plan and decisions: `Requirements.md`, R-020 to R-029.
 - Phase 4 (R-029): the Memory tab's process list -- grouped by name, searchable,
   with SIGTERM behind a confirmation -- the user's LaunchAgents, read only, and
   Open at login through `SMAppService`.
+- Phase 5 (R-030): real temperatures on Apple Silicon, the app icon, and the
+  `.dmg`.
 
 ## Building
 
@@ -33,7 +35,7 @@ Needs Xcode, not just the Command Line Tools: the tools alone ship neither
 XCTest nor the swift-testing macro plugin, so `swift test` cannot build.
 
 ```
-./build-app.sh                               # tests, then dist/SysMonitor.app
+./build-app.sh                               # tests, then dist/SysMonitor.app and .dmg
 open dist/SysMonitor.app
 swift build
 swift test                                   # passive: reads counters, makes no load
@@ -91,7 +93,17 @@ The core order is the kernel's -- on M1 that puts the efficiency cores first --
 so the snapshot reports how many of each kind there are but does not label
 individual cores.
 
-**Temperatures are nil** until phase 5 (R-023), never estimated from load.
+**Temperatures come from private API, by the user's choice (R-023).** Apple
+Silicon's sensors are read through the IOHID event system, declared in
+`TemperatureSensor` by symbol name. CPU is the hottest core-cluster sensor
+(`pACC`/`eACC MTR`), falling back to the die sensors and then the SoC's; GPU
+the hottest `GPU MTR`; the internal SSD the hottest `NAND`. Readings outside
+1-130 °C are dropped -- the development M1 has several at -22 °C. If a later
+macOS closes the interface, every reading is nil and the UI says `n/a`.
+Nothing is ever estimated from load. Intel Macs keep their sensors behind the
+SMC and get `n/a`. The sidebar's "Read real temperatures" switch stops the
+private calls entirely. The system's thermal state is public API and always
+shown.
 
 ## The app
 
@@ -170,3 +182,11 @@ process whose executable path is the agent's program.
 
 **Open at login lives in the system, not the config.** The user can switch it
 off in System Settings, and a copy in our config would then be wrong.
+
+**The icon is drawn, not converted.** The Windows `SysMonitor.ico` stops at
+256 px; macOS wants 1024. `tools/make-icon.swift` draws the same tile and bars
+at 1024 and `build-app.sh` cuts the `.icns` sizes from it.
+
+**`hdiutil create` is deprecated on macOS 27.** The build uses
+`diskutil image create from` where it exists and falls back to `hdiutil`
+where it does not.

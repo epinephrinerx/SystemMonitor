@@ -158,6 +158,12 @@ public struct Strings: Sendable {
         "open_login_items": "Open Login Items",
         "login_failed": "Could not change: {0}",
         "memory_of": "Memory: {0}",
+        "cpu_temp": "Read real temperatures",
+        "thermal_state": "Thermal state",
+        "thermal_nominal": "Normal",
+        "thermal_fair": "Warm",
+        "thermal_serious": "Hot",
+        "thermal_critical": "Critical",
     ]
 
     public static let th: [String: String] = [
@@ -300,5 +306,11 @@ public struct Strings: Sendable {
         "open_login_items": "เปิด Login Items",
         "login_failed": "เปลี่ยนไม่ได้: {0}",
         "memory_of": "หน่วยความจำ: {0}",
+        "cpu_temp": "อ่านอุณหภูมิจริง",
+        "thermal_state": "สถานะความร้อน",
+        "thermal_nominal": "ปกติ",
+        "thermal_fair": "อุ่น",
+        "thermal_serious": "ร้อน",
+        "thermal_critical": "วิกฤต",
     ]
 }

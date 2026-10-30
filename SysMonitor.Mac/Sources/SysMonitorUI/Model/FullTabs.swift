@@ -79,6 +79,7 @@ public enum FullTabs {
         facts.append(Fact(name: t("logical_processors"), value: "\(info.logical)"))
         facts.append(Fact(name: t("architecture"), value: info.architecture))
         facts.append(Fact(name: t("temperature"), value: s.cpuTemp.map { "\($0)°C" } ?? "n/a"))
+        facts.append(Fact(name: t("thermal_state"), value: t("thermal_\(s.thermalState.rawValue)")))
 
         return FullTab(
             id: "cpu", title: t("cpu"), detail: "\(s.cores.count) \(t("cores"))", summary: "\(s.cpuTotal)%",
@@ -136,6 +137,7 @@ public enum FullTabs {
             Fact(name: t("interface"), value: device.bus.isEmpty ? "—" : device.bus),
             Fact(name: t("location"), value: t(device.isInternal ? "internal" : "external")),
             Fact(name: t("bsd_name"), value: device.id),
+            Fact(name: t("temperature"), value: volumes[0].temp.map { "\($0)°C" } ?? "n/a"),
         ]
         if !device.serial.isEmpty { facts.append(Fact(name: t("serial"), value: device.serial)) }
         if !device.revision.isEmpty { facts.append(Fact(name: t("firmware"), value: device.revision)) }
@@ -176,6 +178,7 @@ public enum FullTabs {
         var facts = [Fact(name: t("model"), value: g.name.isEmpty ? "—" : g.name)]
         if g.cores > 0 { facts.append(Fact(name: t("cores_label"), value: "\(g.cores)")) }
         if let memory = g.memoryUsedGb { facts.append(Fact(name: t("gpu_memory_label"), value: "\(Format.gb(memory)) GB")) }
+        facts.append(Fact(name: t("temperature"), value: g.temp.map { "\($0)°C" } ?? "n/a"))
 
         var small: [ChartSpec] = []
         if g.rendererUsage != nil {

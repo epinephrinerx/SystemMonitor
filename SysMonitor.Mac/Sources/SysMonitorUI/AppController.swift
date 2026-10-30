@@ -36,6 +36,11 @@ public final class AppController: NSObject, NSApplicationDelegate {
             .removeDuplicates()
             .sink { [weak self] speed in self?.sampler.speed = speed }
             .store(in: &observers)
+        model.$config
+            .map(\.readTemperatures)
+            .removeDuplicates()
+            .sink { [weak self] on in self?.sampler.readTemperatures = on }
+            .store(in: &observers)
 
         windows.start()
         sampler.start()

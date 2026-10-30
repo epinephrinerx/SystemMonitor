@@ -24,6 +24,8 @@ public struct AppConfig: Codable, Equatable, Sendable {
     public var diskMode = "separated"
     public var networkMode = "separated"
     public var includeNetworkDrives = true
+    /// Off means the private temperature interface is never called (R-030).
+    public var readTemperatures = true
 
     public var closeAction = "tray"         // tray | exit
     public var speed = "balanced"           // eco | balanced | fast
@@ -77,6 +79,7 @@ public struct AppConfig: Codable, Equatable, Sendable {
         diskMode = read(.diskMode, d.diskMode)
         networkMode = read(.networkMode, d.networkMode)
         includeNetworkDrives = read(.includeNetworkDrives, d.includeNetworkDrives)
+        readTemperatures = read(.readTemperatures, d.readTemperatures)
         closeAction = read(.closeAction, d.closeAction)
         speed = read(.speed, d.speed)
         widgetX = read(.widgetX, d.widgetX)

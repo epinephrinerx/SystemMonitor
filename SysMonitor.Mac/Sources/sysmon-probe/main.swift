@@ -15,13 +15,14 @@ func describe(_ s: Snapshot) {
     print("CPU   \(info.name) · \(info.architecture) · \(info.physicalCores) cores / \(info.logical) logical"
         + (info.performanceCores > 0 ? " (\(info.performanceCores)P + \(info.efficiencyCores)E)" : ""))
     print("      total \(s.cpuTotal)%  per core: \(s.cores.map { String($0.usage) }.joined(separator: " "))")
+    print("TEMP  cpu \(s.cpuTemp.map { "\($0)°C" } ?? "n/a") · thermal state \(s.thermalState.rawValue)")
 
     let r = s.ram
     print("RAM   \(gb(r.usedGb)) / \(gb(r.totalGb)) GB (\(r.usage)%) · app \(gb(r.appGb)) · wired \(gb(r.wiredGb))"
         + " · compressed \(gb(r.compressedGb)) · swap \(gb(r.swapUsedGb))/\(gb(r.swapTotalGb)) · pressure \(r.pressure.rawValue)")
 
     for d in s.disks {
-        print("DISK  \(d.title) [\(d.mountPoint)] \(d.fileSystem) \(d.bsdName)"
+        print("DISK  \(d.title) [\(d.mountPoint)] \(d.fileSystem) \(d.bsdName)" + (d.temp.map { " \($0)°C" } ?? "")
             + " · \(gb(d.usedGb)) / \(gb(d.totalGb)) GB (\(d.usage)%)"
             + " · R \(mb(d.readMb)) W \(mb(d.writeMb)) MB/s"
             + (d.isNetwork ? " · network" : "") + (d.isRemovable ? " · removable" : ""))
@@ -33,7 +34,7 @@ func describe(_ s: Snapshot) {
     }
 
     for g in s.gpus {
-        print("GPU   \(g.name) · \(g.cores) cores · \(g.usage)%"
+        print("GPU   \(g.name) · \(g.cores) cores · \(g.usage)%" + (g.temp.map { " · \($0)°C" } ?? "")
             + (g.rendererUsage.map { " · renderer \($0)%" } ?? "")
             + (g.tilerUsage.map { " · tiler \($0)%" } ?? "")
             + (g.memoryUsedGb.map { " · memory \(gb($0)) GB" } ?? ""))

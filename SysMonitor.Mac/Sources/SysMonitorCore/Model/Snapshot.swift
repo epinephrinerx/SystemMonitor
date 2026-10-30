@@ -26,6 +26,9 @@ public struct Snapshot: Sendable {
     /// Nil until a real sensor is read. Never estimated from load (R-023).
     public var cpuTemp: Int?
 
+    /// The system's own view of how hot it is running. Always available.
+    public var thermalState = ThermalState.nominal
+
     /// False until the first sample with a CPU delta has landed: the first
     /// pass only takes the baseline, so every core would read zero.
     public var ready = false

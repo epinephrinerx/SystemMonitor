@@ -347,6 +347,50 @@
 **ที่ผมยังไม่ได้ทดสอบ:** กล่องยืนยันบนจอจริง · ช่องค้นหาบนจอจริง (`ImageRenderer` วาดช่องกรอกข้อความของ AppKit ไม่ได้ ในภาพจึงเป็นกล่องเหลือง) · "เปิดเมื่อ login" เพราะจะเปลี่ยนรายการ Login Items ของเครื่องคุณ ผมจึงไม่ได้กด
 ---
 
+## R-030 · Mac เฟส 5 — อุณหภูมิจริง, ไอคอนแอป, ไฟล์ .dmg
+
+| | |
+|---|---|
+| สถานะ | 🧪 รอตรวจรับ — ทำเสร็จ 2026-10-31 (v0.5.0) ภายใต้การอนุญาต "เฉพาะ session นี้ ผมอนุญาตให้ทำต่อได้ทั้งหมดครับ ไม่ต้องรอตอนเช้า" · **ยังไม่ได้ทวนรายละเอียดข้อนี้กับผู้ใช้** |
+| วันที่ | 2026-10-31 |
+| แตะส่วนไหน | `SysMonitorCore`: `TemperatureSensor` (IOHID event system) · Snapshot (`cpuTemp`, `Gpu.temp`, `Disk.temp`, `thermalState`) · Sampler · `SysMonitorUI`: badge อุณหภูมิ GPU, หัวการ์ด CPU, รายละเอียดในหน้า Full, checkbox "อ่านอุณหภูมิจริง" · `build-app.sh`: ไอคอน + `.dmg` |
+| เกี่ยวกับ | [[R-020]] เฟส 5 · [[R-023]] · [[R-025]] · [[R-027]] |
+
+**คุณระบุ:**
+> เฉพาะ session นี้ ผมอนุญาตให้ทำต่อได้ทั้งหมดครับ ไม่ต้องรอตอนเช้า
+
+> (R-023) ใช้ private API
+
+**ผมเข้าใจว่า:**
+- **อ่านเซ็นเซอร์อุณหภูมิของ Apple Silicon** ผ่าน IOHID event system (usage page 0xff00, usage 5) ซึ่งไม่ต้องใช้ admin บนเครื่องนี้อ่านได้ 51 ตัว
+  - CPU = ค่าที่ร้อนที่สุดของ `pACC`/`eACC MTR` ถ้าไม่มีให้ใช้ `tdie` และถ้าไม่มีอีกให้ใช้ `SOC` (เลือกตัวที่ร้อนที่สุดตามหลักของฝั่ง Windows: "the hottest, because that is the one worth warning about")
+  - GPU = ร้อนสุดของ `GPU MTR`
+  - SSD ภายใน (Apple Fabric) = ร้อนสุดของ `NAND`
+  - ตัดค่าที่อยู่นอกช่วง 1–130 °C ทิ้ง (เครื่องนี้มี −22 °C)
+- **รอบการอ่าน** ใช้รอบอุณหภูมิเดิม (30–60 s) และมี backoff ถ้าอ่านช้า
+- **ถ้าอ่านไม่ได้** (เช่น macOS รุ่นหน้าปิดช่องทางนี้) แสดง `n/a` ไม่ประมาณค่า ส่วน thermal state ของระบบ (ปกติ / อุ่น / ร้อน / วิกฤต) แสดงในรายละเอียด CPU ของหน้า Full เสมอ
+- **แสดงผล:**
+  - badge ในหน้า CPU/GPU/Disk ของ widget
+  - หัวการ์ด CPU และแถว GPU/Disk ใน Overall (ใช้สีของเกณฑ์อุณหภูมิ 65/80 ไม่ใช่เกณฑ์โหลด 70/90)
+  - รายละเอียดในหน้า Full
+- **sidebar มี checkbox "อ่านอุณหภูมิจริง"** (ค่าเริ่มต้นเปิด เหมือน `cpu_temp` ฝั่ง Windows) ถ้าปิดจะไม่เรียก private API เลย
+- **ไอคอนแอป** สร้างจาก `SysMonitor.ico` ของฝั่ง Windows เพื่อให้หน้าตาเป็นผลิตภัณฑ์เดียวกัน
+- **`build-app.sh`** สร้าง `dist/SysMonitor-<version>.dmg` ที่มีลิงก์ไป Applications ให้ลากติดตั้งได้
+
+**ไม่รวม:**
+- อุณหภูมิบน Mac Intel (ต้องใช้ SMC ซึ่งไม่มีเครื่องให้ทดสอบ จึงแสดง `n/a` + thermal state) — ถ้าต้องการให้เปิดข้อใหม่
+- อุณหภูมิรายคอร์ · แบตเตอรี่ · notarization ([[R-025]])
+
+**ตรวจรับเมื่อ:**
+- [x] `swift test` ผ่าน: การเลือกค่าจากชื่อเซ็นเซอร์ (CPU/GPU/NAND, ลำดับการถอยไปใช้ตัวสำรอง, ตัดค่านอกช่วง) · อ่านเซ็นเซอร์จริงบนเครื่องนี้ได้ค่าในช่วงที่สมเหตุสมผล · ปิด checkbox แล้วไม่มีค่าอุณหภูมิ · thermal state — UI 80 + Core 51 tests ผ่าน · ข้อมูลทดสอบตัดมาจากค่าจริงของ M1 เครื่องนี้ รวมเซ็นเซอร์ที่อ่านได้ −22 °C
+- [x] `sysmon-probe` แสดงอุณหภูมิ CPU/GPU/SSD — `TEMP cpu 71°C · thermal state nominal` · `MainHDD 45°C` · `GPU Apple M1 · 59°C`
+- [x] `./build-app.sh` ได้ `.app` ที่มีไอคอน และไฟล์ `.dmg` ที่ mount แล้วเห็น SysMonitor.app กับ Applications — ตรวจด้วยการ mount แบบอ่านอย่างเดียว: มี `Applications` → /Applications, `SysMonitor.app` มี `AppIcon.icns` และ codesign ใน dmg ผ่าน · ใช้ `diskutil image create` เพราะ macOS 27 เลิกสนับสนุน `hdiutil create` (ถ้าไม่มี diskutil image จะถอยไปใช้ hdiutil) · ผมดูภาพไอคอน 1024 px แล้วตรงกับ SysMonitor.ico
+- [ ] widget/Overall/Full แสดงอุณหภูมิจริงด้วยสีตามเกณฑ์ 65/80 (คุณเปิดดูเอง)
+
+
+**ที่ผมยังไม่ได้ทดสอบ:** การแสดงอุณหภูมิบนจอจริง · ไอคอนใน Finder/Dock (แอปไม่มีไอคอนใน Dock แต่ไอคอนจะเห็นใน Finder, Launchpad และ dmg) · การลาก .app จาก dmg ไปติดตั้งใน Applications
+---
+
 ## R-018 · โมดูล RAM — แสดง Process และ Service ในหน่วยความจำ พร้อม kill/stop
 
 | | |

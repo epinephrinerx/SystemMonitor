@@ -30,6 +30,7 @@ struct Sidebar: View {
                 Heading(text: t("display_settings"), theme: theme, metrics: m)
                 check(t("show_cpu"), \.showCpu)
                 check(t("per_core"), mode: \.cpuMode, enabled: model.config.showCpu)
+                check(t("cpu_temp"), \.readTemperatures)
                 check(t("show_ram"), \.showRam)
                 check(t("show_disk"), \.showDisk)
                 check(t("per_drive"), mode: \.diskMode, enabled: model.config.showDisk)
