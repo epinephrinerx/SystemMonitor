@@ -60,6 +60,13 @@ struct ProcessControlTests {
         let stale = ProcessEntry(pid: child.processIdentifier, name: "Safari", uid: getuid(), footprint: 1)
         #expect(ProcessControl.end(stale) == .gone)
         #expect(child.isRunning)
+
+        // Same pid and name, but the list saw an earlier process.
+        var earlier = try #require(ProcessSensor.read()?.first { $0.pid == child.processIdentifier })
+        #expect(earlier.started > 0)
+        earlier.started -= 1_000_000
+        #expect(ProcessControl.end(earlier) == .gone)
+        #expect(child.isRunning)
     }
 }
 

@@ -29,6 +29,9 @@ public final class WindowManager: NSObject, WindowActions, NSMenuDelegate, NSWin
 
     private var dragStart: (origin: CGPoint, mouse: CGPoint)?
     private var resizeStart: (frame: CGRect, mouse: CGPoint)?
+    /// Views with no saved place yet. They are placed when first shown, on
+    /// the screen the user is looking at, not the main one at launch.
+    private var unplaced: Set<ViewMode> = []
 
     public init(model: AppModel) {
         self.model = model
@@ -41,6 +44,8 @@ public final class WindowManager: NSObject, WindowActions, NSMenuDelegate, NSWin
         widget.setFrame(restoredFrame(.widget), display: false)
         overall.setFrame(restoredFrame(.overall), display: false)
         full.setFrame(restoredFrame(.full), display: false)
+        if model.config.overallX == nil || model.config.overallY == nil { unplaced.insert(.overall) }
+        if model.config.fullW <= 0 { unplaced.insert(.full) }
         makeStatusItem()
 
         model.$config
@@ -103,6 +108,9 @@ public final class WindowManager: NSObject, WindowActions, NSMenuDelegate, NSWin
         // its start must not carry over to the next panel's first drag.
         dragStart = nil
         resizeStart = nil
+        if unplaced.remove(mode) != nil, let screen = current.screen?.visibleFrame {
+            panel(mode).setFrame(firstFrame(mode, on: screen), display: false)
+        }
         model.mode = mode
         let front = panel(mode)
         for other in panels where other !== front {
@@ -235,6 +243,13 @@ public final class WindowManager: NSObject, WindowActions, NSMenuDelegate, NSWin
         let saved = CGRect(origin: CGPoint(x: x, y: y), size: size)
         let screen = NSScreen.screens.first { $0.visibleFrame.intersects(saved) }?.visibleFrame ?? main
         return WindowGeometry.keepOnScreen(saved, screen)
+    }
+
+    private func firstFrame(_ mode: ViewMode, on visible: CGRect) -> CGRect {
+        if mode == .full { return fullScreenFrame(visible) }
+        let size = panel(mode).frame.size
+        return CGRect(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2,
+                      width: size.width, height: size.height)
     }
 
     /// The Full view's first size: the screen's working area, less a margin

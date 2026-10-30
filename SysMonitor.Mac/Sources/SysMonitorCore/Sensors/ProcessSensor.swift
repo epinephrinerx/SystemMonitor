@@ -14,12 +14,17 @@ public struct ProcessEntry: Sendable, Equatable {
     /// The executable, for a process this user can read; otherwise empty.
     public var path: String
 
-    public init(pid: Int32, name: String, uid: UInt32, footprint: UInt64?, path: String = "") {
+    /// When it started, in microseconds since 1970; 0 when not known. With
+    /// the pid it names one process: a pid reused by the same name differs here.
+    public var started: UInt64
+
+    public init(pid: Int32, name: String, uid: UInt32, footprint: UInt64?, path: String = "", started: UInt64 = 0) {
         self.pid = pid
         self.name = name
         self.uid = uid
         self.footprint = footprint
         self.path = path
+        self.started = started
     }
 }
 
@@ -53,7 +58,8 @@ package enum ProcessSensor {
                 name = String(cString: buffer)
             }
             result.append(ProcessEntry(pid: pid, name: name, uid: kp.kp_eproc.e_ucred.cr_uid,
-                                       footprint: footprint(pid), path: path(pid)))
+                                       footprint: footprint(pid), path: path(pid),
+                                       started: microseconds(kp.kp_proc.p_starttime)))
         }
         return result
     }
@@ -71,6 +77,19 @@ package enum ProcessSensor {
     package static func path(_ pid: Int32) -> String {
         var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
         return proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 ? String(cString: buffer) : ""
+    }
+
+    /// When the process now holding a pid started, or nil if none does.
+    package static func started(_ pid: Int32) -> UInt64? {
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        var kp = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        guard sysctl(&mib, UInt32(mib.count), &kp, &size, nil, 0) == 0, size > 0 else { return nil }
+        return microseconds(kp.kp_proc.p_starttime)
+    }
+
+    private static func microseconds(_ t: timeval) -> UInt64 {
+        UInt64(max(t.tv_sec, 0)) * 1_000_000 + UInt64(max(t.tv_usec, 0))
     }
 
     /// The current name of a pid, to check it is still the process the user
@@ -103,6 +122,9 @@ public enum ProcessControl {
     public static func end(_ p: ProcessEntry) -> EndResult {
         guard !isProtected(p) else { return .protected }
         guard ProcessSensor.name(p.pid) == p.name else { return .gone }
+        // Same name, but a later process: a confirmation left open while the
+        // shown one exited and its pid came round again.
+        if p.started != 0, ProcessSensor.started(p.pid) != p.started { return .gone }
         if kill(p.pid, SIGTERM) == 0 {
             return .sent
         }
