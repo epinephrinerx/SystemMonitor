@@ -8,5 +8,6 @@ MainActor.assumeIsolated {
     let controller = AppController()
     app.delegate = controller
     app.setActivationPolicy(.accessory)
-    app.run()
+    // The delegate is weak; nothing else keeps the controller alive.
+    withExtendedLifetime(controller) { app.run() }
 }

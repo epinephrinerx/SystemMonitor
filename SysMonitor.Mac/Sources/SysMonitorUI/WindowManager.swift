@@ -99,6 +99,10 @@ public final class WindowManager: NSObject, WindowActions, NSMenuDelegate, NSWin
     }
 
     public func show(_ mode: ViewMode) {
+        // A gesture cut short by its panel going away never reports its end;
+        // its start must not carry over to the next panel's first drag.
+        dragStart = nil
+        resizeStart = nil
         model.mode = mode
         let front = panel(mode)
         for other in panels where other !== front {
@@ -110,6 +114,8 @@ public final class WindowManager: NSObject, WindowActions, NSMenuDelegate, NSWin
 
     /// Hide everything; the menu bar item brings it back.
     public func hideAll() {
+        dragStart = nil
+        resizeStart = nil
         panels.forEach { $0.orderOut(nil) }
     }
 

@@ -126,10 +126,12 @@ public final class Sampler: @unchecked Sendable {
         }
     }
 
+    /// Does not wait: a tick stuck on a dead network mount must not hold up
+    /// quitting.
     public func stop() {
-        queue.sync {
-            timer?.cancel()
-            timer = nil
+        queue.async { [weak self] in
+            self?.timer?.cancel()
+            self?.timer = nil
         }
     }
 

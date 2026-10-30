@@ -5,7 +5,7 @@ import Testing
 
 struct ProcessSensorTests {
     @Test func listsThisProcessWithItsMemory() throws {
-        let me = try #require(ProcessSensor.read().first { $0.pid == getpid() })
+        let me = try #require(ProcessSensor.read()?.first { $0.pid == getpid() })
         #expect((me.footprint ?? 0) > 0)
         #expect(me.uid == getuid())
         #expect(!me.path.isEmpty)
@@ -13,7 +13,7 @@ struct ProcessSensorTests {
 
     @Test func launchdIsListedButNotReadable() throws {
         // The tests run as a normal user; root's processes are named, not read.
-        let launchd = try #require(ProcessSensor.read().first { $0.pid == 1 })
+        let launchd = try #require(ProcessSensor.read()?.first { $0.pid == 1 })
         #expect(launchd.name == "launchd")
         #expect(launchd.footprint == nil)
     }
@@ -41,7 +41,7 @@ struct ProcessControlTests {
         try child.run()
         defer { if child.isRunning { child.terminate() } }
 
-        let seen = try #require(ProcessSensor.read().first { $0.pid == child.processIdentifier })
+        let seen = try #require(ProcessSensor.read()?.first { $0.pid == child.processIdentifier })
         #expect(seen.name == "sleep")
         #expect(ProcessControl.end(seen) == .sent)
         child.waitUntilExit()

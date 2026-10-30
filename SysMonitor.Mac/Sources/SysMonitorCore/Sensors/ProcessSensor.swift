@@ -26,15 +26,17 @@ public struct ProcessEntry: Sendable, Equatable {
 /// Every process, from one `KERN_PROC_ALL` sysctl for the list and names, and
 /// `proc_pid_rusage` for the memory of the ones this user may read.
 package enum ProcessSensor {
-    package static func read() -> [ProcessEntry] {
+    /// Nil when the list could not be read, so the last one is kept rather
+    /// than every process vanishing for a tick.
+    package static func read() -> [ProcessEntry]? {
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
         var size = 0
-        guard sysctl(&mib, UInt32(mib.count), nil, &size, nil, 0) == 0, size > 0 else { return [] }
+        guard sysctl(&mib, UInt32(mib.count), nil, &size, nil, 0) == 0, size > 0 else { return nil }
         // Room for processes started between the two calls.
         size += size / 8
         let stride = MemoryLayout<kinfo_proc>.stride
         var procs = [kinfo_proc](repeating: kinfo_proc(), count: size / stride)
-        guard sysctl(&mib, UInt32(mib.count), &procs, &size, nil, 0) == 0 else { return [] }
+        guard sysctl(&mib, UInt32(mib.count), &procs, &size, nil, 0) == 0 else { return nil }
         let count = size / stride
 
         var result: [ProcessEntry] = []

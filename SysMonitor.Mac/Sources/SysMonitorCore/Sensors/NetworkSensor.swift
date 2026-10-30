@@ -70,6 +70,8 @@ package enum NetworkSensor {
         var mib: [Int32] = [CTL_NET, PF_ROUTE, 0, 0, NET_RT_IFLIST2, 0]
         var length = 0
         guard sysctl(&mib, UInt32(mib.count), nil, &length, nil, 0) == 0, length > 0 else { return [:] }
+        // Room for an interface that appears between the two calls.
+        length += length / 8
         var buffer = [UInt8](repeating: 0, count: length)
         guard sysctl(&mib, UInt32(mib.count), &buffer, &length, nil, 0) == 0 else { return [:] }
 

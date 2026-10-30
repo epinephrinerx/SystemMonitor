@@ -87,7 +87,9 @@ package enum TemperatureSensor {
             let service = OpaquePointer(Unmanaged.passUnretained(object).toOpaque())
             guard let name = copyProperty(service, "Product" as CFString)?.takeRetainedValue() as? String,
                   let event = copyEvent(service, temperatureEvent, 0, 0)?.takeRetainedValue() else { continue }
-            let value = floatValue(OpaquePointer(Unmanaged.passUnretained(event).toOpaque()), temperatureField)
+            let value = withExtendedLifetime(event) {
+                floatValue(OpaquePointer(Unmanaged.passUnretained(event).toOpaque()), temperatureField)
+            }
             result.append((name, value))
         }
         return result

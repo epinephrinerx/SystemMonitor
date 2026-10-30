@@ -41,11 +41,18 @@ struct TempBadge: View {
         .padding(.vertical, metrics.len(1))
         .background(Palette.tempBadge(celsius, theme).color, in: RoundedRectangle(cornerRadius: metrics.len(6)))
         .opacity(hot && dim ? 0.35 : 1)
-        .onAppear {
-            guard hot else { return }
-            withAnimation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true)) { dim = true }
-        }
+        .onAppear { pulse(hot) }
+        .onChange(of: hot) { pulse($0) }
         .fixedSize()
+    }
+
+    /// Pulse while hot, whenever it became hot, and stop when it cools.
+    private func pulse(_ hot: Bool) {
+        if hot {
+            withAnimation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true)) { dim = true }
+        } else {
+            withAnimation(.default) { dim = false }
+        }
     }
 }
 
@@ -103,8 +110,13 @@ struct ResizeBands: View {
         Color.clear
             .frame(width: width, height: height)
             .contentShape(Rectangle())
-            .onHover { inside in
-                if inside { Self.cursor(edges).push() } else { NSCursor.pop() }
+            // Set, not push and pop: overlapping bands and a panel hidden
+            // under the pointer leave a push without its pop.
+            .onContinuousHover { phase in
+                switch phase {
+                case .active: Self.cursor(edges).set()
+                case .ended: NSCursor.arrow.set()
+                }
             }
             .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .global)
                 .onChanged { _ in actions?.resizeChanged(edges) }
@@ -135,10 +147,12 @@ struct WindowDrag: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            // One gesture, so controls' own gestures win: a double click on a
+            // button, a row or selectable text stays theirs.
             .gesture(DragGesture(minimumDistance: 4, coordinateSpace: .global)
                 .onChanged { _ in actions?.dragChanged() }
-                .onEnded { _ in actions?.dragEnded() })
-            .simultaneousGesture(TapGesture(count: 2).onEnded(onDoubleClick))
+                .onEnded { _ in actions?.dragEnded() }
+                .simultaneously(with: TapGesture(count: 2).onEnded(onDoubleClick)))
     }
 }
 

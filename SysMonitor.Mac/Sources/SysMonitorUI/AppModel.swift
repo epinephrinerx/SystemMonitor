@@ -110,8 +110,9 @@ public final class AppModel: ObservableObject {
     }
 
     public func rotateIfDue(now: Date = Date()) {
-        guard mode == .widget, !paused, pages.count > 1,
-              now.timeIntervalSince(lastStep) >= Self.rotateEvery else { return }
+        // The cheap checks first: building the pages walks every process.
+        guard mode == .widget, !paused, now.timeIntervalSince(lastStep) >= Self.rotateEvery,
+              pages.count > 1 else { return }
         step(1)
         lastStep = now
     }

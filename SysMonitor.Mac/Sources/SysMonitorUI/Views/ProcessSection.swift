@@ -85,10 +85,12 @@ struct ProcessSection: View {
             Text(group.readable ? ProcessGroups.megabytes(group.megabytes) : t("no_access"))
                 .font(.system(size: m.type(Metrics.Font.body)).monospacedDigit())
                 .foregroundStyle(group.readable ? theme.text.color : theme.label.color)
-            endButton(group.members.filter { !ProcessControl.isProtected($0) },
-                      question: group.members.count > 1
-                          ? t("end_group_q", group.name, String(group.members.count))
-                          : t("end_pid_q", group.name, String(group.members[0].pid)),
+            // The question counts what will be ended, not the protected too.
+            let targets = group.members.filter { !ProcessControl.isProtected($0) }
+            endButton(targets,
+                      question: targets.count > 1
+                          ? t("end_group_q", group.name, String(targets.count))
+                          : t("end_pid_q", group.name, String(targets.first?.pid ?? group.members[0].pid)),
                       help: t(group.members.count > 1 ? "end_group" : "end_process"), m, t)
         }
         .padding(.vertical, m.len(4))

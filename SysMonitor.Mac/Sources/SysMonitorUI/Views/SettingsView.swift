@@ -55,6 +55,11 @@ public struct SettingsView: View {
         .background(theme.panel.color)
         .environment(\.colorScheme, model.config.isDark ? .dark : .light)
         .onAppear { login.refresh() }
+        // The window is reused, so appearing happens once; approval in System
+        // Settings shows up when the user comes back to it.
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+            login.refresh()
+        }
     }
 
     private func choice(_ selection: Binding<String>, _ options: [(String, String)], _ m: Metrics) -> some View {
