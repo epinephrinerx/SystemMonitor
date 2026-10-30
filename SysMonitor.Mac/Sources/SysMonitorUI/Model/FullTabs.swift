@@ -12,6 +12,8 @@ public enum ChartUnit: Equatable, Sendable {
     case percent
     /// No ceiling: the graph scales to its own peak and says what that is.
     case megabytesPerSecond
+    /// Memory, scaled to its own peak like a rate.
+    case megabytes
 }
 
 /// One line on a graph: which history, what to call it, what colour.
@@ -96,7 +98,7 @@ public enum FullTabs {
             Fact(name: t("app_memory"), value: "\(Format.gb(r.appGb)) GB"),
             Fact(name: t("wired_memory"), value: "\(Format.gb(r.wiredGb)) GB"),
             Fact(name: t("compressed"), value: "\(Format.gb(r.compressedGb)) GB"),
-            Fact(name: t("swap"), value: "\(Format.gb(r.swapUsedGb)) / \(Format.gb(r.swapTotalGb)) GB"),
+            Fact(name: t("swap_label"), value: "\(Format.gb(r.swapUsedGb)) / \(Format.gb(r.swapTotalGb)) GB"),
             Fact(name: t("pressure"), value: t("pressure_\(r.pressure.rawValue)")),
         ]
         return FullTab(
@@ -227,6 +229,7 @@ public enum ChartMath {
         switch unit {
         case .percent: return 100
         case .megabytesPerSecond: return max(peak, minimumRate)
+        case .megabytes: return max(peak, 1)
         }
     }
 
@@ -234,6 +237,7 @@ public enum ChartMath {
         switch unit {
         case .percent: return "100%"
         case .megabytesPerSecond: return "\(Format.rate(ceiling(unit, peak: peak))) MB/s"
+        case .megabytes: return ProcessGroups.megabytes(ceiling(unit, peak: peak))
         }
     }
 

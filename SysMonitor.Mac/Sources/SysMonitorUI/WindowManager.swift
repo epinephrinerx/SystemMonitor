@@ -273,6 +273,27 @@ public final class WindowManager: NSObject, WindowActions, NSMenuDelegate, NSWin
         }
     }
 
+    // MARK: Asking
+
+    public func confirm(_ message: String, detail: String, action: String) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.informativeText = detail
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: action)
+        alert.addButton(withTitle: model.strings("cancel"))
+        // The question goes in front of the panel that asked it.
+        NSApp.activate(ignoringOtherApps: true)
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    public func inform(_ message: String) {
+        let alert = NSAlert()
+        alert.messageText = message
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
+    }
+
     // MARK: Menu bar
 
     /// The app has no Dock icon, so this is how a hidden widget comes back and

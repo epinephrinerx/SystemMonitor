@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import Foundation
 import SwiftUI
 import SysMonitorCore
@@ -187,6 +188,37 @@ struct ChartRenderTests {
         let image = try render(chart(80, points: 1), CGSize(width: 300, height: 130))
         #expect(count(tint, in: image) == 0)
         #expect(count(Theme.light.barEmpty, in: image) > 100)
+    }
+
+    @Test func memoryTabListsProcessesAndAgents() throws {
+        var c = AppConfig()
+        c.fullTab = "ram"
+        let model = AppModel(config: c)
+        var s = sampleSnapshot()
+        let mb: UInt64 = 1_048_576
+        s.processes = [
+            ProcessEntry(pid: 100, name: "Browser Helper", uid: getuid(), footprint: 300 * mb),
+            ProcessEntry(pid: 101, name: "Browser Helper", uid: getuid(), footprint: 500 * mb),
+            ProcessEntry(pid: 102, name: "Editor", uid: getuid(), footprint: 600 * mb),
+            ProcessEntry(pid: 1, name: "launchd", uid: 0, footprint: nil),
+        ]
+        var agent = LaunchAgent(label: "com.example.helper", file: "/x.plist")
+        agent.program = "/Applications/Example.app/Contents/MacOS/helper"
+        agent.runAtLoad = true
+        s.launchAgents = [agent]
+        model.pickedProcess = "Editor"
+        model.expandedProcesses = ["Browser Helper"]
+        for _ in 0..<20 { model.receive(s) }
+
+        var view = FullView(model: model, actions: nil)
+        view.scrollable = false
+        let image = try render(view, CGSize(width: 900, height: 1100))
+        if let dir = ProcessInfo.processInfo.environment["SYSMON_RENDER_DIR"] {
+            let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])
+            try? png?.write(to: URL(fileURLWithPath: dir).appendingPathComponent("full-memory.png"))
+        }
+        // The RAM graph and the picked process's graph are both purple.
+        #expect(count(Accent.ram.rgb, in: image) > 300)
     }
 
     @Test(arguments: [false, true])

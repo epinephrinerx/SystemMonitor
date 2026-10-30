@@ -10,7 +10,7 @@ Same rule as the Windows build: **no package dependencies.** Everything comes
 from the system frameworks -- Darwin/Mach, IOKit, SystemConfiguration, and
 SwiftUI/AppKit from phase 2.
 
-Plan and decisions: `Requirements.md`, R-020 to R-028.
+Plan and decisions: `Requirements.md`, R-020 to R-029.
 
 ## Status
 
@@ -23,6 +23,9 @@ Plan and decisions: `Requirements.md`, R-020 to R-028.
 - Phase 3 (R-028): the Full view. A rail of devices down the left, each with
   its facts and history graphs; three minutes of history kept for every
   series whatever view is showing.
+- Phase 4 (R-029): the Memory tab's process list -- grouped by name, searchable,
+  with SIGTERM behind a confirmation -- the user's LaunchAgents, read only, and
+  Open at login through `SMAppService`.
 
 ## Building
 
@@ -150,3 +153,20 @@ drawing.
 dictionary literal with a repeated key. `wired` meant both Ethernet and wired
 memory for one build; the compiler warned, and the memory one is now
 `wired_memory`. Treat that warning as an error.
+
+**Only this user's processes can be read.** `proc_pid_rusage` refuses root's
+and other users' processes to a normal user -- 194 of 552 on the development
+machine. They are listed by name from `KERN_PROC_ALL`, marked as unreadable,
+and padlocked. There is no elevation: macOS has no one-job equivalent of the
+Windows build's UAC copy without installing a privileged helper.
+
+**A pid is checked again before it is ended.** Pids are reused, so the name
+is read once more at the moment of `kill` and the process is left alone if it
+no longer matches what the user was shown. SIGTERM, never SIGKILL.
+
+**LaunchAgents are read from their plists, not from `launchctl`.** No
+subprocess, and nothing that could change launchd's state. Running means a
+process whose executable path is the agent's program.
+
+**Open at login lives in the system, not the config.** The user can switch it
+off in System Settings, and a copy in our config would then be wrong.

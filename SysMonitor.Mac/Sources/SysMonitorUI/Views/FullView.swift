@@ -107,6 +107,9 @@ public struct FullView: View {
                 }
             }
             FactsBox(facts: tab.facts, theme: theme, metrics: m)
+            if tab.id == "ram" {
+                ProcessSection(model: model, actions: actions, theme: theme, metrics: m)
+            }
         }
         .padding(.trailing, m.len(4))
         .padding(.bottom, m.len(8))

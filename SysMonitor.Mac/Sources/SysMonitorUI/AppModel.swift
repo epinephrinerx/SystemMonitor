@@ -32,6 +32,9 @@ public protocol WindowActions: AnyObject {
     func resetSize()
     func openSettings()
     func openStorageSettings()
+    /// Ask before doing something that cannot be undone.
+    func confirm(_ message: String, detail: String, action: String) -> Bool
+    func inform(_ message: String)
 }
 
 /// The state every view draws from: settings, the latest snapshot, and where
@@ -60,6 +63,12 @@ public final class AppModel: ObservableObject {
     public let histories = HistoryStore()
     @Published public private(set) var historyRevision = 0
 
+    /// The Memory tab's process list: what is typed in its search box, which
+    /// groups are open, which one is graphed.
+    @Published public var processFilter = ""
+    @Published public var expandedProcesses = Set<String>()
+    @Published public var pickedProcess: String?
+
     private let store: ConfigStore?
     private let tracker = DiskAlertTracker()
     private var saveWork: DispatchWorkItem?
@@ -75,7 +84,7 @@ public final class AppModel: ObservableObject {
 
     public func receive(_ snapshot: Snapshot) {
         self.snapshot = snapshot
-        histories.push(snapshot)
+        histories.push(snapshot, alsoProcess: pickedProcess)
         historyRevision &+= 1
         tracker.update(snapshot.disks.map { ($0.id, $0.usage, !$0.isNetwork) })
         if tracker.pending != alerts {
@@ -105,6 +114,25 @@ public final class AppModel: ObservableObject {
               now.timeIntervalSince(lastStep) >= Self.rotateEvery else { return }
         step(1)
         lastStep = now
+    }
+
+    /// End processes, returning what could not be ended and why.
+    public func end(_ processes: [ProcessEntry]) -> [(ProcessEntry, EndResult)] {
+        let failures = processes.map { ($0, ProcessControl.end($0)) }.filter { $0.1 != .sent }
+        Diag.write("End \(processes.map { "\($0.name)[\($0.pid)]" }.joined(separator: ", ")): "
+            + (failures.isEmpty ? "sent" : "\(failures.count) not ended"))
+        return failures
+    }
+
+    public func reason(_ result: EndResult) -> String {
+        let t = strings
+        switch result {
+        case .sent: return ""
+        case .protected: return t("reason_protected")
+        case .notPermitted: return t("reason_not_permitted")
+        case .gone: return t("reason_gone")
+        case .failed(let code): return t("reason_failed", String(code))
+        }
     }
 
     public func dismissAlert(_ id: String) {

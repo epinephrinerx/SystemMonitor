@@ -19,9 +19,11 @@ public final class HistoryStore {
 
     /// Add this snapshot's values. A device that has gone takes its history
     /// with it; one that comes back starts again from empty.
-    public func push(_ s: Snapshot) {
+    /// `alsoProcess` is a process group the user picked, kept alongside the
+    /// five largest.
+    public func push(_ s: Snapshot, alsoProcess: String? = nil) {
         guard s.ready else { return }
-        let values = Self.values(s)
+        let values = Self.values(s) + Self.processValues(s, alsoProcess)
         for (key, value) in values {
             let history = series[key] ?? {
                 let new = History(capacity: Self.points)
@@ -59,6 +61,20 @@ public final class HistoryStore {
             values.append((Key.up(a.id), a.upMb))
         }
         return values
+    }
+
+    /// Memory in MB for the five largest process groups and the picked one.
+    /// Only these: a series for each of hundreds of processes would be most
+    /// of the app's own memory.
+    static func processValues(_ s: Snapshot, _ picked: String?) -> [(key: String, value: Double)] {
+        guard !s.processes.isEmpty else { return [] }
+        let groups = ProcessGroups.build(s.processes)
+        var chosen = Array(groups.prefix(5))
+        if let picked, !chosen.contains(where: { $0.name == picked }),
+           let group = groups.first(where: { $0.name == picked }) {
+            chosen.append(group)
+        }
+        return chosen.map { (ProcessGroups.historyKey($0.name), $0.megabytes) }
     }
 
     public enum Key {

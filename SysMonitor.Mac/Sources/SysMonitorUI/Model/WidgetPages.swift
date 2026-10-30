@@ -82,7 +82,8 @@ public enum WidgetPages {
             let r = s.ram
             pages.append(WidgetPage(kind: .ram, title: t("memory"), headline: r.usage,
                                     bars: [WidgetBar(label: "", percent: r.usage, accent: .ram)],
-                                    detail: "\(Format.gb(r.usedGb)) / \(Format.gb(r.totalGb)) GB \(t("in_use"))",
+                                    detail: "\(Format.gb(r.usedGb)) / \(Format.gb(r.totalGb)) GB \(t("in_use"))"
+                                        + (ProcessGroups.topLine(s.processes, t).map { "  ·  \($0)" } ?? ""),
                                     temp: .reading(nil)))
         }
 

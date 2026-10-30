@@ -17,6 +17,12 @@ public struct Snapshot: Sendable {
     /// Every graphics processor whose statistics could be read.
     public var gpus: [Gpu] = []
 
+    /// Every process, refreshed every few seconds rather than every tick.
+    public var processes: [ProcessEntry] = []
+
+    /// The user's LaunchAgents, refreshed on the slow cadence.
+    public var launchAgents: [LaunchAgent] = []
+
     /// Nil until a real sensor is read. Never estimated from load (R-023).
     public var cpuTemp: Int?
 

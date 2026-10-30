@@ -48,6 +48,9 @@ public final class Sampler: @unchecked Sendable {
     private static let slowProbeMs: UInt64 = 250
     private static let slowBackoffMs: UInt64 = 5 * 60 * 1000
     private static let hardwareEveryMs: UInt64 = 60 * 1000
+    /// The process list is a few hundred syscalls; every few seconds is
+    /// plenty for a list people read rather than watch.
+    private static let processesEveryMs: UInt64 = 3 * 1000
 
     private let queue = DispatchQueue(label: "SysMonitor.Sampler", qos: .utility)
     private let lock = NSLock()
@@ -64,6 +67,9 @@ public final class Sampler: @unchecked Sendable {
     private var devices: [String: PhysicalDevice] = [:]
     private var noDevice = Set<String>()
     private var adapters: [NetworkSensor.Hardware] = []
+    private var processes: [ProcessEntry] = []
+    private var launchAgents: [LaunchAgent] = []
+    private var nextProcesses: UInt64 = 0
     private var cpuInfo = CpuInfo()
     private var nextSpace: UInt64 = 0
     private var nextHardware: UInt64 = 0
@@ -137,6 +143,7 @@ public final class Sampler: @unchecked Sendable {
                 cpuInfo = CpuSensor.info()
             }
             adapters = guarded("network-hardware", budgetMs: 2000) { NetworkSensor.hardware() } ?? adapters
+            launchAgents = guarded("launch-agents", budgetMs: 1000) { LaunchAgents.read() } ?? launchAgents
             nextHardware = now + Self.hardwareEveryMs
         }
         if now >= nextSpace || volumes.isEmpty {
@@ -166,6 +173,12 @@ public final class Sampler: @unchecked Sendable {
         snapshot.disks = disksWithRates()
         snapshot.gpus = guarded("gpu", { GpuSensor.read() }) ?? []
         snapshot.adapters = connectedAdapters()
+        if now >= nextProcesses {
+            processes = guarded("processes", budgetMs: 2000) { ProcessSensor.read() } ?? processes
+            nextProcesses = now + Self.processesEveryMs
+        }
+        snapshot.processes = processes
+        snapshot.launchAgents = launchAgents
 
         lock.withLock { published = snapshot }
         onPublish?(snapshot)

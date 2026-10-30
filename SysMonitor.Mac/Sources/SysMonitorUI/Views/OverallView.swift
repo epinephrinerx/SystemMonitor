@@ -101,7 +101,7 @@ public struct OverallView: View {
         if c.showRam {
             let r = s.ram
             let swap = r.swapTotalGb > 0 ? "  ·  \(t("swap")) \(Format.gb(r.swapUsedGb)) / \(Format.gb(r.swapTotalGb)) GB" : ""
-            Card(title: t("memory"), note: "", theme: theme, metrics: m) {
+            Card(title: t("memory"), note: ProcessGroups.topLine(s.processes, t) ?? "", theme: theme, metrics: m) {
                 MeterRow(title: t("memory"), percent: r.usage, accent: .ram,
                          detail: "\(Format.gb(r.usedGb)) / \(Format.gb(r.totalGb)) GB  \(t("in_use"))\(swap)",
                          temp: .reading(nil), theme: theme, metrics: m)
