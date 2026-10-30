@@ -38,6 +38,12 @@ public struct AppConfig: Codable, Equatable, Sendable {
     public var overallY: Double?
     public var overallW = 630.0
     public var overallH = 480.0
+    /// Zero until the Full view has been opened: it then fills the screen.
+    public var fullX: Double?
+    public var fullY: Double?
+    public var fullW = 0.0
+    public var fullH = 0.0
+    public var fullTab = ""
 
     public static let widgetSize = CGSize(width: 270, height: 104)
     public static let widgetMin = CGSize(width: 200, height: 64)
@@ -45,6 +51,8 @@ public struct AppConfig: Codable, Equatable, Sendable {
     public static let overallSize = CGSize(width: 630, height: 480)
     public static let overallMin = CGSize(width: 470, height: 300)
     public static let overallMax = CGSize(width: 4000, height: 3000)
+    public static let fullMin = CGSize(width: 640, height: 480)
+    public static let fullMax = CGSize(width: 8000, height: 5000)
 
     public init() {}
 
@@ -79,6 +87,11 @@ public struct AppConfig: Codable, Equatable, Sendable {
         overallY = read(.overallY, d.overallY)
         overallW = read(.overallW, d.overallW)
         overallH = read(.overallH, d.overallH)
+        fullX = read(.fullX, d.fullX)
+        fullY = read(.fullY, d.fullY)
+        fullW = read(.fullW, d.fullW)
+        fullH = read(.fullH, d.fullH)
+        fullTab = read(.fullTab, d.fullTab)
         normalize()
     }
 
@@ -102,7 +115,11 @@ public struct AppConfig: Codable, Equatable, Sendable {
         widgetH = Self.clamp(widgetH, Self.widgetMin.height, Self.widgetMax.height, d.widgetH)
         overallW = Self.clamp(overallW, Self.overallMin.width, Self.overallMax.width, d.overallW)
         overallH = Self.clamp(overallH, Self.overallMin.height, Self.overallMax.height, d.overallH)
-        for keyPath in [\AppConfig.widgetX, \.widgetY, \.overallX, \.overallY] where !(self[keyPath: keyPath]?.isFinite ?? true) {
+        if fullW != 0 || fullH != 0 {
+            fullW = Self.clamp(fullW, Self.fullMin.width, Self.fullMax.width, d.fullW)
+            fullH = Self.clamp(fullH, Self.fullMin.height, Self.fullMax.height, d.fullH)
+        }
+        for keyPath in [\AppConfig.widgetX, \.widgetY, \.overallX, \.overallY, \.fullX, \.fullY] where !(self[keyPath: keyPath]?.isFinite ?? true) {
             self[keyPath: keyPath] = nil
         }
     }

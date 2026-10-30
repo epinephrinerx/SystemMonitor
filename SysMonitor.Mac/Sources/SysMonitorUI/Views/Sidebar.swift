@@ -17,6 +17,9 @@ struct Sidebar: View {
 
         Scrolling(enabled: scrollable) {
             VStack(alignment: .leading, spacing: m.len(6)) {
+                NavButton(systemName: "chart.xyaxis.line", title: t("full_data"), metrics: m) {
+                    actions?.show(.full)
+                }
                 NavButton(systemName: "rectangle.compress.vertical", title: t("open_widget"), metrics: m) {
                     actions?.show(.widget)
                 }

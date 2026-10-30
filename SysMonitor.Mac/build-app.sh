@@ -7,7 +7,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-VERSION="0.2.0"
+VERSION="0.3.0"
 BUNDLE_ID="io.github.epinephrinerx.sysmonitor"
 APP="dist/SysMonitor.app"
 ARCHS=(--arch arm64 --arch x86_64)

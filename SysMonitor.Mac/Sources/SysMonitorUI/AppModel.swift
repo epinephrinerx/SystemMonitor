@@ -2,7 +2,21 @@ import Foundation
 import SysMonitorCore
 
 public enum ViewMode: String, Sendable {
-    case widget, overall
+    case widget, overall, full
+
+    /// Double-click goes round: widget, Overall, Full, widget.
+    public var next: ViewMode {
+        switch self {
+        case .widget: return .overall
+        case .overall: return .full
+        case .full: return .widget
+        }
+    }
+
+    /// Escape steps back one: Full to Overall, anything else to the widget.
+    public var back: ViewMode {
+        self == .full ? .overall : .widget
+    }
 }
 
 /// What the windows do, as the views see it. The window manager implements
@@ -42,6 +56,10 @@ public final class AppModel: ObservableObject {
     /// saved: a widget that starts frozen looks broken (R-006).
     @Published public var paused = false
 
+    /// Every graph's history, kept whatever view is showing.
+    public let histories = HistoryStore()
+    @Published public private(set) var historyRevision = 0
+
     private let store: ConfigStore?
     private let tracker = DiskAlertTracker()
     private var saveWork: DispatchWorkItem?
@@ -57,6 +75,8 @@ public final class AppModel: ObservableObject {
 
     public func receive(_ snapshot: Snapshot) {
         self.snapshot = snapshot
+        histories.push(snapshot)
+        historyRevision &+= 1
         tracker.update(snapshot.disks.map { ($0.id, $0.usage, !$0.isNetwork) })
         if tracker.pending != alerts {
             alerts = tracker.pending

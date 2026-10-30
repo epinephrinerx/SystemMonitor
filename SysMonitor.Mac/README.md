@@ -10,7 +10,7 @@ Same rule as the Windows build: **no package dependencies.** Everything comes
 from the system frameworks -- Darwin/Mach, IOKit, SystemConfiguration, and
 SwiftUI/AppKit from phase 2.
 
-Plan and decisions: `Requirements.md`, R-020 to R-026.
+Plan and decisions: `Requirements.md`, R-020 to R-028.
 
 ## Status
 
@@ -18,6 +18,11 @@ Plan and decisions: `Requirements.md`, R-020 to R-026.
   prints what the sampler sees.
 - Phase 2 (R-026): the mini widget, the Overall view with its sidebar, the
   Settings window, the menu bar item, config and log, and `build-app.sh`.
+- GPU (R-027): `IOAccelerator` statistics -- device, renderer and tiler use and
+  memory in use -- on the widget, the Overall view and the Full view.
+- Phase 3 (R-028): the Full view. A rail of devices down the left, each with
+  its facts and history graphs; three minutes of history kept for every
+  series whatever view is showing.
 
 ## Building
 
@@ -129,3 +134,19 @@ SYSMON_RENDER_DIR=/tmp/renders swift test --filter RenderTests
 **The light theme's sidebar and card colours are five levels apart.** A pixel
 test with a looser tolerance counted the sidebar as cards and passed with no
 cards drawn at all.
+
+**History is pushed on every snapshot, whatever view is open.** Opening the
+Full view shows the last three minutes rather than an empty box. A device that
+disappears takes its history with it, so an ejected drive does not leave a
+series growing nowhere.
+
+**Graphs are one `Canvas` each.** Seventy-two points as seventy-two views would
+cost more than the rest of the window. The canvas reads `History` objects that
+do not change identity, so each chart is also handed the model's
+`historyRevision`; without it SwiftUI sees nothing new and keeps the old
+drawing.
+
+**A string table with a duplicated key crashes at launch.** Swift traps on a
+dictionary literal with a repeated key. `wired` meant both Ethernet and wired
+memory for one build; the compiler warned, and the memory one is now
+`wired_memory`. Treat that warning as an error.

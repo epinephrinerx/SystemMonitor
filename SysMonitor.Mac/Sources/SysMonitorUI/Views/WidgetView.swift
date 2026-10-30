@@ -41,7 +41,7 @@ public struct WidgetView: View {
                 ResizeBands(actions: actions)
             }
             .contentShape(Rectangle())
-            .windowDrag(actions) { actions?.show(.overall) }
+            .windowDrag(actions) { actions?.show(ViewMode.widget.next) }
             .onHover { hovering = $0 }
             .contextMenu { WindowMenu(model: model, actions: actions) }
         }
@@ -152,9 +152,13 @@ struct WindowMenu: View {
 
     var body: some View {
         let t = model.strings
-        if model.mode == .widget {
+        if model.mode != .full {
+            Button(t("full_data")) { actions?.show(.full) }
+        }
+        if model.mode != .overall {
             Button(t("show_overall")) { actions?.show(.overall) }
-        } else {
+        }
+        if model.mode != .widget {
             Button(t("collapse")) { actions?.show(.widget) }
         }
         Button(t("settings")) { actions?.openSettings() }

@@ -15,13 +15,14 @@ final class SysPanel: NSPanel {
     }
 }
 
-/// Owns the widget and Overall panels, the menu bar item and the Settings
+/// Owns the widget, Overall and Full panels, the menu bar item and the Settings
 /// window, and does what the views ask of them.
 @MainActor
 public final class WindowManager: NSObject, WindowActions, NSMenuDelegate, NSWindowDelegate {
     private let model: AppModel
     private var widget: SysPanel!
     private var overall: SysPanel!
+    private var full: SysPanel!
     private var settings: NSWindow?
     private var statusItem: NSStatusItem?
     private var observers = Set<AnyCancellable>()
@@ -36,8 +37,10 @@ public final class WindowManager: NSObject, WindowActions, NSMenuDelegate, NSWin
     public func start() {
         widget = makePanel(WidgetView(model: model, actions: self))
         overall = makePanel(OverallView(model: model, actions: self))
+        full = makePanel(FullView(model: model, actions: self))
         widget.setFrame(restoredFrame(.widget), display: false)
         overall.setFrame(restoredFrame(.overall), display: false)
+        full.setFrame(restoredFrame(.full), display: false)
         makeStatusItem()
 
         model.$config
@@ -59,7 +62,10 @@ public final class WindowManager: NSObject, WindowActions, NSMenuDelegate, NSWin
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.onCancel = { [weak self] in self?.show(.widget) }
+        panel.onCancel = { [weak self] in
+            guard let self else { return }
+            show(model.mode.back)
+        }
 
         let host = NSHostingView(rootView: root)
         // Without this the hosting view sizes the window to the content's
@@ -69,32 +75,42 @@ public final class WindowManager: NSObject, WindowActions, NSMenuDelegate, NSWin
         return panel
     }
 
-    private var current: SysPanel { model.mode == .widget ? widget : overall }
+    private func panel(_ mode: ViewMode) -> SysPanel {
+        switch mode {
+        case .widget: return widget
+        case .overall: return overall
+        case .full: return full
+        }
+    }
+
+    private var current: SysPanel { panel(model.mode) }
+    private var panels: [SysPanel] { [widget, overall, full] }
 
     private func apply(_ config: AppConfig) {
         let appearance = NSAppearance(named: config.isDark ? .darkAqua : .aqua)
-        for window in [widget, overall, settings].compactMap({ $0 }) {
+        for window in panels + [settings].compactMap({ $0 }) {
             window.appearance = appearance
         }
         let level: NSWindow.Level = config.alwaysOnTop ? .floating : .normal
-        widget.level = level
-        overall.level = level
-        widget.invalidateShadow()
-        overall.invalidateShadow()
+        for panel in panels {
+            panel.level = level
+            panel.invalidateShadow()
+        }
     }
 
     public func show(_ mode: ViewMode) {
         model.mode = mode
-        let (front, back) = mode == .widget ? (widget!, overall!) : (overall!, widget!)
-        back.orderOut(nil)
+        let front = panel(mode)
+        for other in panels where other !== front {
+            other.orderOut(nil)
+        }
         front.orderFrontRegardless()
         front.makeKey()
     }
 
     /// Hide everything; the menu bar item brings it back.
     public func hideAll() {
-        widget.orderOut(nil)
-        overall.orderOut(nil)
+        panels.forEach { $0.orderOut(nil) }
     }
 
     public func closePressed() {
@@ -133,14 +149,18 @@ public final class WindowManager: NSObject, WindowActions, NSMenuDelegate, NSWin
         guard let start = resizeStart else { return }
         let delta = CGVector(dx: mouse.x - start.mouse.x, dy: mouse.y - start.mouse.y)
         let frame: CGRect
-        if model.mode == .widget {
+        switch model.mode {
+        case .widget:
             let visible = current.screen?.visibleFrame ?? start.frame
             frame = WindowGeometry.resizeProportional(origin: start.frame, edges: edges, delta: delta,
                                                       min: AppConfig.widgetMin, max: AppConfig.widgetMax,
                                                       visible: visible)
-        } else {
+        case .overall:
             frame = WindowGeometry.resizeFree(origin: start.frame, edges: edges, delta: delta,
                                               min: AppConfig.overallMin, max: AppConfig.overallMax)
+        case .full:
+            frame = WindowGeometry.resizeFree(origin: start.frame, edges: edges, delta: delta,
+                                              min: AppConfig.fullMin, max: AppConfig.fullMax)
         }
         current.setFrame(frame, display: true)
     }
@@ -152,6 +172,12 @@ public final class WindowManager: NSObject, WindowActions, NSMenuDelegate, NSWin
     }
 
     public func resetSize() {
+        if model.mode == .full {
+            current.setFrame(fullScreenFrame(current.screen?.visibleFrame), display: true)
+            current.invalidateShadow()
+            remember()
+            return
+        }
         let size = model.mode == .widget ? AppConfig.widgetSize : AppConfig.overallSize
         let frame = current.frame
         // Keep the top-left corner where it is.
@@ -165,15 +191,28 @@ public final class WindowManager: NSObject, WindowActions, NSMenuDelegate, NSWin
     /// together: half of one is a window that jumps on the next start.
     public func remember() {
         var c = model.config
-        let w = widget.frame, o = overall.frame
+        let w = widget.frame, o = overall.frame, f = full.frame
         c.widgetX = w.minX; c.widgetY = w.minY; c.widgetW = w.width; c.widgetH = w.height
         c.overallX = o.minX; c.overallY = o.minY; c.overallW = o.width; c.overallH = o.height
+        // The Full view keeps "never opened" until it has been, so its first
+        // opening fills the screen it opens on.
+        if model.mode == .full || c.fullW > 0 {
+            c.fullX = f.minX; c.fullY = f.minY; c.fullW = f.width; c.fullH = f.height
+        }
         model.config = c
     }
 
     private func restoredFrame(_ mode: ViewMode) -> CGRect {
         let c = model.config
         let main = NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
+        if mode == .full {
+            guard c.fullW > 0, c.fullH > 0, let x = c.fullX, let y = c.fullY else {
+                return fullScreenFrame(main)
+            }
+            let saved = CGRect(x: x, y: y, width: c.fullW, height: c.fullH)
+            let screen = NSScreen.screens.first { $0.visibleFrame.intersects(saved) }?.visibleFrame ?? main
+            return WindowGeometry.keepOnScreen(saved, screen)
+        }
         let size = mode == .widget ? CGSize(width: c.widgetW, height: c.widgetH)
                                    : CGSize(width: c.overallW, height: c.overallH)
         let x = mode == .widget ? c.widgetX : c.overallX
@@ -190,6 +229,13 @@ public final class WindowManager: NSObject, WindowActions, NSMenuDelegate, NSWin
         let saved = CGRect(origin: CGPoint(x: x, y: y), size: size)
         let screen = NSScreen.screens.first { $0.visibleFrame.intersects(saved) }?.visibleFrame ?? main
         return WindowGeometry.keepOnScreen(saved, screen)
+    }
+
+    /// The Full view's first size: the screen's working area, less a margin
+    /// so it reads as a window rather than a takeover.
+    private func fullScreenFrame(_ visible: CGRect?) -> CGRect {
+        let area = visible ?? NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
+        return area.insetBy(dx: 12, dy: 12)
     }
 
     // MARK: Settings and Storage
@@ -246,6 +292,7 @@ public final class WindowManager: NSObject, WindowActions, NSMenuDelegate, NSWin
         menu.removeAllItems()
         menu.addItem(withTitle: t("show_widget"), action: #selector(menuShowWidget), keyEquivalent: "").target = self
         menu.addItem(withTitle: t("show_overall"), action: #selector(menuShowOverall), keyEquivalent: "").target = self
+        menu.addItem(withTitle: t("full_data"), action: #selector(menuShowFull), keyEquivalent: "").target = self
         menu.addItem(withTitle: t("settings") + "…", action: #selector(menuSettings), keyEquivalent: ",").target = self
         menu.addItem(.separator())
         // Quit always quits, whatever the close button is set to do (R-005).
@@ -261,6 +308,7 @@ public final class WindowManager: NSObject, WindowActions, NSMenuDelegate, NSWin
 
     @objc private func menuShowWidget() { show(.widget) }
     @objc private func menuShowOverall() { show(.overall) }
+    @objc private func menuShowFull() { show(.full) }
     @objc private func menuSettings() { openSettings() }
     @objc private func menuQuit() { NSApp.terminate(nil) }
 }

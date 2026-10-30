@@ -35,7 +35,7 @@ public struct OverallView: View {
                 ResizeBands(actions: actions)
             }
             .contentShape(Rectangle())
-            .windowDrag(actions) { actions?.show(.widget) }
+            .windowDrag(actions) { actions?.show(ViewMode.overall.next) }
             .contextMenu { WindowMenu(model: model, actions: actions) }
         }
     }
@@ -47,6 +47,8 @@ public struct OverallView: View {
                     .font(.system(size: m.type(Metrics.Font.heading), weight: .semibold))
                     .foregroundStyle(theme.text.color)
                 Spacer()
+                IconButton(systemName: "chart.xyaxis.line", help: t("full_data"),
+                           size: m.len(26), theme: theme) { actions?.show(.full) }
                 IconButton(systemName: "rectangle.compress.vertical", help: t("open_widget"),
                            size: m.len(26), theme: theme) { actions?.show(.widget) }
                 IconButton(systemName: "xmark", help: t("close"), size: m.len(26), theme: theme) {
