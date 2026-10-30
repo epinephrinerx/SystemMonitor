@@ -22,14 +22,21 @@ public struct Metrics: Equatable, Sendable {
     public var window: CGFloat
     /// The user's font size setting, 0.8 to 1.6.
     public var font: CGFloat
+    /// The view's own type size against the ramp, before the user's setting:
+    /// the Overall view reads smaller than Settings (R-031).
+    public var text: CGFloat
 
-    public init(window: CGFloat = 1, font: CGFloat = 1) {
+    public init(window: CGFloat = 1, font: CGFloat = 1, text: CGFloat = 1) {
         self.window = window.isFinite && window > 0 ? window : 1
         self.font = min(max(font.isFinite ? font : 1, 0.8), 1.6)
+        self.text = text.isFinite && text > 0 ? text : 1
     }
 
-    /// A text size: the user's setting and the window both apply.
-    public func type(_ base: CGFloat) -> CGFloat { base * font * window }
+    /// The Overall view's type against the ramp (R-031).
+    public static let overallText: CGFloat = 0.8
+
+    /// A text size: the view's, the user's setting and the window all apply.
+    public func type(_ base: CGFloat) -> CGFloat { base * text * font * window }
 
     /// Any other length: padding, bar height, corner radius.
     public func len(_ base: CGFloat) -> CGFloat { base * window }

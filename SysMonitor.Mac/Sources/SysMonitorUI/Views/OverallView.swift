@@ -19,7 +19,8 @@ public struct OverallView: View {
 
     public var body: some View {
         GeometryReader { geo in
-            let m = Metrics(window: Metrics.overallScale(geo.size), font: model.config.fontScale)
+            let m = Metrics(window: Metrics.overallScale(geo.size), font: model.config.fontScale,
+                            text: Metrics.overallText)
             let theme = model.theme
             let radius = m.len(14)
 
@@ -258,14 +259,14 @@ struct MeterRow: View {
                     .font(.system(size: m.type(Metrics.Font.body)))
                     .foregroundStyle(theme.muted.color)
                     .lineLimit(1)
-                    .frame(maxWidth: m.len(150) * m.font, alignment: .leading)
+                    .frame(maxWidth: m.len(150) * m.font * m.text, alignment: .leading)
                     .fixedSize(horizontal: true, vertical: false)
                 MeterBar(percent: percent, color: Palette.loadColor(percent, accent).color,
                          track: theme.barEmpty.color, height: m.len(10))
                 Text("\(percent)%")
                     .font(.system(size: m.type(Metrics.Font.body), weight: .semibold))
                     .foregroundStyle(theme.text.color)
-                    .frame(minWidth: m.len(34) * m.font, alignment: .trailing)
+                    .frame(minWidth: m.len(34) * m.font * m.text, alignment: .trailing)
                 if case .reading(let celsius) = temp {
                     TempBadge(celsius: celsius, theme: theme, metrics: m)
                 }

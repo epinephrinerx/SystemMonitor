@@ -141,6 +141,15 @@ struct MetricsTests {
         #expect(Metrics(window: .nan, font: 0).window == 1)
     }
 
+    @Test func overallTypeIsFourFifthsAndOnlyTypeShrinks() {
+        let overall = Metrics(window: 1, font: 1, text: Metrics.overallText)
+        let settings = Metrics(window: 1, font: 1)
+        #expect(overall.type(10) == 8)
+        #expect(settings.type(10) == 10)
+        #expect(overall.len(10) == settings.len(10))
+        #expect(Metrics(text: .nan).text == 1)
+    }
+
     @Test func scaleFollowsTheTighterAxis() {
         #expect(Metrics.widgetScale(CGSize(width: 540, height: 208)) == 2)
         #expect(Metrics.overallScale(CGSize(width: 630, height: 240)) == 0.5)
