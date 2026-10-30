@@ -38,9 +38,9 @@
 - แยก target: `SysMonitorCore` (โมเดล + เซ็นเซอร์ ทดสอบได้โดยไม่เปิดหน้าต่าง) และแอป UI
 - แผนเฟส (แต่ละเฟสจะเปิดเป็นข้อ R- ของตัวเองเมื่อเริ่ม):
   1. Core: เซ็นเซอร์ CPU/RAM/Disk/Network, Snapshot, Sampler + tests → [[R-021]]
-  2. Widget mini + Overall, ธีม light/dark (light เป็นค่าเริ่มต้น), ไทย/อังกฤษ, config
+  2. Widget mini + Overall, ธีม light/dark (light เป็นค่าเริ่มต้น), ไทย/อังกฤษ, config → [[R-026]] (รับ menu bar item มาจากเฟส 4)
   3. หน้า Full แบบแท็บ + กราฟ
-  4. แท็บ RAM (process), menu bar item, เปิดอัตโนมัติตอน login
+  4. แท็บ RAM (process), เปิดอัตโนมัติตอน login
   5. อุณหภูมิ, GPU, แพ็กเป็น `.dmg`
 - การจับคู่ API: CPU `host_processor_info` · RAM `host_statistics64` + `hw.memsize` · Disk `statfs`/URL resource values + IOKit `IOBlockStorageDriver` · Network `sysctl NET_RT_IFLIST2` + SystemConfiguration · Tray → `NSStatusItem` · Autostart → `SMAppService` · ติดตั้ง → `.app` ใน `.dmg` (ไม่มี uninstaller)
 - **หมายเหตุผู้ลงมือ:** `Docs/AI_WORKFLOW.md` §1 ระบุ Writing Owner = agy แต่ผู้ใช้สั่ง Claude Code (Opus 5.5) ลงมือเฟส 1 โดยตรง ถือตามคำสั่งล่าสุดของผู้ใช้ (§2 ข้อ 1)
@@ -178,6 +178,49 @@
 **ตรวจรับเมื่อ:**
 - [x] ผู้ใช้ตัดสินว่าจะ sign/notarize หรือแจกแบบ unsigned — 2026-10-30
 
+---
+
+## R-026 · Mac เฟส 2 — Widget mini + หน้า Overall + Settings + menu bar
+
+| | |
+|---|---|
+| สถานะ | 🧪 รอตรวจรับ — ทำเสร็จ 2026-10-31 (Claude Code · Opus 5.5) · ผู้ใช้รับรองใน AskUserQuestion 2026-10-31 |
+| วันที่ | 2026-10-31 |
+| แตะส่วนไหน | `SysMonitor.Mac`: target ใหม่ `SysMonitorUI` (config, palette, ภาษา, ตรรกะหน้า widget, เรขาคณิตหน้าต่าง, SwiftUI views) · executable `SysMonitor` (AppKit: panel, menu bar, หน้าต่าง Settings) · `Tests/SysMonitorUITests` · `build-app.sh` → `dist/SysMonitor.app` |
+| เกี่ยวกับ | [[R-020]] · [[R-021]] · ต้นแบบฝั่ง Windows: [[R-002]]–[[R-017]] |
+
+**คุณระบุ:**
+> commit แล้วทำต่อได้เลยครับ
+
+> (ตอบคำถาม R-026) รับรอง
+
+**ผมเข้าใจว่า:** ทำให้เหมือน v4.2.0 ฝั่ง Windows ในสองหน้านี้ ยกเว้นที่ระบุว่าปรับให้เข้ากับ Mac
+- **Widget mini** 270×104 (ต่ำสุด 200×64 สูงสุด 900×400): หน้า CPU (ชุดละ 4 คอร์ หรือรวม) · RAM · Disk (รายไดรฟ์ หรือรวม) · Network (ราย adapter หรือรวม) หมุนทุก 5 s · ปุ่ม ‹ › เห็นชัดเสมอ กดแล้วนับเวลาใหม่ ([[R-004]]) · ปุ่ม ⏸ พร้อมป้าย "⏸ Paused / ⏸ ค้าง" ค่ายังอัปเดต ไม่บันทึกสถานะ ([[R-006]]) · ปรับขนาดแบบคงสัดส่วนและเนื้อหาขยายตาม ([[R-003]]) · ลากย้ายได้เมื่อขยับเกิน 4 px · ดูดขอบจอ 25 px · ดับเบิลคลิกสลับไป Overall · เมนูคลิกขวา
+- **Overall** 630×480 (ต่ำสุด 470×300): sidebar กว้างคงที่ 196 ปรับขนาดไม่ได้ ข้อความไทยตัดบรรทัด ([[R-008]]) · ปุ่มนำทางบนสุดของ sidebar ([[R-007]]) · ปุ่มมุมขวาบน [Widget][Close] · การ์ด CPU (รายคอร์ 2 คอลัมน์) · RAM · Disk · Network · แถบสีไฟจราจร 70/90 · badge อุณหภูมิ (เฟสนี้เป็น `n/a` เสมอ) · แถบเตือนดิสก์ 70/90 มี hysteresis 2 จุด เฉพาะไดรฟ์ในเครื่อง · ทั้งหน้าขยายตามขนาดหน้าต่าง ([[R-009]])
+- **Sidebar**: 4 ค่าหน้าต่าง (หน้าสุดเสมอ, โหมดสว่าง, ความโปร่งใส 35–100%, ขนาดตัวอักษร 80–160%) · ตัวเลือกข้อมูลที่แสดง · ปุ่ม Settings ([[R-015]], [[R-016]])
+- **หน้าต่าง Settings** (มีได้หน้าต่างเดียว): 4 ค่าข้างบน (ซิงก์กับ sidebar) + ดูดขอบจอ · เมื่อกดปิด (ออก / ซ่อนไว้ที่แถบเมนู) · ความถี่ eco/balanced/fast · ภาษา ไทย/English
+- **ค่าเริ่มต้น**: light mode · English · ไม่อยู่หน้าสุด · กดปิด = ซ่อน · เปิดโปรแกรมที่ widget เสมอ ทุกหน้าจำตำแหน่งของตัวเอง ([[R-010]])
+- **ปรับให้เข้ากับ Mac**: ไม่มีไอคอนใน Dock และมีไอคอนบนแถบเมนูตลอด (เปิด Widget / Overall / Settings / ออก) ซึ่งย้ายมาจากเฟส 4 · แถบเตือนดิสก์คลิกแล้วเปิด System Settings › Storage · ใช้ฟอนต์ระบบ · ตัวอักษรขยายด้วยขนาดฟอนต์จริง ไม่ใช่การ scale ภาพ จึงคมทุกขนาด
+- config อยู่ที่ `~/Library/Application Support/SysMonitor/config.json` · log อยู่ที่ `~/Library/Logs/SysMonitor/sysmonitor.log` (timestamp แบบ ISO ไม่ขึ้นกับ locale)
+
+**ไม่รวม:**
+- หน้า Full (ปุ่ม Full Data จะเริ่มแสดงในเฟส 3) · GPU · ระบบตรวจอัปเดต · คู่มือ / เกี่ยวกับ · เปิดอัตโนมัติตอน login · ปุ่มรีสตาร์ท
+- การปรับขนาด Overall อัตโนมัติให้พอดีเนื้อหา (ฝั่ง Windows ทำจนกว่าผู้ใช้จะปรับเอง) — ใช้ค่าเริ่มต้น 630×480
+- เมนูคลิกขวาที่ไดรฟ์ (R-014 ฝั่ง Windows)
+
+**ตรวจรับเมื่อ:**
+- [x] `swift test` ผ่าน: config (ค่าเริ่มต้น, key ที่หายไป, ค่าที่เกินขอบเขตถูก clamp, เขียนแล้วอ่านกลับได้ค่าเดิม) · ภาษาไทยและอังกฤษมี key ครบเท่ากัน · threshold สีโหลด 70/90 แยกจากอุณหภูมิ 65/80 · การสร้างหน้า widget · เตือนดิสก์มี hysteresis · ดูดขอบและปรับขนาดแบบคงสัดส่วน · render widget และ Overall แบบ offscreen ทั้ง light และ dark — UI 50 tests + Core 32 tests ผ่านทั้งหมด · ผมเปิดดูภาพที่ render แล้ว (Overall dark 630×480, widget light 270×104, Overall ไทย ฟอนต์ 160% ที่ 470×300 ซึ่ง sidebar ตัดบรรทัด ไม่ล้น)
+- [x] `./build-app.sh` ได้ `dist/SysMonitor.app` แบบ Universal ที่ sign แบบ ad-hoc แล้ว และ `codesign --verify` ผ่าน — `valid on disk` · `satisfies its Designated Requirement` · `lipo`: x86_64 arm64
+- [ ] เปิดแอปแล้ว widget ขึ้นที่มุมขวาล่าง ไม่มีไอคอนใน Dock แต่มีไอคอนบนแถบเมนู
+- [ ] widget หมุนหน้าทุก 5 s · ปุ่ม ‹ › และ ⏸ ทำงานตาม R-004/R-006
+- [ ] ลากย้าย, ดูดขอบ และปรับขนาดแบบคงสัดส่วนได้จากทุกขอบและทุกมุม
+- [ ] ดับเบิลคลิกสลับ widget ↔ Overall · Esc กลับไป widget
+- [ ] Overall: sidebar ไม่ล้นขอบเมื่อเป็นภาษาไทยและขนาดตัวอักษร 160% · ทั้งหน้าขยายตามหน้าต่าง
+- [ ] เปลี่ยนค่าใน Settings แล้ว sidebar เปลี่ยนตาม (และกลับกัน) · ปิดแอปแล้วเปิดใหม่ได้ค่าและตำแหน่งเดิม
+- [ ] ปุ่มปิดทำตามค่า "เมื่อกดปิด" · "ออก" จากเมนูบนแถบเมนูปิดโปรแกรมเสมอ
+
+
+**ที่ผมยังไม่ได้ทดสอบ:** ผมไม่ได้เปิดแอปบนจอของคุณ (ตามกฎเดิมของ repo ที่ห้ามเปิดหน้าต่างทับงานของผู้ใช้โดยไม่ถาม) เกณฑ์ข้อ 3–9 จึงยังไม่มีใครลองจริง ทั้งการลาก, การปรับขนาด, ดับเบิลคลิก, Esc, เมนูบนแถบเมนู, การเปลี่ยนค่าใน Settings และการปิดแล้วเปิดใหม่ · ในการ render แบบ offscreen นั้น ScrollView ถูกแทนด้วย VStack (`ImageRenderer` ไม่วาดเนื้อหาใน ScrollView) จึงยังไม่ได้ตรวจการเลื่อนจริง
 ---
 
 ## R-018 · โมดูล RAM — แสดง Process และ Service ในหน่วยความจำ พร้อม kill/stop

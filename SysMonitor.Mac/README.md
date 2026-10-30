@@ -10,12 +10,14 @@ Same rule as the Windows build: **no package dependencies.** Everything comes
 from the system frameworks -- Darwin/Mach, IOKit, SystemConfiguration, and
 SwiftUI/AppKit from phase 2.
 
-Plan and decisions: `Requirements.md`, R-020 to R-025.
+Plan and decisions: `Requirements.md`, R-020 to R-026.
 
 ## Status
 
-Phase 1 (R-021): the core. Sensors, snapshot, sampler, tests, and a probe that
-prints what the sampler sees. No window yet.
+- Phase 1 (R-021): the core. Sensors, snapshot, sampler, and a probe that
+  prints what the sampler sees.
+- Phase 2 (R-026): the mini widget, the Overall view with its sidebar, the
+  Settings window, the menu bar item, config and log, and `build-app.sh`.
 
 ## Building
 
@@ -23,6 +25,8 @@ Needs Xcode, not just the Command Line Tools: the tools alone ship neither
 XCTest nor the swift-testing macro plugin, so `swift test` cannot build.
 
 ```
+./build-app.sh                               # tests, then dist/SysMonitor.app
+open dist/SysMonitor.app
 swift build
 swift test                                   # passive: reads counters, makes no load
 swift run sysmon-probe                       # one snapshot
@@ -80,3 +84,48 @@ so the snapshot reports how many of each kind there are but does not label
 individual cores.
 
 **Temperatures are nil** until phase 5 (R-023), never estimated from load.
+
+## The app
+
+`SysMonitorUI` holds everything with a window in it and the logic behind it;
+the `SysMonitor` executable is only the entry point.
+
+| | |
+|---|---|
+| Config | `~/Library/Application Support/SysMonitor/config.json` |
+| Log | `~/Library/Logs/SysMonitor/sysmonitor.log`, one megabyte then rolled to `.1` |
+| Bundle | `dist/SysMonitor.app`, `LSUIElement`, ad-hoc signed |
+
+**No Dock icon, and a menu bar item that is always there.** A widget that sat
+in the Dock as well would be two of everything. The menu bar item is how a
+hidden widget comes back, and its Quit always quits, whatever the close button
+is set to do.
+
+**The panels are borderless, and move and resize themselves.** AppKit's
+`contentAspectRatio` keeps a shape but decides for itself which side moves,
+and the Windows build's rules (a side drag grows downward, a top drag grows
+about the centre, nothing leaves the screen) are specific. So grab zones
+along the edges call `WindowGeometry`, which computes every frame from the one the drag started
+on. Moving follows the pointer's screen position rather than the gesture's
+translation, because the view the gesture is measured in is the thing
+moving. `NSHostingView.sizingOptions` is emptied, or the hosting view sizes
+the window to its content and fights every resize.
+
+**Sizes are multiplied out, not scaled.** The Windows build scaled whole views
+with a layout transform. A SwiftUI scale effect stretches the rendered pixels,
+which would soften the text exactly when someone enlarges the window to read
+it. `Metrics` carries
+the window's scale and the font setting, and every font size and length is
+computed from them.
+
+**`ImageRenderer` draws nothing inside a `ScrollView`.** The render tests set
+`scrollable = false` on the Overall view to lay its content out flat. Set
+`SYSMON_RENDER_DIR` to keep a PNG of every render:
+
+```
+SYSMON_RENDER_DIR=/tmp/renders swift test --filter RenderTests
+```
+
+**The light theme's sidebar and card colours are five levels apart.** A pixel
+test with a looser tolerance counted the sidebar as cards and passed with no
+cards drawn at all.
