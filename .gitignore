@@ -11,3 +11,7 @@ SysMonitor.Setup/payload/
 
 # editor backups
 *.bak
+
+# macOS edition (SwiftPM)
+SysMonitor.Mac/.build/
+SysMonitor.Mac/.swiftpm/
