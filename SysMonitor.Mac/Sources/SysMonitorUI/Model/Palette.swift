@@ -50,13 +50,16 @@ public struct Theme: Equatable, Sendable {
 }
 
 public enum Accent: Sendable {
-    case cpu, ram, disk, net
+    case cpu, ram, disk, gpu, net
 
     public var rgb: Rgb {
         switch self {
         case .cpu: return Rgb(0x3b82f6)
         case .ram: return Rgb(0xa855f7)
         case .disk: return Rgb(0x10b981)
+        // The Windows build's Overall view draws GPU bars in the CPU blue:
+        // its own amber is too close to the traffic light's warning colour.
+        case .gpu: return Rgb(0x3b82f6)
         case .net: return Rgb(0x06b6d4)
         }
     }

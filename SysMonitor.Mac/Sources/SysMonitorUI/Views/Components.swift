@@ -97,16 +97,19 @@ struct ResizeBands: View {
 
     private func band(_ edges: Edges, width: CGFloat? = nil, height: CGFloat? = nil,
                       alignment: Alignment) -> some View {
+        // The hover and the drag belong to the band itself. Attached after the
+        // positioning frame, they covered the whole window and every click
+        // became a resize.
         Color.clear
-            .contentShape(Rectangle())
             .frame(width: width, height: height)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
+            .contentShape(Rectangle())
             .onHover { inside in
                 if inside { Self.cursor(edges).push() } else { NSCursor.pop() }
             }
             .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .global)
                 .onChanged { _ in actions?.resizeChanged(edges) }
                 .onEnded { _ in actions?.resizeEnded() })
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
     }
 
     static func cursor(_ edges: Edges) -> NSCursor {

@@ -31,7 +31,7 @@ public enum TempDisplay: Equatable, Sendable {
 /// One page of the mini widget, ready to draw.
 public struct WidgetPage: Equatable, Sendable {
     public enum Kind: Equatable, Sendable {
-        case message, cpuTotal, cpuBlock(Int), ram, diskAll, disk(String), netAll, net(String)
+        case message, cpuTotal, cpuBlock(Int), ram, diskAll, disk(String), gpu(Int), netAll, net(String)
     }
 
     public var kind: Kind
@@ -114,6 +114,15 @@ public enum WidgetPages {
             }
         }
 
+        if config.showGpu {
+            for (i, g) in s.gpus.enumerated() {
+                pages.append(WidgetPage(kind: .gpu(i), title: s.gpus.count > 1 ? "\(t("gpu")) \(i + 1)" : t("gpu"),
+                                        headline: g.usage,
+                                        bars: [WidgetBar(label: "", percent: g.usage, accent: .gpu)],
+                                        detail: gpuDetail(g, t)))
+            }
+        }
+
         if config.showNetwork, !s.adapters.isEmpty {
             if config.networkMode == "total" {
                 let usage = combinedUsage(s.adapters)
@@ -133,6 +142,16 @@ public enum WidgetPages {
         }
 
         return pages.isEmpty ? [WidgetPage(kind: .message, title: t("no_data"))] : pages
+    }
+
+    /// "Apple M1 · 7 cores · 0.8 GB memory in use", leaving out what the
+    /// driver does not report.
+    public static func gpuDetail(_ g: Gpu, _ t: Strings) -> String {
+        var parts: [String] = []
+        if !g.name.isEmpty { parts.append(g.name) }
+        if g.cores > 0 { parts.append("\(g.cores) \(t("cores"))") }
+        if let memory = g.memoryUsedGb { parts.append(t("gpu_memory", Format.gb(memory))) }
+        return parts.joined(separator: " · ")
     }
 
     public static func visibleDisks(_ s: Snapshot, _ config: AppConfig) -> [Disk] {

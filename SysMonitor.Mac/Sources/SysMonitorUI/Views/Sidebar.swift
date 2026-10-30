@@ -31,6 +31,7 @@ struct Sidebar: View {
                 check(t("show_disk"), \.showDisk)
                 check(t("per_drive"), mode: \.diskMode, enabled: model.config.showDisk)
                 check(t("show_network_drives"), \.includeNetworkDrives, enabled: model.config.showDisk, indent: true)
+                check(t("show_gpu"), \.showGpu)
                 check(t("show_network"), \.showNetwork)
                 check(t("per_adapter"), mode: \.networkMode, enabled: model.config.showNetwork)
 

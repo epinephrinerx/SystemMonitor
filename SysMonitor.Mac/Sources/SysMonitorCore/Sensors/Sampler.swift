@@ -164,6 +164,7 @@ public final class Sampler: @unchecked Sendable {
         }
         snapshot.ram = lastRam
         snapshot.disks = disksWithRates()
+        snapshot.gpus = guarded("gpu", { GpuSensor.read() }) ?? []
         snapshot.adapters = connectedAdapters()
 
         lock.withLock { published = snapshot }

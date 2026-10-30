@@ -32,6 +32,13 @@ func describe(_ s: Snapshot) {
         }
     }
 
+    for g in s.gpus {
+        print("GPU   \(g.name) · \(g.cores) cores · \(g.usage)%"
+            + (g.rendererUsage.map { " · renderer \($0)%" } ?? "")
+            + (g.tilerUsage.map { " · tiler \($0)%" } ?? "")
+            + (g.memoryUsedGb.map { " · memory \(gb($0)) GB" } ?? ""))
+    }
+
     if s.adapters.isEmpty {
         print("NET   (no connected Wi-Fi or Ethernet)")
     }

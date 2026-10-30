@@ -18,6 +18,7 @@ public struct AppConfig: Codable, Equatable, Sendable {
     public var showCpu = true
     public var showRam = true
     public var showDisk = true
+    public var showGpu = true
     public var showNetwork = true
     public var cpuMode = "separated"        // separated | total
     public var diskMode = "separated"
@@ -62,6 +63,7 @@ public struct AppConfig: Codable, Equatable, Sendable {
         showCpu = read(.showCpu, d.showCpu)
         showRam = read(.showRam, d.showRam)
         showDisk = read(.showDisk, d.showDisk)
+        showGpu = read(.showGpu, d.showGpu)
         showNetwork = read(.showNetwork, d.showNetwork)
         cpuMode = read(.cpuMode, d.cpuMode)
         diskMode = read(.diskMode, d.diskMode)

@@ -138,6 +138,21 @@ public struct OverallView: View {
             }
         }
 
+        if c.showGpu {
+            ForEach(Array(s.gpus.enumerated()), id: \.offset) { _, g in
+                Card(title: t("gpu"), note: g.name, theme: theme, metrics: m) {
+                    MeterRow(title: t("gpu"), percent: g.usage, accent: .gpu,
+                             detail: WidgetPages.gpuDetail(g, t), theme: theme, metrics: m)
+                    if let renderer = g.rendererUsage {
+                        MeterRow(title: t("renderer"), percent: renderer, accent: .gpu, theme: theme, metrics: m)
+                    }
+                    if let tiler = g.tilerUsage {
+                        MeterRow(title: t("tiler"), percent: tiler, accent: .gpu, theme: theme, metrics: m)
+                    }
+                }
+            }
+        }
+
         if c.showNetwork, !s.adapters.isEmpty {
             Card(title: t("network"), note: "", theme: theme, metrics: m) {
                 if c.networkMode == "total" {

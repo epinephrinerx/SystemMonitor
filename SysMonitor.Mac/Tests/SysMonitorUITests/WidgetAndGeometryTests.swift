@@ -18,7 +18,7 @@ struct WidgetPagesTests {
         #expect(pages.map(\.kind) == [
             .cpuBlock(0), .cpuBlock(4), .ram,
             .disk("/"), .disk("/Volumes/Data"), .disk("/Volumes/Share"),
-            .net("en0"),
+            .gpu(0), .net("en0"),
         ])
     }
 
@@ -37,7 +37,7 @@ struct WidgetPagesTests {
         c.diskMode = "total"
         c.networkMode = "total"
         let pages = WidgetPages.build(sampleSnapshot(), c, en)
-        #expect(pages.map(\.kind) == [.cpuTotal, .ram, .diskAll, .netAll])
+        #expect(pages.map(\.kind) == [.cpuTotal, .ram, .diskAll, .gpu(0), .netAll])
         #expect(pages[0].detail == "8 cores")
         // 1250 GB used of 2000 GB
         #expect(pages[2].headline == 63)
@@ -62,6 +62,7 @@ struct WidgetPagesTests {
         c.showCpu = false
         c.showRam = false
         c.showDisk = false
+        c.showGpu = false
         c.showNetwork = false
         let pages = WidgetPages.build(sampleSnapshot(), c, en)
         #expect(pages.map(\.kind) == [.message])
@@ -82,6 +83,22 @@ struct WidgetPagesTests {
         let page = pages.first { $0.kind == .disk("/") }!
         #expect(page.alert == .hot)
         #expect(page.detail.hasPrefix("⚠ Macintosh HD เกือบเต็ม (ใช้ 92%)"))
+    }
+
+    @Test func gpuPageSaysWhatTheDriverReports() {
+        let page = WidgetPages.build(sampleSnapshot(), AppConfig(), en).first { $0.kind == .gpu(0) }!
+        #expect(page.title == "GPU")
+        #expect(page.headline == 30)
+        #expect(page.detail == "Apple M1 · 7 cores · 0.8 GB memory in use")
+        var bare = Gpu()
+        bare.usage = 3
+        #expect(WidgetPages.gpuDetail(bare, en) == "")
+    }
+
+    @Test func gpuCanBeHidden() {
+        var c = AppConfig()
+        c.showGpu = false
+        #expect(!WidgetPages.build(sampleSnapshot(), c, en).contains { $0.kind == .gpu(0) })
     }
 
     @Test func rates() {
@@ -266,7 +283,7 @@ struct AppModelTests {
         model.step(-1)
         model.config.showDisk = false
         _ = model.currentPage
-        #expect(model.pages.count == 4)
+        #expect(model.pages.count == 5)
     }
 
     @Test func diskAlertsFollowTheSnapshot() {

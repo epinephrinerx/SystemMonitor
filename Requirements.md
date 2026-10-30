@@ -223,6 +223,40 @@
 **ที่ผมยังไม่ได้ทดสอบ:** ผมไม่ได้เปิดแอปบนจอของคุณ (ตามกฎเดิมของ repo ที่ห้ามเปิดหน้าต่างทับงานของผู้ใช้โดยไม่ถาม) เกณฑ์ข้อ 3–9 จึงยังไม่มีใครลองจริง ทั้งการลาก, การปรับขนาด, ดับเบิลคลิก, Esc, เมนูบนแถบเมนู, การเปลี่ยนค่าใน Settings และการปิดแล้วเปิดใหม่ · ในการ render แบบ offscreen นั้น ScrollView ถูกแทนด้วย VStack (`ImageRenderer` ไม่วาดเนื้อหาใน ScrollView) จึงยังไม่ได้ตรวจการเลื่อนจริง
 ---
 
+## R-027 · Mac — แสดง GPU (ดึงมาจากเฟส 5)
+
+| | |
+|---|---|
+| สถานะ | 🧪 รอตรวจรับ — ทำเสร็จ 2026-10-31 · ผู้ใช้สั่ง "ทำต่อได้เลยครับ" ตอบข้อเสนอให้เปิด R-027 |
+| วันที่ | 2026-10-31 |
+| แตะส่วนไหน | `SysMonitorCore`: `GpuSensor` ใหม่ · `Snapshot.gpus` · Sampler · `SysMonitorUI`: หน้า widget, การ์ด Overall, checkbox ใน sidebar, config `showGpu`, ข้อความไทย/อังกฤษ |
+| เกี่ยวกับ | [[R-020]] (เดิมอยู่เฟส 5) · [[R-026]] |
+
+**คุณระบุ:**
+> ไม่มีการแสดง GPU ครับ
+
+> (ตอบข้อเสนอเปิด R-027 ทำ GPU ต่อ) ทำต่อได้เลยครับ
+
+**ผมเข้าใจว่า:**
+- อ่าน GPU จาก IOKit `IOAccelerator` → `PerformanceStatistics` ซึ่งเป็นข้อมูลสาธารณะใน IORegistry ไม่ต้องใช้ admin และไม่ใช้ private API: การใช้งานรวม (`Device Utilization %`), Renderer, Tiler, หน่วยความจำที่ GPU ใช้อยู่, ชื่อรุ่น และจำนวนคอร์ — บนเครื่องนี้อ่านได้ M1 · 7 cores
+- Mac ที่มีหลาย GPU (Intel + AMD) จะแสดงทุกตัว ตัวไหนอ่านค่าไม่ได้จะไม่แสดง
+- **Widget:** หน้า GPU ต่อจาก Disk ก่อน Network (ฝั่ง Windows ไม่มีหน้านี้ แต่คุณขอให้แสดง)
+- **Overall:** การ์ด GPU ระหว่าง Disk กับ Network (ลำดับเดียวกับ Windows) แสดงแถว GPU (รายละเอียดเป็นหน่วยความจำ) + แถว Renderer และ Tiler
+- **Sidebar:** checkbox "แสดง GPU" (ค่าเริ่มต้นเปิด)
+- สีแถบเป็นสีน้ำเงินแบบเดียวกับฝั่ง Windows ในหน้า Overall (สีส้มของ GPU ไปชนกับสีเหลืองเตือนของไฟจราจร)
+
+**ไม่รวม:**
+- อุณหภูมิ GPU (อยู่กับ [[R-023]] เฟส 5)
+- กราฟย้อนหลัง (เฟส 3)
+- การใช้ GPU แยกตาม process
+
+**ตรวจรับเมื่อ:**
+- [x] `swift test` ผ่าน: การแปลงค่า PerformanceStatistics (Apple Silicon และรูปแบบ AMD/Intel), กรณีไม่มีค่า, หน้า widget GPU, ปิด checkbox แล้วไม่แสดง — Core 38 + UI 52 tests ผ่าน · รูปแบบ AMD/Intel ทดสอบด้วยข้อมูลจำลองเท่านั้น ไม่มีเครื่อง Intel ให้ลองจริง
+- [ ] `sysmon-probe` บนเครื่องนี้แสดง Apple M1 · 7 cores และ % ใกล้เคียงกับ Activity Monitor › Window › GPU History — probe แสดง `Apple M1 · 7 cores · 51% · renderer 50% · tiler 51% · memory 0.8 GB` ตรงกับ `ioreg` · **ยังไม่ได้เทียบกับ Activity Monitor**
+- [ ] Widget มีหน้า GPU และ Overall มีการ์ด GPU (คุณเปิดดูเอง)
+
+---
+
 ## R-018 · โมดูล RAM — แสดง Process และ Service ในหน่วยความจำ พร้อม kill/stop
 
 | | |

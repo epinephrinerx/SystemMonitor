@@ -14,6 +14,9 @@ public struct Snapshot: Sendable {
     public var disks: [Disk] = []
     public var adapters: [Adapter] = []
 
+    /// Every graphics processor whose statistics could be read.
+    public var gpus: [Gpu] = []
+
     /// Nil until a real sensor is read. Never estimated from load (R-023).
     public var cpuTemp: Int?
 
@@ -130,6 +133,25 @@ public struct Disk: Sendable, Equatable {
     public init(mountPoint: String) {
         self.mountPoint = mountPoint
     }
+}
+
+/// A graphics processor, as its driver reports it.
+public struct Gpu: Sendable, Equatable {
+    public var name = ""
+    public var cores = 0
+    public var usage = 0
+
+    /// Apple Silicon splits the work into a renderer and a tiler; other
+    /// drivers do not say, and these stay nil.
+    public var rendererUsage: Int?
+    public var tilerUsage: Int?
+
+    /// Unified memory in use on Apple Silicon, VRAM in use on a discrete card.
+    public var memoryUsedGb: Double?
+
+    public var temp: Int?
+
+    public init() {}
 }
 
 /// A wired or wireless adapter that is connected.

@@ -49,6 +49,15 @@ func sampleSnapshot(cores: Int = 8, diskUsage: Int = 50) -> Snapshot {
     wifi.downMb = 5
     wifi.upMb = 0
     s.adapters = [wifi]
+
+    var gpu = Gpu()
+    gpu.name = "Apple M1"
+    gpu.cores = 7
+    gpu.usage = 30
+    gpu.rendererUsage = 29
+    gpu.tilerUsage = 8
+    gpu.memoryUsedGb = 0.8
+    s.gpus = [gpu]
     return s
 }
 
