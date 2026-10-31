@@ -96,6 +96,17 @@ public sealed class Sampler : IDisposable
         Nudge();
     }
 
+    /// <summary>
+    /// Read the drive list again at once, e.g. after the network-drive switch
+    /// changed. The list is otherwise refreshed once a minute, so a drive that
+    /// was switched off would linger on screen for up to that long.
+    /// </summary>
+    public void RefreshDrives()
+    {
+        Volatile.Write(ref _nextDrives, 0);
+        Nudge();
+    }
+
     /// <summary>Apply a changed refresh rate without waiting out the current sleep.</summary>
     public void Nudge()
     {

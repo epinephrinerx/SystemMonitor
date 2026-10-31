@@ -1,5 +1,22 @@
 # Change log
 
+## v4.2.2 — 2026-10-31 — Side panel and window memory
+
+**Side panel.** The options under "Display" that belong to another one are
+indented beneath it (per core and CPU temperature under CPU; per drive, network
+drives and SMART under Disk; per adapter under Network). The SMART switch is
+now one of the Disk options instead of sitting under the extensions heading.
+
+**Restart as administrator.** The restart button in the side panel now restarts
+with administrator rights (one UAC prompt; declining leaves the program as it
+is). When the program is already elevated it stays a plain restart.
+
+**Window memory.** The program reopens in the view it was closed in (widget,
+overall or full) at the size and place that view had.
+
+**Network drives.** Switching "show network drives" off now takes effect within
+seconds instead of up to a minute.
+
 ## v4.2.1 — 2026-10-20 — SMART becomes an extension
 
 **Extensions.** System Monitor can now load extra features from DLLs placed in

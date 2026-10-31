@@ -134,6 +134,12 @@ public sealed class AppConfig
     public double FullW { get; set; }
     public double FullH { get; set; }
 
+    /// <summary>
+    /// Which view the window was last in -- "widget", "overall" or "full" --
+    /// so it opens the way it was left. Each view keeps its own size and spot.
+    /// </summary>
+    public string LastView { get; set; } = "widget";
+
     /// <summary>Which tab the full view was last on.</summary>
     public string FullTab { get; set; } = string.Empty;
 

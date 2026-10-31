@@ -158,7 +158,7 @@ public partial class MainWindow : Window
         // for the primary monitor at best.
         Mode start = args is not null && args.Contains("--full") ? Mode.Full
             : args is not null && args.Contains("--expanded") ? Mode.Overall
-            : Mode.Widget;
+            : ModeFromName(config.LastView);
         if (start != Mode.Widget)
         {
             Loaded += (_, _) => SetMode(start);
@@ -174,6 +174,14 @@ public partial class MainWindow : Window
         Loaded += async (_, _) => await CheckForUpdateOnStart();
         Diag.Write($"window ready mode={start.ToString().ToLowerInvariant()}");
     }
+
+    /// <summary>The view saved in the config; anything unrecognised opens the widget.</summary>
+    private static Mode ModeFromName(string? name) => name?.ToLowerInvariant() switch
+    {
+        "overall" => Mode.Overall,
+        "full" => Mode.Full,
+        _ => Mode.Widget,
+    };
 
     private static TimeSpan HeartbeatInterval(string[]? args)
     {
@@ -492,6 +500,8 @@ public partial class MainWindow : Window
         }
 
         _mode = mode;
+        _config.LastView = mode.ToString().ToLowerInvariant();
+        _config.Save();
         WidgetView.Visibility = mode == Mode.Widget ? Visibility.Visible : Visibility.Collapsed;
         OverallView.Visibility = mode == Mode.Overall ? Visibility.Visible : Visibility.Collapsed;
         FullView.Visibility = mode == Mode.Full ? Visibility.Visible : Visibility.Collapsed;
@@ -1031,16 +1041,23 @@ public partial class MainWindow : Window
         AddWindowSettings(Sidebar, lang, everything: false);
 
         Sidebar.Children.Add(Heading(lang["display_settings"]));
+        // Options that belong to a parent switch sit right under it, indented.
         Sidebar.Children.Add(Check(lang["show_cpu"], _config.ShowCpu, value =>
         {
             _config.ShowCpu = value;
             Refresh();
         }));
-        Sidebar.Children.Add(Check(lang["per_core"], _config.CpuMode == "separated", value =>
+        Sidebar.Children.Add(Indented(Check(lang["per_core"], _config.CpuMode == "separated", value =>
         {
             _config.CpuMode = value ? "separated" : "total";
             Refresh();
-        }));
+        })));
+        Sidebar.Children.Add(Indented(Check(lang["cpu_temp"], _config.CpuTemperature, value =>
+        {
+            _config.CpuTemperature = value;
+            _sampler.Nudge();
+            Refresh();
+        })));
         Sidebar.Children.Add(Check(lang["show_ram"], _config.ShowRam, value =>
         {
             _config.ShowRam = value;
@@ -1051,178 +1068,179 @@ public partial class MainWindow : Window
             _config.ShowDisk = value;
             Refresh();
         }));
-        Sidebar.Children.Add(Check(lang["per_drive"], _config.DiskMode == "separated", value =>
+        Sidebar.Children.Add(Indented(Check(lang["per_drive"], _config.DiskMode == "separated", value =>
         {
             _config.DiskMode = value ? "separated" : "total";
             Refresh();
-        }));
-        Sidebar.Children.Add(Check(lang["cpu_temp"], _config.CpuTemperature, value =>
-        {
-            _config.CpuTemperature = value;
-            _sampler.Nudge();
-            Refresh();
-        }));
-        Sidebar.Children.Add(Check(lang["show_network_drives"], _config.IncludeNetwork,
-                                   value =>
+        })));
+        Sidebar.Children.Add(Indented(Check(lang["show_network_drives"], _config.IncludeNetwork,
+                                            value =>
         {
             _config.IncludeNetwork = value;
-            _sampler.Nudge();
+            _sampler.RefreshDrives();
             Refresh();
-        }));
+        })));
+        // SMART is an extension, but it reports on the disks, so its switch sits under
+        // Disk as one of its options and not under the extensions heading below.
+        IReadOnlyList<SysMonitor.Extensions.ExtensionHost.ExtensionEntry> allEntries =
+            _extensions?.Entries ?? Array.Empty<SysMonitor.Extensions.ExtensionHost.ExtensionEntry>();
+        static bool IsSmartEntry(SysMonitor.Extensions.ExtensionHost.ExtensionEntry entry) =>
+            string.Equals(entry.Id, "smart", StringComparison.OrdinalIgnoreCase);
+        foreach (var smart in allEntries.Where(IsSmartEntry))
+        {
+            AddExtensionRow(smart, lang["show_smart"], indent: true);
+        }
         Sidebar.Children.Add(Check(lang["show_gpu"], _config.ShowGpu, value =>
         {
             _config.ShowGpu = value;
             _sampler.Nudge();
             Refresh();
         }));
-        // smart moved to extension
-
-
-
-
-
-
-
-
-
         Sidebar.Children.Add(Check(lang["show_network"], _config.ShowNetwork, value =>
         {
             _config.ShowNetwork = value;
             Refresh();
         }));
-        Sidebar.Children.Add(Check(lang["per_adapter"], _config.NetworkMode == "separated",
-                                   value =>
+        Sidebar.Children.Add(Indented(Check(lang["per_adapter"], _config.NetworkMode == "separated",
+                                            value =>
         {
             _config.NetworkMode = value ? "separated" : "total";
             Refresh();
-        }));
+        })));
 
-        if (_extensions?.Entries is { Count: > 0 } entries)
+        var otherEntries = allEntries.Where(e => !IsSmartEntry(e)).ToList();
+        if (otherEntries.Count > 0)
         {
             Sidebar.Children.Add(Heading(lang["extensions"]));
-            foreach (var entry in entries)
+            foreach (var other in otherEntries)
             {
-                string id = entry.Id;
-                string title = entry.Name.Length > 0 ? entry.Name : id;
-                string statusKey = SysMonitor.Extensions.ExtensionStatusText.KeyFor(entry.Status);
-                string statusText = statusKey.Length > 0 ? lang[statusKey] : string.Empty;
+                AddExtensionRow(other, null);
+            }
+        }
 
-                string checkLabel = string.IsNullOrEmpty(statusText) ? title : $"{title} ({statusText})";
-                var box = Check(checkLabel, entry.Enabled, value =>
+        void AddExtensionRow(SysMonitor.Extensions.ExtensionHost.ExtensionEntry entry, string? label,
+                             bool indent = false)
+        {
+            string id = entry.Id;
+            string title = label ?? (entry.Name.Length > 0 ? entry.Name : id);
+            string statusKey = SysMonitor.Extensions.ExtensionStatusText.KeyFor(entry.Status);
+            string statusText = statusKey.Length > 0 ? lang[statusKey] : string.Empty;
+
+            string checkLabel = string.IsNullOrEmpty(statusText) ? title : $"{title} ({statusText})";
+            var box = Check(checkLabel, entry.Enabled, value =>
+            {
+                _extensions.SetEnabled(id, value);
+                _config.Save();
+                _sampler.Nudge();
+                Refresh();
+            });
+
+            var tooltipParts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(entry.Version)) tooltipParts.Add(entry.Version);
+            if (!string.IsNullOrWhiteSpace(entry.Detail)) tooltipParts.Add(entry.Detail);
+            if (Win32.IsElevated() && (entry.Status is SysMonitor.Extensions.ExtensionStatus.NotApproved or SysMonitor.Extensions.ExtensionStatus.NotTrustedWhenElevated))
+            {
+                tooltipParts.Add(lang["ext_elevated_hint"]);
+            }
+            if (tooltipParts.Count > 0) box.ToolTip = string.Join(Environment.NewLine, tooltipParts);
+
+            box.IsEnabled = SysMonitor.Extensions.ExtensionStatusText.CanToggle(entry.Status, entry.Enabled);
+
+
+            Sidebar.Children.Add(indent ? Indented(box) : box);
+
+            if (SysMonitor.Extensions.ExtensionStatusText.CanApprove(entry.Status, Win32.IsElevated())
+                && !string.IsNullOrEmpty(entry.ManifestSha256))
+            {
+                var approveLabel = new TextBlock
                 {
-                    _extensions.SetEnabled(id, value);
-                    _config.Save();
-                    _sampler.Nudge();
-                    Refresh();
-                });
-
-                var tooltipParts = new List<string>();
-                if (!string.IsNullOrWhiteSpace(entry.Version)) tooltipParts.Add(entry.Version);
-                if (!string.IsNullOrWhiteSpace(entry.Detail)) tooltipParts.Add(entry.Detail);
-                if (Win32.IsElevated() && (entry.Status is SysMonitor.Extensions.ExtensionStatus.NotApproved or SysMonitor.Extensions.ExtensionStatus.NotTrustedWhenElevated))
+                    Text = lang["ext_approve_button"],
+                    TextWrapping = TextWrapping.Wrap,
+                };
+                FollowRamp(approveLabel, TextBlock.FontSizeProperty, "FontNav");
+                var approveButton = new Button
                 {
-                    tooltipParts.Add(lang["ext_elevated_hint"]);
-                }
-                if (tooltipParts.Count > 0) box.ToolTip = string.Join(Environment.NewLine, tooltipParts);
+                    Content = approveLabel,
+                    Style = (Style)FindResource("SidebarButton"),
+                    Margin = new Thickness(16, 2, 0, 6),
+                    IsEnabled = !_approvalsInFlight.Contains(id),
+                };
 
-                box.IsEnabled = SysMonitor.Extensions.ExtensionStatusText.CanToggle(entry.Status, entry.Enabled);
-
-
-                Sidebar.Children.Add(box);
-
-                if (SysMonitor.Extensions.ExtensionStatusText.CanApprove(entry.Status, Win32.IsElevated())
-                    && !string.IsNullOrEmpty(entry.ManifestSha256))
+                approveButton.Click += async (_, _) =>
                 {
-                    var approveLabel = new TextBlock
+                    if (_approvalsInFlight.Contains(id))
                     {
-                        Text = lang["ext_approve_button"],
-                        TextWrapping = TextWrapping.Wrap,
-                    };
-                    FollowRamp(approveLabel, TextBlock.FontSizeProperty, "FontNav");
-                    var approveButton = new Button
+                        return;
+                    }
+
+                    if (_extensions == null)
                     {
-                        Content = approveLabel,
-                        Style = (Style)FindResource("SidebarButton"),
-                        Margin = new Thickness(16, 2, 0, 6),
-                        IsEnabled = !_approvalsInFlight.Contains(id),
-                    };
+                        return;
+                    }
 
-                    approveButton.Click += async (_, _) =>
+                    var currentEntry = _extensions.Entries.FirstOrDefault(e => string.Equals(e.Id, id, StringComparison.OrdinalIgnoreCase));
+                    if (currentEntry == null || currentEntry.Status != SysMonitor.Extensions.ExtensionStatus.NotApproved || string.IsNullOrEmpty(currentEntry.ManifestSha256))
                     {
-                        if (_approvalsInFlight.Contains(id))
-                        {
-                            return;
-                        }
+                        return;
+                    }
 
-                        if (_extensions == null)
-                        {
-                            return;
-                        }
+                    if (Environment.ProcessPath is not string exe)
+                    {
+                        return;
+                    }
 
-                        var currentEntry = _extensions.Entries.FirstOrDefault(e => string.Equals(e.Id, id, StringComparison.OrdinalIgnoreCase));
-                        if (currentEntry == null || currentEntry.Status != SysMonitor.Extensions.ExtensionStatus.NotApproved || string.IsNullOrEmpty(currentEntry.ManifestSha256))
-                        {
-                            return;
-                        }
+                    string currentSha = currentEntry.ManifestSha256;
+                    _approvalsInFlight.Add(id);
+                    approveButton.IsEnabled = false;
 
-                        if (Environment.ProcessPath is not string exe)
-                        {
-                            return;
-                        }
-
-                        string currentSha = currentEntry.ManifestSha256;
-                        _approvalsInFlight.Add(id);
-                        approveButton.IsEnabled = false;
-
+                    try
+                    {
+                        ProcessStartInfo startInfo = SysMonitor.Extensions.ExtensionApproval.CreateStartInfo(exe, id, currentSha);
+                        Process? proc;
                         try
                         {
-                            ProcessStartInfo startInfo = SysMonitor.Extensions.ExtensionApproval.CreateStartInfo(exe, id, currentSha);
-                            Process? proc;
-                            try
-                            {
-                                proc = Process.Start(startInfo);
-                            }
-                            catch (System.ComponentModel.Win32Exception error) when (AdminRestart.IsDeclined(error))
-                            {
-                                return;
-                            }
-                            catch (Exception error)
-                            {
-                                Diag.ReportException("ExtensionApprovalStart", error);
-                                return;
-                            }
-
-                            if (proc is null)
-                            {
-                                return;
-                            }
-
-                            int exitCode;
-                            using (proc)
-                            {
-                                await proc.WaitForExitAsync().ConfigureAwait(true);
-                                exitCode = proc.ExitCode;
-                            }
-
-                            if (exitCode == SysMonitor.Extensions.ExtensionApproval.ExitApproved)
-                            {
-                                if (_extensions is not null)
-                                {
-                                    await _extensions.Reload(id).ConfigureAwait(true);
-                                    _sampler.Nudge();
-                                }
-                            }
+                            proc = Process.Start(startInfo);
                         }
-                        finally
+                        catch (System.ComponentModel.Win32Exception error) when (AdminRestart.IsDeclined(error))
                         {
-                            _approvalsInFlight.Remove(id);
-                            _lastExtensionsSignature = string.Empty;
-                            BuildSidebar();
+                            return;
                         }
-                    };
+                        catch (Exception error)
+                        {
+                            Diag.ReportException("ExtensionApprovalStart", error);
+                            return;
+                        }
 
-                    Sidebar.Children.Add(approveButton);
-                }
+                        if (proc is null)
+                        {
+                            return;
+                        }
+
+                        int exitCode;
+                        using (proc)
+                        {
+                            await proc.WaitForExitAsync().ConfigureAwait(true);
+                            exitCode = proc.ExitCode;
+                        }
+
+                        if (exitCode == SysMonitor.Extensions.ExtensionApproval.ExitApproved)
+                        {
+                            if (_extensions is not null)
+                            {
+                                await _extensions.Reload(id).ConfigureAwait(true);
+                                _sampler.Nudge();
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        _approvalsInFlight.Remove(id);
+                        _lastExtensionsSignature = string.Empty;
+                        BuildSidebar();
+                    }
+                };
+
+                Sidebar.Children.Add(approveButton);
             }
         }
 
@@ -1237,9 +1255,13 @@ public partial class MainWindow : Window
                                    value => _config.AutoCheckUpdates = value));
         Sidebar.Children.Add(BuildUpdatePanel(lang));
 
+        // Not elevated: the button asks for administrator (one UAC prompt) so
+        // SMART needs no trip into the settings panel. Already elevated, a
+        // plain restart keeps the rights, so the ordinary label stays.
+        bool restartAsAdmin = !_sampler.Elevated;
         var restartLabel = new TextBlock
         {
-            Text = lang["restart"],
+            Text = restartAsAdmin ? lang["restart_admin"] : lang["restart"],
             TextWrapping = TextWrapping.Wrap,
         };
         FollowRamp(restartLabel, TextBlock.FontSizeProperty, "FontNav");
@@ -1249,7 +1271,7 @@ public partial class MainWindow : Window
             Style = (Style)FindResource("SidebarButton"),
             Margin = new Thickness(0, 10, 0, 0),
         };
-        restart.Click += (_, _) => Restart();
+        restart.Click += (_, _) => Restart(restartAsAdmin);
         Sidebar.Children.Add(restart);
 
         Sidebar.Children.Add(NavButton("\uE897", lang["manual"], OpenManual));
@@ -1566,6 +1588,13 @@ public partial class MainWindow : Window
         };
         button.Click += (_, _) => onClick();
         return button;
+    }
+
+    /// <summary>Shift a check box right so it reads as a sub-option of the one above it.</summary>
+    private static CheckBox Indented(CheckBox box)
+    {
+        box.Margin = new Thickness(20, box.Margin.Top, box.Margin.Right, box.Margin.Bottom);
+        return box;
     }
 
     private CheckBox Check(string text, bool value, Action<bool> onChange, string? key = null)
