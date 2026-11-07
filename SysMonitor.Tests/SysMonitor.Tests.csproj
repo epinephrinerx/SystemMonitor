@@ -19,6 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\SysMonitor.Core\SysMonitor.Core.csproj" />
     <ProjectReference Include="..\SysMonitor.Wpf\SysMonitor.Wpf.csproj" />
     <ProjectReference Include="..\SysMonitor.Setup\SysMonitor.Setup.csproj" />
   </ItemGroup>

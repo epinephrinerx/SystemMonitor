@@ -1,0 +1,53 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:SysMonitor.Linux.App"
+        xmlns:p="using:SysMonitor.Linux.Presentation"
+        x:Class="SysMonitor.Linux.App.FullView"
+        x:DataType="p:MainViewModel">
+    <UserControl.Resources>
+        <SolidColorBrush x:Key="GroupBorder" Color="#d5dae1" />
+    </UserControl.Resources>
+    <Grid RowDefinitions="Auto,*,2*">
+        <Button x:Name="BackButton"
+                Content="Back"
+                Grid.Row="0"
+                HorizontalAlignment="Left"
+                Margin="4"
+                Click="BackButton_Click" />
+        <TabControl x:Name="TabStrip"
+                    Grid.Row="1"
+                    ItemsSource="{Binding Tabs}"
+                    SelectedItem="{Binding SelectedTab, Mode=TwoWay}">
+            <TabControl.ItemTemplate>
+                <DataTemplate x:DataType="p:TabModel">
+                    <TextBlock Text="{Binding Title}" />
+                </DataTemplate>
+            </TabControl.ItemTemplate>
+            <TabControl.ContentTemplate>
+                <DataTemplate x:DataType="p:TabModel">
+                    <Border BorderThickness="1"
+                            CornerRadius="6"
+                            Padding="10"
+                            BorderBrush="{DynamicResource GroupBorder}">
+                        <ScrollViewer>
+                            <StackPanel Spacing="4">
+                                <ItemsControl ItemsSource="{Binding Lines}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="x:String">
+                                            <TextBlock Text="{Binding}" />
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </Border>
+                </DataTemplate>
+            </TabControl.ContentTemplate>
+        </TabControl>
+        <ScrollViewer Grid.Row="2"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel x:Name="ChartsHost"
+                        Spacing="6" />
+        </ScrollViewer>
+    </Grid>
+</UserControl>

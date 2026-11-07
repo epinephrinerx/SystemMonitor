@@ -1,0 +1,44 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:local="using:SysMonitor.Linux.App"
+                    xmlns:p="using:SysMonitor.Linux.Presentation"
+                    x:Class="SysMonitor.Linux.App.ExpandedView"
+                    x:DataType="p:MainViewModel">
+    <Border x:Name="Root">
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="150"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Border x:Name="Sidebar" Grid.Column="0" Padding="8">
+                <StackPanel Spacing="8">
+                    <Button x:Name="FullDataButton" Content="Full Data" HorizontalAlignment="Stretch"/>
+                    <CheckBox x:Name="ThemeToggle" Content="Dark theme" IsChecked="{Binding IsDark, Mode=TwoWay}"/>
+                    <CheckBox x:Name="TopmostToggle" Content="Always on top" IsChecked="{Binding AlwaysOnTop, Mode=TwoWay}"/>
+                    <TextBlock Text="Opacity" FontSize="12"/>
+                    <Slider x:Name="OpacitySlider" Minimum="0.3" Maximum="1" Value="{Binding Opacity, Mode=TwoWay}"/>
+                    <TextBlock Text="Speed" FontSize="12"/>
+                    <ComboBox x:Name="SpeedBox" HorizontalAlignment="Stretch" SelectedIndex="{Binding SpeedIndex, Mode=TwoWay}">
+                        <ComboBoxItem Content="eco"/>
+                        <ComboBoxItem Content="balanced"/>
+                        <ComboBoxItem Content="fast"/>
+                    </ComboBox>
+                </StackPanel>
+            </Border>
+            <ScrollViewer x:Name="ItemsScroll" Grid.Column="1">
+                <ItemsControl ItemsSource="{Binding Items}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <UniformGrid Columns="2"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="p:MetricItem">
+                            <local:MeterCard/>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Grid>
+    </Border>
+</UserControl>

@@ -1,5 +1,29 @@
 # Change log
 
+## v3.2.0 — 2026-11-07 — Linux native build (R-013)
+
+A Linux build of the widget, beside the unchanged Windows build. New projects:
+`SysMonitor.Core` (shared model, net8.0), `SysMonitor.Linux` (readers for
+`/proc` and `/sys`, the sampler and all presentation logic, net10.0),
+`SysMonitor.Linux.App` (Avalonia UI), and the test projects
+`SysMonitor.Linux.Tests` and `SysMonitor.Linux.App.Tests` (headless rendering).
+
+**Same three views.** Mini rotates every 5 s with left/right buttons (R-012),
+Expanded shows two-column cards with the Full Data button above the window
+settings (R-002, R-009), Full has a tab per device and live graphs (R-008,
+R-010) and falls back to Expanded below 640x480. Light theme on every view by
+default, whatever the desktop theme (R-011).
+
+**No root needed.** CPU, memory, disks, network and temperatures come from
+`/proc` and `/sys`; what the kernel does not expose to a normal user (memory
+module slots) shows as N/A instead of a guess.
+
+**Packaging.** `packaging/build-linux.sh` produces a self-contained
+`sysmonitor-<version>-linux-x64.tar.gz` with a per-user `install.sh`.
+Runs on X11 (Wayland through XWayland), Ubuntu 22.04 / Debian 12 or newer.
+
+The Python/Tk build and the WPF build are untouched.
+
 ## v3.1.0 — 2026-09-21 — the full view becomes a tabbed one
 
 Six requirements, all in `requirements.md`.

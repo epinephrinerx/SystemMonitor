@@ -1,4 +1,33 @@
-# SysMonitor — working notes for Claude
+# Repository instructions for Claude Code
+
+ใช้เอกสารเดียวกับเครื่องมืออื่นเพื่อป้องกันกฎขัดกัน:
+
+- `docs/AI_WORKFLOW.md` — workflow, authority, handoff และ Definition of Done
+- `docs/ARCHITECTURE.md` — system boundaries, dependency rules และ data flow
+- `docs/TESTING.md` — commands และ verification policy
+
+อ่านเฉพาะเอกสารที่เกี่ยวข้องกับงาน ไม่ต้องอ่านทุกไฟล์สำหรับการแก้ไขเล็กน้อย
+
+กติกาหลัก:
+
+- รักษา diff ให้เล็ก ตรง scope และสอดคล้องกับรูปแบบเดิม
+- ตรวจ Git status/diff และรักษา uncommitted work ของผู้อื่น
+- อย่าแก้ generated files โดยตรงหรือเพิ่ม dependency โดยไม่มีเหตุผล
+- รัน targeted checks ก่อน แล้วขยายตามความเสี่ยงตาม `TESTING.md`
+- อย่าอ้างว่า test ผ่านหากไม่ได้รันจริง
+- ห้าม deploy, publish, ลบข้อมูล, เปลี่ยน production หรือเปิดเผย secrets โดยไม่มีคำสั่งชัดเจน
+- เมื่อทำหน้าที่ reviewer อย่าแก้โค้ด ให้รายงานเฉพาะ findings ที่พิสูจน์ได้ พร้อมไฟล์/บรรทัด ผลกระทบ และวิธี reproduce
+- เมื่อทำหน้าที่ Test Author ใช้หลักเดียวกับ reviewer: **ห้ามแก้โค้ด production เด็ดขาด** แก้ได้เฉพาะเทสต์ของตัวเอง · ห้ามอ่านโค้ดที่ implement แล้วก่อนเขียนเทสต์ · เมื่อเทสต์กับโค้ดขัดกัน ผู้ชี้ขาดคือ spec ไม่ใช่อย่างใดอย่างหนึ่ง (`AI_WORKFLOW.md` §5.6)
+- เมื่อทำหน้าที่ Inspector: **รายงานอย่างเดียว ห้ามแก้ไฟล์ใด ๆ ทั้งโค้ด เทสต์ และ spec** · ขั้น A ตรวจ spec ก่อนเขียน (เห็น spec อย่างเดียว) · ขั้น B ตรวจเทสต์ + mutant ของตัวเอง · รายงานกลับ Coding Owner เสมอ เป็นผู้ตัดสิน (`AI_WORKFLOW.md` §5.7)
+- เมื่อส่งมอบ ให้สรุปผล ไฟล์ที่เปลี่ยน คำสั่งที่รัน ผลลัพธ์ และความเสี่ยงที่เหลือ
+
+ข้อยกเว้นเรื่อง load: ผู้ใช้อนุญาตให้รันโมเดล Ollama ขนานกันบนเครื่อง server ได้ (ดู `docs/AI_WORKFLOW.md` §1) ไม่รวม load test แบบอื่น
+
+เมื่อทำงานร่วมกับ coding agent ตัวอื่น ให้มี writing owner หนึ่งตัวต่อ task/branch (ระบุว่าเป็น Writing Owner 1 หรือ 2 ตาม `AI_WORKFLOW.md` §1) และใช้ commit SHA หรือ diff พร้อม handoff contract ใน `AI_WORKFLOW.md`
+
+## เนื้อหาเดิม (จากไฟล์เดิม)
+
+## SysMonitor — working notes for Claude
 
 A native Windows desktop widget: CPU, memory, disks, network, temperatures.
 
@@ -12,7 +41,7 @@ still runs and is still installed, but it is not developed any further. See
 "The retired Python build" at the end for the parts of it that are still worth
 knowing.
 
-## Rules for working on this machine
+### Rules for working on this machine
 
 **Never run load-generation tests** — no CPU spinners, memory ballooning, or
 disk churn. I did this once and the user's CPU overheated; they killed the task
@@ -35,7 +64,7 @@ is the author.
 class library and `ctypes`-style P/Invoke in `Native/Win32.cs`. The test project
 is the exception: MSTest is a test dependency and ships nothing.
 
-## What the app does that is easy to get wrong
+### What the app does that is easy to get wrong
 
 **Temperature colours and usage colours are separate.** `WarmAt`/`HotAt` (65/80)
 belong to the thermometer badge; `LoadWarmAt`/`LoadHotAt` (70/90) belong to the
@@ -83,7 +112,7 @@ looked like a leak; the managed heap was 4–9 MB and sawtoothing normally, so
 those were pages the GC had freed and Windows had not reclaimed. The heartbeat
 logs both numbers, and `TrimWorkingSet` on each heartbeat hands them back.
 
-## Where things are
+### Where things are
 
 | | |
 |---|---|
@@ -101,12 +130,12 @@ distributed files carry the version; the installed one stays `SysMonitor.exe`. R
 not Git Bash: Git Bash rewrites a bare `/S` into a Windows path and the wizard
 opens instead.
 
-## Communication
+### Communication
 
 The user writes in Thai; reply in Thai. Code, comments, and docs stay in
 English.
 
-## The retired Python build
+### The retired Python build
 
 Kept installed and working, not developed. Two things from it are still worth
 knowing because the C# port inherited the knowledge:

@@ -1,0 +1,13 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:SysMonitor.Linux.App"
+        x:Class="SysMonitor.Linux.App.MainWindow"
+        Title="SysMonitor"
+        Width="270"
+        Height="104">
+    <Grid>
+        <local:MiniView x:Name="MiniHost" />
+        <local:ExpandedView x:Name="ExpandedHost" />
+        <local:FullView x:Name="FullHost" />
+    </Grid>
+</Window>

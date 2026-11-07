@@ -39,4 +39,8 @@
 
   <!-- No package references: the same stdlib-only rule the Python port kept. -->
 
+  <ItemGroup>
+    <ProjectReference Include="..\SysMonitor.Core\SysMonitor.Core.csproj" />
+  </ItemGroup>
+
 </Project>

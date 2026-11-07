@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Linux sensors. Pure parsers over /proc and /sys text: every reader takes
+         the file's contents (or a root directory) so tests need no real
+         machine. No packages. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>SysMonitor.Linux</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SysMonitor.Core\SysMonitor.Core.csproj" />
+  </ItemGroup>
+
+</Project>

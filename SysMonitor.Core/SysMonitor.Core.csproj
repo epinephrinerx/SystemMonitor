@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Shared by the Windows (net8.0-windows) and Linux (net10.0) builds. It
+         targets net8.0 only: a net10.0 project can reference a net8.0 library,
+         and a second TFM here would make restore demand the .NET 10 SDK on a
+         Windows box that has only .NET 8. No WPF, no WinForms, no packages:
+         it must stay portable. -->
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>SysMonitor</RootNamespace>
+  </PropertyGroup>
+
+</Project>

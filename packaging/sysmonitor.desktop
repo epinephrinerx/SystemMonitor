@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=SysMonitor
+Comment=CPU, memory, disk and network monitor widget
+Exec=@INSTALL_DIR@/sysmonitor
+Icon=@INSTALL_DIR@/sysmonitor.png
+Terminal=false
+Categories=System;Monitor;

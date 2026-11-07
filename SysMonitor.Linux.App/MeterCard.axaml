@@ -1,0 +1,23 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:local="using:SysMonitor.Linux.App"
+                 xmlns:p="using:SysMonitor.Linux.Presentation"
+                 x:Class="SysMonitor.Linux.App.MeterCard"
+                 x:DataType="p:MetricItem">
+    <Border CornerRadius="8" Padding="10" BorderThickness="1" Margin="4">
+        <StackPanel Spacing="4">
+            <Grid>
+                <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,0,60,0">
+                    <Border x:Name="Accent" Width="10" Height="10" CornerRadius="2" VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding Title}" FontWeight="Bold" TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+                <TextBlock Text="{Binding ValueText}" HorizontalAlignment="Right" Grid.Column="1"/>
+            </Grid>
+            <TextBlock Text="{Binding Subtitle}" FontSize="12" Opacity="0.7"/>
+            <Grid x:Name="BarHost" Height="8">
+                <Border x:Name="BarTrack" CornerRadius="4"/>
+                <Border x:Name="BarFill" CornerRadius="4" HorizontalAlignment="Left"/>
+            </Grid>
+        </StackPanel>
+    </Border>
+</UserControl>

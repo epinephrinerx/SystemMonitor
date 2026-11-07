@@ -1,0 +1,31 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+                xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                xmlns:local="using:SysMonitor.Linux.App"
+                xmlns:p="using:SysMonitor.Linux.Presentation"
+                x:Class="SysMonitor.Linux.App.MiniView"
+                x:DataType="p:MainViewModel">
+    <Border x:Name="Root">
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <Button x:Name="PrevButton"
+                    Content="&#x25C0;"
+                    VerticalAlignment="Center"
+                    Margin="2"
+                    Grid.Column="0"/>
+            <local:MeterCard x:Name="Card" Grid.Column="1"/>
+            <TextBlock x:Name="EmptyText" Grid.Column="1"
+                       Text="No data"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"/>
+            <Button x:Name="NextButton"
+                    Content="&#x25B6;"
+                    VerticalAlignment="Center"
+                    Margin="2"
+                    Grid.Column="2"/>
+        </Grid>
+    </Border>
+</UserControl>

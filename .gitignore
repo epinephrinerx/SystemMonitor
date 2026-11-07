@@ -12,3 +12,6 @@ SysMonitor.Setup/payload/
 
 # editor backups
 *.bak
+
+# Linux build output
+dist-linux/
