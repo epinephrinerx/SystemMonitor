@@ -32,7 +32,7 @@ manifest.contract.Major ต้องเท่ากับ ContractInfo.Version.M
 
 ไม่ผ่าน → `ExtensionStatus.ContractMismatch` (ตอนโหลด) หรือ `PackException` (ตอนแพ็ก) ผลคือ minor ของโฮสต์รองรับส่วนเสริมที่เขียนตาม 1.0 และ 1.1 ทั้งคู่; ส่วนเสริมที่อ้าง 1.2 หรือ 2.x ถูกปฏิเสธทันที
 
--เวอร์ชันของตัวโฮสต์เอง (`SysMonitor.Wpf.csproj:Version` = 4.2.2) เป็นคนละเรื่องกับเวอร์ชัน contract และถูกตรวจแยกผ่าน `min_host` (§4, §6 ขั้น 5)
+-เวอร์ชันของตัวโฮสต์เอง (`SysMonitor.Wpf.csproj:Version` = 4.3.0) เป็นคนละเรื่องกับเวอร์ชัน contract และถูกตรวจแยกผ่าน `min_host` (§4, §6 ขั้น 5)
 - `SysMonitor.Extensibility.csproj` ตั้ง `AssemblyVersion`/`FileVersion` ค้างที่ `1.0.0.0` โดยเจตนา (คอมเมนต์ในไฟล์: เพิ่มเฉพาะ major breaking change) เพื่อให้ assembly identity ของ contract คงที่
 - **สิ่งที่เปลี่ยนจาก 1.0 → 1.1** (ยืนยันจากรายงานเฟส 3 ใน `Requirements.md`): เพิ่ม `IDemandAware` + `ExtensionDemand`, เพิ่ม `IDiskTemperatureSource`, เพิ่มฟิลด์ manifest `provides` และ `place_after` · ส่วนที่คงอยู่แต่เดิม (IExtension / IExtensionContext / IViewProvider / ExtensionView / Severity) — **ยังไม่ยืนยัน** เพราะ repo ไม่มี changelog หรือ contract 1.0 ให้เทียบ
 

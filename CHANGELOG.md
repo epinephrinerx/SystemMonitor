@@ -1,14 +1,37 @@
 # Change log
 
-## Unreleased — Switching views keeps the window in place
+## v4.3.0 — 2026-11-16 — Machine-wide install
+
+**Install for everyone, running as administrator.** The setup can now install
+for all users on the machine (tick "install for administrators", one UAC
+prompt): the program goes to Program Files, appears in Apps & features for the
+whole machine, and starts at sign-in from a Scheduled Task that runs it with
+administrator rights, so SMART readings need no further prompt. The per-user
+install is unchanged and never asks for UAC. Installing machine-wide retires an
+existing per-user install of the program (your settings are kept). Uninstalling
+a machine-wide install leaves your settings folder alone. See
+`Docs/adr/0002-machine-wide-install.md` for the design and its limits.
 
 **Window position.** Switching between the widget, overall and full views now
 keeps the window where it is: the new view opens on the top-left of the one you
 left, instead of jumping back to the spot that view had last time. A view that
 would reach past the screen edge from there is moved back in. Leaving full
-screen still returns to where the window was before it went full. The program
-remembers one place for the window, and reopens in the last view at that place;
-the size of each view is still remembered separately.
+screen returns to where the window was before it went full, unless you moved it
+in the meantime, in which case it stays where you put it. The program remembers
+one place for the window, and reopens in the last view at that place; the size
+of each view is still remembered separately.
+
+**Crash in the full view.** Scrolling the RAM tab down to the services list and
+moving the pointer over the text could end the program: the window asked
+whether the pointer was on a button, and that question threw when the pointer
+was over a piece of inline text. It no longer does.
+
+**Resizing the widget across monitors.** Dragging the widget's corner towards a
+neighbouring monitor used to stop at the seam while the pointer carried on. The
+widget now follows the pointer onto the other screen.
+
+**Thai text at large font sizes.** In the side panel, a Thai label that wraps no
+longer leaves a single letter alone on the next line.
 
 ## v4.2.2 — 2026-10-31 — Side panel and window memory
 
