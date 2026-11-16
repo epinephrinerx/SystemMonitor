@@ -42,6 +42,9 @@ public partial class MainWindow : Window
     private Mode _mode = Mode.Widget;
     private bool _exiting;
     private Rect _beforeFull = Rect.Empty;
+
+    /// <summary>Where full screen put the window, to tell whether the user has moved it since.</summary>
+    private Point? _fullEntry;
     private bool _closing;
     private string _lastExtensionsSignature = string.Empty;
     private readonly HashSet<string> _approvalsInFlight = new(StringComparer.OrdinalIgnoreCase);
@@ -491,7 +494,8 @@ public partial class MainWindow : Window
         var origin = WindowGeometry.OriginAfterSwitch(
             new Point(Left, Top),
             _beforeFull == Rect.Empty ? null : new Point(_beforeFull.Left, _beforeFull.Top),
-            leavingFull: _mode == Mode.Full);
+            leavingFull: _mode == Mode.Full,
+            fullEntry: _fullEntry);
         Left = origin.X;
         Top = origin.Y;
         if (_mode != Mode.Full && mode == Mode.Full)
@@ -513,6 +517,10 @@ public partial class MainWindow : Window
         // A bigger view can reach past the screen edge from where the window
         // sits; pull it back in.
         KeepOnScreen();
+        if (mode == Mode.Full)
+        {
+            _fullEntry = new Point(Left, Top);
+        }
 
         Snapshot snap = _sampler.Current;
         switch (mode)
@@ -645,7 +653,7 @@ public partial class MainWindow : Window
         // The title-bar buttons and the close button on the widget both sit in
         // a corner, which is now a resize zone. Claiming the click there would
         // make them dead.
-        if (OverControl(e.OriginalSource))
+        if (HitSource.IsControl(e.OriginalSource))
         {
             return;
         }
@@ -668,9 +676,9 @@ public partial class MainWindow : Window
         _pendingDrag = null;
         _dragOrigin = PointToScreen(point);
         _resizeOrigin = new Rect(Left, Top, Width, Height);
-        // The work area is judged once per drag, not per frame: the widget
-        // grows against the screen it started on even if the pointer crosses
-        // to another monitor mid-drag.
+        // The screen the drag started on. Crossing to another monitor mid-drag
+        // adds that monitor's work area (WindowGeometry.DragArea); the start
+        // screen is never dropped, because the pinned edges are on it.
         _dragWorkArea = WorkArea(Left + Width / 2, Top + Height / 2);
         _dragDpi = VisualTreeHelper.GetDpi(this);
         _resizing = edge;
@@ -738,7 +746,7 @@ public partial class MainWindow : Window
 
         if (!_dragging && _resizing == Edge.None)
         {
-            Cursor = OverControl(e.OriginalSource)
+            Cursor = HitSource.IsControl(e.OriginalSource)
                 ? Cursors.Arrow
                 : CursorFor(WindowGeometry.HitTest(point, Width, Height));
             return;
@@ -750,7 +758,11 @@ public partial class MainWindow : Window
 
         if (_resizing != Edge.None)
         {
-            Resize(new Vector(dx / _dragDpi.DpiScaleX, dy / _dragDpi.DpiScaleY));
+            // The pointer's own screen too: a widget dragged towards another
+            // monitor has to be allowed to follow it there.
+            Rect underPointer = WorkArea(now.X / _dragDpi.DpiScaleX, now.Y / _dragDpi.DpiScaleY);
+            Resize(new Vector(dx / _dragDpi.DpiScaleX, dy / _dragDpi.DpiScaleY),
+                   WindowGeometry.DragArea(_dragWorkArea, underPointer));
             return;
         }
 
@@ -781,25 +793,6 @@ public partial class MainWindow : Window
         SavePlacement();
     }
 
-    /// <summary>
-    /// Is the pointer on something that wants the click itself? Walks up from
-    /// whatever was hit, because the source is usually a piece of a control's
-    /// template rather than the control.
-    /// </summary>
-    private static bool OverControl(object? source)
-    {
-        for (DependencyObject? node = source as DependencyObject;
-             node is not null;
-             node = VisualTreeHelper.GetParent(node))
-        {
-            if (node is ButtonBase or Slider or ScrollBar or Thumb)
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
     protected override void OnPreviewMouseLeftButtonUp(MouseButtonEventArgs e)
     {
         base.OnPreviewMouseLeftButtonUp(e);
@@ -825,13 +818,13 @@ public partial class MainWindow : Window
     /// showing is a decision only a button makes now, and a drag that runs out
     /// of room simply stops at the view's own minimum.
     /// </summary>
-    private void Resize(Vector delta)
+    private void Resize(Vector delta, Rect workArea)
     {
         (var min, var max) = WindowGeometry.Limits(ViewOf(_mode));
 
         Rect window = _mode == Mode.Widget
             ? WindowGeometry.ResizeWidget(
-                  _resizeOrigin, _resizing, delta, min, max, _dragWorkArea)
+                  _resizeOrigin, _resizing, delta, min, max, workArea)
             : WindowGeometry.Resize(_resizeOrigin, _resizing, delta, min, max);
         Left = window.Left;
         Top = window.Top;

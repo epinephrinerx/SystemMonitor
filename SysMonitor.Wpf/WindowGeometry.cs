@@ -128,11 +128,16 @@ internal static class WindowGeometry
     /// <summary>
     /// Where the window's top-left goes when the view changes (R-024): where
     /// the window already is, so switching never drags it to a spot the next
-    /// view used to have. Leaving full screen is the one exception -- it goes
-    /// back to where the window was before it entered.
+    /// view used to have. Leaving full screen goes back to where the window
+    /// was before it entered, but only while it is still where full screen put
+    /// it: a window the user has moved since stays where they left it, on
+    /// whichever screen that is.
     /// </summary>
-    public static Point OriginAfterSwitch(Point current, Point? beforeFull, bool leavingFull) =>
-        leavingFull && beforeFull is Point back ? back : current;
+    public static Point OriginAfterSwitch(
+        Point current, Point? beforeFull, bool leavingFull, Point? fullEntry = null) =>
+        leavingFull && beforeFull is Point back && fullEntry is Point placed && current == placed
+            ? back
+            : current;
 
     /// <summary>
     /// The top-left that puts a window of this size inside the area, moved no
@@ -142,6 +147,15 @@ internal static class WindowGeometry
     public static Point KeepInside(Point topLeft, Size size, Rect area) =>
         new(Math.Max(area.Left, Math.Min(topLeft.X, area.Right - size.Width)),
             Math.Max(area.Top, Math.Min(topLeft.Y, area.Bottom - size.Height)));
+
+    /// <summary>
+    /// The room a widget resize may use: the screen the drag started on, plus
+    /// the one the pointer is over now. The start screen stays in because the
+    /// pinned edges sit on it. Judged by the start screen alone, a widget
+    /// dragged towards a neighbouring monitor stopped at the seam while the
+    /// pointer carried on without it.
+    /// </summary>
+    public static Rect DragArea(Rect start, Rect underPointer) => Rect.Union(start, underPointer);
 
     /// <summary>The panel inside a window of this size.</summary>
     public static Size Panel(double width, double height) =>

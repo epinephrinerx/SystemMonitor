@@ -505,9 +505,29 @@ public class WidgetRatioResizeTests
     public void Leaving_full_screen_goes_back_to_where_the_window_was_before()
     {
         Point origin = WindowGeometry.OriginAfterSwitch(
-            new Point(0, 0), new Point(300, 120), leavingFull: true);
+            new Point(0, 0), new Point(300, 120), leavingFull: true, fullEntry: new Point(0, 0));
 
         Assert.AreEqual(new Point(300, 120), origin);
+    }
+
+    [TestMethod]
+    public void A_window_moved_while_in_full_screen_stays_where_it_was_left()
+    {
+        // Full screen put the window at (0, 0); the user dragged it to the other
+        // screen. Going back to Overall must not drag it to the old spot.
+        Point origin = WindowGeometry.OriginAfterSwitch(
+            new Point(2244, 319), new Point(300, 120), leavingFull: true, fullEntry: new Point(0, 0));
+
+        Assert.AreEqual(new Point(2244, 319), origin);
+    }
+
+    [TestMethod]
+    public void Leaving_full_screen_with_no_record_of_where_it_was_put_stays_put()
+    {
+        Point origin = WindowGeometry.OriginAfterSwitch(
+            new Point(75, 40), new Point(300, 120), leavingFull: true, fullEntry: null);
+
+        Assert.AreEqual(new Point(75, 40), origin);
     }
 
     [TestMethod]
@@ -517,6 +537,42 @@ public class WidgetRatioResizeTests
             new Point(75, 40), beforeFull: null, leavingFull: true);
 
         Assert.AreEqual(new Point(75, 40), origin);
+    }
+
+    // ------------------------------------- resizing across monitors
+    [TestMethod]
+    public void A_widget_dragged_to_the_next_monitor_follows_the_pointer_there()
+    {
+        // 1920x1080 on the left, a portrait 1080x1920 on the right.
+        var left = new Rect(0, 0, 1920, 1032);
+        var right = new Rect(1920, 0, 1080, 1872);
+        var origin = new Rect(1500, 300, 224, 101);
+        (double W, double H) min = (110, 40);
+        (double W, double H) max = (800, 600);
+        var delta = new Vector(300, 130);   // the corner is pulled well past the seam
+
+        Rect stuck = WindowGeometry.ResizeWidget(origin, Edge.Right | Edge.Bottom, delta, min, max, left);
+        Rect follows = WindowGeometry.ResizeWidget(origin, Edge.Right | Edge.Bottom, delta, min, max,
+            WindowGeometry.DragArea(left, right));
+
+        // The panel is what has to stay in: the 12 px of shadow around it is invisible.
+        Assert.IsTrue(stuck.Right - WindowGeometry.ShadowPad <= left.Right + 0.001,
+            "start screen alone stops the widget at the seam");
+        Assert.IsTrue(follows.Right - WindowGeometry.ShadowPad > left.Right,
+            "with the pointer's screen it carries on");
+    }
+
+    [TestMethod]
+    public void The_drag_area_always_keeps_the_screen_the_drag_started_on()
+    {
+        var start = new Rect(0, 0, 1920, 1032);
+        var other = new Rect(1920, 0, 1080, 1872);
+
+        Rect area = WindowGeometry.DragArea(start, other);
+
+        Assert.IsTrue(area.Contains(start));
+        Assert.IsTrue(area.Contains(other));
+        Assert.AreEqual(start, WindowGeometry.DragArea(start, start));
     }
 
     [TestMethod]
