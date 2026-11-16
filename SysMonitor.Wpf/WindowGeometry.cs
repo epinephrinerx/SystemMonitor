@@ -125,6 +125,24 @@ internal static class WindowGeometry
         return new Rect(left, top, width, height);
     }
 
+    /// <summary>
+    /// Where the window's top-left goes when the view changes (R-024): where
+    /// the window already is, so switching never drags it to a spot the next
+    /// view used to have. Leaving full screen is the one exception -- it goes
+    /// back to where the window was before it entered.
+    /// </summary>
+    public static Point OriginAfterSwitch(Point current, Point? beforeFull, bool leavingFull) =>
+        leavingFull && beforeFull is Point back ? back : current;
+
+    /// <summary>
+    /// The top-left that puts a window of this size inside the area, moved no
+    /// further than it has to be. A window bigger than the area sits at the
+    /// area's top-left.
+    /// </summary>
+    public static Point KeepInside(Point topLeft, Size size, Rect area) =>
+        new(Math.Max(area.Left, Math.Min(topLeft.X, area.Right - size.Width)),
+            Math.Max(area.Top, Math.Min(topLeft.Y, area.Bottom - size.Height)));
+
     /// <summary>The panel inside a window of this size.</summary>
     public static Size Panel(double width, double height) =>
         new(width - ShadowPad * 2, height - ShadowPad * 2);

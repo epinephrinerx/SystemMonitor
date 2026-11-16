@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 using SysMonitor.Model;
 using SysMonitor.ViewModels;
@@ -475,5 +476,107 @@ public class WidgetRatioResizeTests
             "even an unsatisfiable start keeps its own shape");
         Assert.AreEqual(1800 * 0.64, panel.Width, 0.5,
             "the near end of the broken range is the minimum scale");
+    }
+
+    // ------------------------------------------- switching views (R-024)
+    [TestMethod]
+    public void Switching_views_keeps_the_window_where_it_is()
+    {
+        // Overall -> widget: the widget opens on the overall window's top-left,
+        // not on the spot the widget had the last time it was shown.
+        var current = new Point(640, 180);
+        Point origin = WindowGeometry.OriginAfterSwitch(current, beforeFull: null, leavingFull: false);
+
+        Assert.AreEqual(current, origin);
+    }
+
+    [TestMethod]
+    public void Switching_views_ignores_a_stale_before_full_spot()
+    {
+        // Only leaving full screen goes back; a stale spot must not pull
+        // an ordinary switch away from where the window is.
+        Point origin = WindowGeometry.OriginAfterSwitch(
+            new Point(640, 180), new Point(10, 10), leavingFull: false);
+
+        Assert.AreEqual(new Point(640, 180), origin);
+    }
+
+    [TestMethod]
+    public void Leaving_full_screen_goes_back_to_where_the_window_was_before()
+    {
+        Point origin = WindowGeometry.OriginAfterSwitch(
+            new Point(0, 0), new Point(300, 120), leavingFull: true);
+
+        Assert.AreEqual(new Point(300, 120), origin);
+    }
+
+    [TestMethod]
+    public void Leaving_full_screen_without_a_remembered_spot_stays_put()
+    {
+        Point origin = WindowGeometry.OriginAfterSwitch(
+            new Point(75, 40), beforeFull: null, leavingFull: true);
+
+        Assert.AreEqual(new Point(75, 40), origin);
+    }
+
+    [TestMethod]
+    public void A_bigger_view_that_reaches_past_the_edge_is_pulled_back_in()
+    {
+        var area = new Rect(0, 0, 1920, 1040);
+        // A widget near the bottom-right becomes a 654x504 overall window.
+        Point inside = WindowGeometry.KeepInside(new Point(1700, 900), new Size(654, 504), area);
+
+        Assert.AreEqual(new Point(1920 - 654, 1040 - 504), inside);
+    }
+
+    [TestMethod]
+    public void A_window_already_inside_the_area_does_not_move()
+    {
+        var area = new Rect(0, 0, 1920, 1040);
+
+        Assert.AreEqual(new Point(200, 100),
+            WindowGeometry.KeepInside(new Point(200, 100), new Size(654, 504), area));
+    }
+
+    [TestMethod]
+    public void A_window_left_of_or_above_the_area_is_pulled_to_its_edge()
+    {
+        var area = new Rect(100, 50, 1000, 700);
+
+        Assert.AreEqual(new Point(100, 50),
+            WindowGeometry.KeepInside(new Point(-300, -20), new Size(300, 200), area));
+    }
+
+    [TestMethod]
+    public void A_window_bigger_than_the_area_sits_at_its_top_left()
+    {
+        var area = new Rect(0, 0, 800, 600);
+
+        Assert.AreEqual(new Point(0, 0),
+            WindowGeometry.KeepInside(new Point(50, 50), new Size(1000, 700), area));
+    }
+
+    [TestMethod]
+    public void A_config_that_still_has_per_view_spots_loads_and_keeps_the_last_position()
+    {
+        // Older versions wrote widget/overall/full spots; they are no longer
+        // used, but such a config must still load with the last position.
+        string path = Path.Combine(Path.GetTempPath(), "sysmon-r024-" + Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            File.WriteAllText(path,
+                "{\"pos_x\": 410, \"pos_y\": 90, \"widget_pos_x\": 5, \"widget_pos_y\": 6, "
+                + "\"overall_pos_x\": 7, \"overall_pos_y\": 8, \"last_view\": \"overall\"}");
+
+            AppConfig config = AppConfig.LoadFrom(path);
+
+            Assert.AreEqual(410, config.PosX);
+            Assert.AreEqual(90, config.PosY);
+            Assert.AreEqual("overall", config.LastView);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 }

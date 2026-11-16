@@ -1,5 +1,15 @@
 # Change log
 
+## Unreleased — Switching views keeps the window in place
+
+**Window position.** Switching between the widget, overall and full views now
+keeps the window where it is: the new view opens on the top-left of the one you
+left, instead of jumping back to the spot that view had last time. A view that
+would reach past the screen edge from there is moved back in. Leaving full
+screen still returns to where the window was before it went full. The program
+remembers one place for the window, and reopens in the last view at that place;
+the size of each view is still remembered separately.
+
 ## v4.2.2 — 2026-10-31 — Side panel and window memory
 
 **Side panel.** The options under "Display" that belong to another one are

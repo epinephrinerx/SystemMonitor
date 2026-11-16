@@ -41,7 +41,7 @@ public partial class MainWindow : Window
     private readonly TrayIcon _tray = new();
     private Mode _mode = Mode.Widget;
     private bool _exiting;
-    private Rect _beforeFull;
+    private Rect _beforeFull = Rect.Empty;
     private bool _closing;
     private string _lastExtensionsSignature = string.Empty;
     private readonly HashSet<string> _approvalsInFlight = new(StringComparer.OrdinalIgnoreCase);
@@ -101,8 +101,6 @@ public partial class MainWindow : Window
         ApplyFontScale();
         ApplyPanelSize();
         RestorePosition();
-        // The widget's own remembered spot beats the legacy global one.
-        RestoreViewPosition(Mode.Widget);
         BuildSidebar();
 
         CloseButton.Click += (_, _) => Close();
@@ -483,18 +481,20 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Each view keeps its own spot: note where this one sits before the
-        // window changes size or shape for the next view.
+        // Note where the window sits before it changes size or shape.
         SavePlacement();
 
-        // Leaving full screen has to put the window back where it was; the
-        // config only knows panel sizes, not the position it was dragged to.
-        if (_mode == Mode.Full)
-        {
-            Left = _beforeFull.Left;
-            Top = _beforeFull.Top;
-        }
-        else if (mode == Mode.Full)
+        // The window stays where it is when the view changes (R-024); only
+        // leaving full screen goes back to where it was before it entered,
+        // because the config knows panel sizes, not the position it was
+        // dragged to.
+        var origin = WindowGeometry.OriginAfterSwitch(
+            new Point(Left, Top),
+            _beforeFull == Rect.Empty ? null : new Point(_beforeFull.Left, _beforeFull.Top),
+            leavingFull: _mode == Mode.Full);
+        Left = origin.X;
+        Top = origin.Y;
+        if (_mode != Mode.Full && mode == Mode.Full)
         {
             _beforeFull = new Rect(Left, Top, Width, Height);
         }
@@ -510,15 +510,9 @@ public partial class MainWindow : Window
 
         ApplyPanelSize();
 
-        // Each view returns to its own remembered spot, so a bigger view
-        // closing last never drags the widget from where the user put it.
-        // The full-screen exit's _beforeFull fallback applies when the view
-        // has never been placed.
-        bool restored = RestoreViewPosition(mode);
-        if (mode != Mode.Full || restored)
-        {
-            KeepOnScreen();
-        }
+        // A bigger view can reach past the screen edge from where the window
+        // sits; pull it back in.
+        KeepOnScreen();
 
         Snapshot snap = _sampler.Current;
         switch (mode)
@@ -628,8 +622,9 @@ public partial class MainWindow : Window
     private void KeepOnScreen()
     {
         Rect area = WorkArea(Left, Top);
-        Left = Math.Max(area.Left, Math.Min(Left, area.Right - Width));
-        Top = Math.Max(area.Top, Math.Min(Top, area.Bottom - Height));
+        var inside = WindowGeometry.KeepInside(new Point(Left, Top), new Size(Width, Height), area);
+        Left = inside.X;
+        Top = inside.Y;
     }
 
     // ------------------------------------------------------------- pointer
@@ -906,47 +901,12 @@ public partial class MainWindow : Window
 
     private void SavePlacement()
     {
-        // The view's own spot first: switching views, or closing from one,
-        // must not drag the other views' remembered places around.
-        switch (_mode)
-        {
-            case Mode.Widget:
-                _config.WidgetPosX = Left;
-                _config.WidgetPosY = Top;
-                break;
-            case Mode.Overall:
-                _config.OverallPosX = Left;
-                _config.OverallPosY = Top;
-                break;
-            case Mode.Full:
-                _config.FullPosX = Left;
-                _config.FullPosY = Top;
-                break;
-        }
+        // One remembered place for the window, whichever view it is in
+        // (R-024). The per-view spots older versions kept are no longer read
+        // or written; a config that still has them loads fine.
         _config.PosX = Left;
         _config.PosY = Top;
         _config.Save();
-    }
-
-    /// <summary>
-    /// Put the window back where this view was last seen. False when the
-    /// view has no remembered spot, leaving whatever placement is current.
-    /// </summary>
-    private bool RestoreViewPosition(Mode mode)
-    {
-        (double? X, double? Y) pos = mode switch
-        {
-            Mode.Widget => (_config.WidgetPosX, _config.WidgetPosY),
-            Mode.Overall => (_config.OverallPosX, _config.OverallPosY),
-            _ => (_config.FullPosX, _config.FullPosY),
-        };
-        if (pos.X is double x && pos.Y is double y)
-        {
-            Left = x;
-            Top = y;
-            return true;
-        }
-        return false;
     }
 
     // -------------------------------------------------------- context menu
