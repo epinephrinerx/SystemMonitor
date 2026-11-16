@@ -992,10 +992,11 @@ public partial class MainWindow : Window
         // The full view's tab rail carries its own pair, so the way back is
         // printed where the tabs are rather than only in the corner icons.
         FullNav.Children.Clear();
+        // The Full view is out of R-023's scope: its labels stay as they were.
         FullNav.Children.Add(NavButton("\uE80F", lang["go_overall"],
-            () => SetMode(Mode.Overall)));
+            () => SetMode(Mode.Overall), softenThai: false));
         FullNav.Children.Add(NavButton("\uE745", lang["open_widget"],
-            () => SetMode(Mode.Widget)));
+            () => SetMode(Mode.Widget), softenThai: false));
 
         Sidebar.Children.Add(Heading(lang["window_settings"]));
         AddWindowSettings(Sidebar, lang, everything: false);
@@ -1221,7 +1222,7 @@ public partial class MainWindow : Window
         bool restartAsAdmin = !_sampler.Elevated;
         var restartLabel = new TextBlock
         {
-            Text = restartAsAdmin ? lang["restart_admin"] : lang["restart"],
+            Text = ThaiWrap.Soften(restartAsAdmin ? lang["restart_admin"] : lang["restart"]),
             TextWrapping = TextWrapping.Wrap,
         };
         FollowRamp(restartLabel, TextBlock.FontSizeProperty, "FontNav");
@@ -1280,14 +1281,14 @@ public partial class MainWindow : Window
             Content = buttonLabel,
             Style = (Style)FindResource("SidebarButton"),
         };
-        buttonLabel.Text = lang["check_updates"];
+        buttonLabel.Text = ThaiWrap.Soften(lang["check_updates"]);
         if (_pendingUpdate is not null)
         {
             // Found by the check at start-up (or an earlier press): the panel
             // is rebuilt on a language change and must not forget it.
             status.Text = $"{lang["update_found"]} {_pendingUpdate.Version}";
             status.Visibility = Visibility.Visible;
-            buttonLabel.Text = lang["download_install"];
+            buttonLabel.Text = ThaiWrap.Soften(lang["download_install"]);
         }
         button.Click += async (_, _) => await RunUpdateStep(button, status, lang, buttonLabel);
 
@@ -1368,7 +1369,7 @@ public partial class MainWindow : Window
                 {
                     _pendingUpdate = release;
                     status.Text = $"{lang["update_found"]} {release.Version}";
-                    buttonLabel.Text = lang["download_install"];
+                    buttonLabel.Text = ThaiWrap.Soften(lang["download_install"]);
                 }
                 return;
             }
@@ -1382,7 +1383,7 @@ public partial class MainWindow : Window
             {
                 status.Text = lang["download_failed"];
                 _pendingUpdate = null;
-                buttonLabel.Text = lang["check_updates"];
+                buttonLabel.Text = ThaiWrap.Soften(lang["check_updates"]);
                 return;
             }
 
@@ -1498,7 +1499,7 @@ public partial class MainWindow : Window
 
     private TextBlock Heading(string text) => new()
     {
-        Text = text.ToUpperInvariant(),
+        Text = ThaiWrap.Soften(text.ToUpperInvariant()),
         Style = (Style)FindResource("Label"),
         Foreground = _model.LabelBrush,
         Margin = new Thickness(0, 10, 0, 6),
@@ -1513,7 +1514,7 @@ public partial class MainWindow : Window
     /// a stack hands its children unlimited width, and a label that can
     /// never run out of room never wraps.
     /// </summary>
-    private Button NavButton(string glyph, string text, Action onClick)
+    private Button NavButton(string glyph, string text, Action onClick, bool softenThai = true)
     {
         var icon = new TextBlock
         {
@@ -1524,7 +1525,7 @@ public partial class MainWindow : Window
         };
         var label = new TextBlock
         {
-            Text = text,
+            Text = softenThai ? ThaiWrap.Soften(text) : text,
             FontFamily = new FontFamily("Segoe UI, Leelawadee UI, Tahoma"),
             VerticalAlignment = VerticalAlignment.Center,
             TextWrapping = TextWrapping.Wrap,
@@ -1567,7 +1568,7 @@ public partial class MainWindow : Window
             // fixed width.
             Content = new TextBlock
             {
-                Text = text,
+                Text = ThaiWrap.Soften(text),
                 TextWrapping = TextWrapping.Wrap,
             },
             IsChecked = value,

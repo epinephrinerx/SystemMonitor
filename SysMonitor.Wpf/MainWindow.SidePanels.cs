@@ -221,7 +221,7 @@ public partial class MainWindow
     {
         var block = new TextBlock
         {
-            Text = text,
+            Text = ThaiWrap.Soften(text),
             TextWrapping = TextWrapping.Wrap,
             Foreground = muted ? _model.MutedBrush : _model.TextBrush,
             FontFamily = new FontFamily("Segoe UI, Leelawadee UI, Tahoma"),
