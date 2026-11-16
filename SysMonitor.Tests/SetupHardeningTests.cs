@@ -47,4 +47,19 @@ public class SetupHardeningTests
         Assert.IsFalse(SetupArguments.Parse(new[] { "--admin" }).Elevated);
         CollectionAssert.Contains(parsed.ToArguments().ToArray(), "--elevated");
     }
+
+    [TestMethod]
+    public void A_machine_wide_install_is_refused_by_a_setup_that_did_not_lock_its_own_file()
+    {
+        // Nothing in the test process holds an image: HoldOwn is only called by the real setup.
+        Assert.IsFalse(SelfImage.IsHeld);
+        Assert.ThrowsException<IOException>(SelfImage.Require);
+    }
+
+    [TestMethod]
+    public void Closing_the_elevated_wizard_without_installing_has_an_exit_code_of_its_own()
+    {
+        Assert.AreNotEqual(0, SetupArguments.NotInstalledExitCode, "it must not look like success");
+        Assert.AreNotEqual(1, SetupArguments.NotInstalledExitCode, "nor like a failure");
+    }
 }

@@ -47,7 +47,15 @@ public interface IInstallHost
 
     void UnregisterUninstall(InstallLayout layout);
 
+    /// <summary>
+    /// Start at logon on or off. For the machine-wide install "off" is a task that
+    /// is there but switched off, so the app's own checkbox can switch it on
+    /// again and an update does not lose the user's choice.
+    /// </summary>
     void SetAutostart(InstallLayout layout, bool enabled);
+
+    /// <summary>Take the start-up entry away altogether (uninstall, migration).</summary>
+    void RemoveAutostart(InstallLayout layout);
 
     bool IsAutostartEnabled(InstallLayout layout);
 }
@@ -129,17 +137,10 @@ public sealed class WindowsInstallHost : IInstallHost
     {
         if (layout.Autostart == AutostartMechanism.ScheduledTask)
         {
-            if (enabled)
-            {
-                // The SID, not DOMAIN\name: it resolves the same for local, domain and
-                // Microsoft/Azure AD accounts.
-                using WindowsIdentity identity = WindowsIdentity.GetCurrent();
-                ScheduledTasks.Create(layout, identity.User!.Value);
-            }
-            else
-            {
-                ScheduledTasks.Delete(layout.ScheduledTaskName);
-            }
+            // The SID, not DOMAIN\name: it resolves the same for local, domain and
+            // Microsoft/Azure AD accounts.
+            using WindowsIdentity identity = WindowsIdentity.GetCurrent();
+            ScheduledTasks.Create(layout, identity.User!.Value, enabled);
             return;
         }
 
@@ -152,6 +153,17 @@ public sealed class WindowsInstallHost : IInstallHost
         {
             key.DeleteValue(Installer.Key, throwOnMissingValue: false);
         }
+    }
+
+    public void RemoveAutostart(InstallLayout layout)
+    {
+        if (layout.Autostart == AutostartMechanism.ScheduledTask)
+        {
+            ScheduledTasks.Delete(layout.ScheduledTaskName);
+            return;
+        }
+        using RegistryKey key = Registry.CurrentUser.CreateSubKey(RunKey);
+        key.DeleteValue(Installer.Key, throwOnMissingValue: false);
     }
 
     public bool IsAutostartEnabled(InstallLayout layout)
@@ -191,6 +203,23 @@ public static class SelfImage
         }
     }
 
+    /// <summary>Whether this process holds its own executable (see <see cref="HoldOwn"/>).</summary>
+    public static bool IsHeld => _held is not null;
+
+    /// <summary>
+    /// A machine-wide install copies this file into Program Files and starts an
+    /// elevated copy of it, so it does not go ahead on a file it could not hold.
+    /// </summary>
+    public static void Require()
+    {
+        if (!IsHeld)
+        {
+            throw new IOException(
+                "The setup could not lock its own file, so it will not install machine-wide. "
+                + "Copy the setup to a folder of your own and run it from there.");
+        }
+    }
+
     /// <summary>Hold this process's own executable until the process ends.</summary>
     public static void HoldOwn()
     {
@@ -225,6 +254,8 @@ public static class Elevation
 
     private static int? Start(IEnumerable<string> arguments, bool wait)
     {
+        // The elevated copy is this same file: only start it from one that is held.
+        SelfImage.Require();
         var start = new ProcessStartInfo(Environment.ProcessPath!)
         {
             UseShellExecute = true,

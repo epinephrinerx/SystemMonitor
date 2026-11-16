@@ -42,6 +42,20 @@ public partial class App : Application
 
         if (scope == InstallScope.Admin && !Elevation.IsElevated())
         {
+            if (!SelfImage.IsHeld)
+            {
+                Environment.ExitCode = 1;
+                if (!arguments.Silent)
+                {
+                    MessageBox.Show(
+                        "ติดตั้งแบบทั้งเครื่องไม่ได้ เพราะล็อกไฟล์ตัวติดตั้งของตัวเองไม่ได้ — "
+                        + "ลองคัดลอกตัวติดตั้งไปไว้ในโฟลเดอร์ของคุณเองแล้วรันจากที่นั่น",
+                        "System Monitor", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+                Shutdown();
+                return;
+            }
+
             if (arguments.Elevated)
             {
                 // Our own relaunch came back without administrator rights (UAC
@@ -64,9 +78,20 @@ public partial class App : Application
             // per-user files needs, see MigrateFromPerUser) retires the
             // per-user install if the machine-wide one is in place.
             IReadOnlyList<string> handover = (arguments with { Admin = true, Elevated = true }).ToArguments();
+            if (uninstalling)
+            {
+                // Not waiting: this copy is the installed uninstall.exe, and the
+                // temporary copy that finishes the job has to delete this very
+                // file once the elevated copy is out of the way. Nothing is left
+                // to do here afterwards either, so there is no reason to stay.
+                Environment.ExitCode = Elevation.Relaunch(handover) ? 0 : 1;
+                Shutdown();
+                return;
+            }
+
             int? code = Elevation.RelaunchAndWait(handover);
             Environment.ExitCode = code ?? 1;
-            if (code == 0 && !uninstalling)
+            if (code == 0)
             {
                 TryMigrate();
             }
@@ -126,10 +151,14 @@ public partial class App : Application
             // already made, a Start menu entry, no desktop icon unless asked.
             InstallLayout layout = InstallLayout.Create(scope);
             InstallLayout? perUser = InstallLayout.TryCreate(InstallScope.PerUser);
+            // An existing install keeps its own choice (a task the user turned off
+            // stays off); only a first machine-wide install starts from the
+            // per-user install's Run value.
             bool autostart = arguments.Autostart
-                ?? (WindowsInstallHost.Instance.IsAutostartEnabled(layout)
-                    || (scope == InstallScope.Admin && perUser is not null && File.Exists(perUser.ExePath)
-                        && WindowsInstallHost.Instance.IsAutostartEnabled(perUser)));
+                ?? (File.Exists(layout.ExePath)
+                    ? WindowsInstallHost.Instance.IsAutostartEnabled(layout)
+                    : scope == InstallScope.Admin && perUser is not null && File.Exists(perUser.ExePath)
+                        && WindowsInstallHost.Instance.IsAutostartEnabled(perUser));
             Installer.InstallScoped(scope, new InstallOptions(
                 arguments.Desktop ?? false, arguments.StartMenu ?? true, autostart));
         }

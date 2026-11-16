@@ -4,6 +4,9 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
+    <!-- The machine-wide install runs this program elevated: a startup hook named in the
+         user's environment would run with administrator rights. -->
+    <StartupHookSupport>false</StartupHookSupport>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>

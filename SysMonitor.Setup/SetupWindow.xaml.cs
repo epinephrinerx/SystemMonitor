@@ -38,6 +38,14 @@ public partial class SetupWindow : Window
         CancelButton.Click += (_, _) => Close();
         ActionButton.Click += (_, _) => Run();
 
+        // The copy that started this one waits for it and acts on how it ended.
+        // Closing the window without doing the job is not success: the default
+        // exit code is "nothing was done", and the work sets 0 (or 1) itself.
+        if (arguments.Elevated)
+        {
+            Environment.ExitCode = SetupArguments.NotInstalledExitCode;
+        }
+
         if (uninstalling)
         {
             BuildUninstall();
@@ -165,6 +173,7 @@ public partial class SetupWindow : Window
             if (_uninstalling)
             {
                 Relaunch.ToFinishUninstall(_removeSettings.IsChecked == true, _scope);
+                Environment.ExitCode = 0;
                 Close();
                 return;
             }
@@ -178,6 +187,7 @@ public partial class SetupWindow : Window
 
             if (target == InstallScope.Admin && !Elevation.IsElevated())
             {
+                SelfImage.Require();
                 _ = HandOverToElevatedCopy(options);
                 return;
             }
@@ -272,7 +282,9 @@ public partial class SetupWindow : Window
         }
         Status.Text = code is null
             ? "ยกเลิกการขอสิทธิ์ผู้ดูแลระบบ — ยังไม่ได้ติดตั้งอะไร"
-            : "การติดตั้งแบบผู้ดูแลระบบไม่สำเร็จ — ดูข้อความในหน้าต่างผู้ดูแลระบบที่ปิดไป";
+            : code == SetupArguments.NotInstalledExitCode
+                ? "ปิดหน้าต่างผู้ดูแลระบบโดยไม่ได้ติดตั้ง — ยังไม่ได้ติดตั้งอะไร"
+                : "การติดตั้งแบบผู้ดูแลระบบไม่สำเร็จ — ดูข้อความในหน้าต่างผู้ดูแลระบบที่ปิดไป";
         ActionButton.IsEnabled = true;
         CancelButton.IsEnabled = true;
     }

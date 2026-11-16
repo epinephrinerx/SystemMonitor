@@ -121,6 +121,7 @@ public class MachineWideAppTests
         public void RegisterUninstall(SysMonitor.Setup.InstallLayout layout, int estimatedSizeKb) { }
         public void UnregisterUninstall(SysMonitor.Setup.InstallLayout layout) { }
         public void SetAutostart(SysMonitor.Setup.InstallLayout layout, bool enabled) { }
+        public void RemoveAutostart(SysMonitor.Setup.InstallLayout layout) { }
         public bool IsAutostartEnabled(SysMonitor.Setup.InstallLayout layout) => false;
     }
 

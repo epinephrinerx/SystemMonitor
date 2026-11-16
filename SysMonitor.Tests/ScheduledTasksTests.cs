@@ -106,6 +106,17 @@ public class ScheduledTasksTests
     }
 
     [TestMethod]
+    public void A_task_made_for_an_install_without_start_up_is_there_but_switched_off()
+    {
+        XElement off = Parse(ScheduledTasks.BuildXml(Exe, Dir, User, enabled: false));
+        XElement on = Parse(ScheduledTasks.BuildXml(Exe, Dir, User));
+
+        Assert.AreEqual("false", off.Element(Ns + "Settings")!.Element(Ns + "Enabled")!.Value);
+        Assert.AreEqual("true", on.Element(Ns + "Settings")!.Element(Ns + "Enabled")!.Value);
+        Assert.AreEqual(false, ScheduledTasks.ParseEnabled(off.ToString()), "setup and the app read the same flag");
+    }
+
+    [TestMethod]
     public void A_task_the_app_switched_off_is_not_mistaken_for_one_that_is_on()
     {
         const string template = "<Task xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\">"

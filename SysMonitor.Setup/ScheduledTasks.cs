@@ -25,7 +25,7 @@ public static class ScheduledTasks
     /// it runs as that user with the highest privileges the user has, not as
     /// SYSTEM and not for anyone else who signs in.
     /// </summary>
-    public static string BuildXml(string exePath, string workingDirectory, string userId)
+    public static string BuildXml(string exePath, string workingDirectory, string userId, bool enabled = true)
     {
         RequireAbsolute(exePath, nameof(exePath));
         RequireAbsolute(workingDirectory, nameof(workingDirectory));
@@ -58,7 +58,7 @@ public static class ScheduledTasks
                 new XElement(Ns + "StartWhenAvailable", "false"),
                 new XElement(Ns + "RunOnlyIfNetworkAvailable", "false"),
                 new XElement(Ns + "AllowStartOnDemand", "true"),
-                new XElement(Ns + "Enabled", "true"),
+                new XElement(Ns + "Enabled", enabled ? "true" : "false"),
                 new XElement(Ns + "Hidden", "false"),
                 new XElement(Ns + "RunOnlyIfIdle", "false"),
                 new XElement(Ns + "WakeToRun", "false"),
@@ -75,11 +75,11 @@ public static class ScheduledTasks
     }
 
     /// <summary>The definition for an admin layout, for the given user.</summary>
-    public static string BuildXml(InstallLayout layout, string userId)
+    public static string BuildXml(InstallLayout layout, string userId, bool enabled = true)
     {
         ArgumentNullException.ThrowIfNull(layout);
         RequireAdmin(layout);
-        return BuildXml(layout.ExePath, layout.InstallDir, userId);
+        return BuildXml(layout.ExePath, layout.InstallDir, userId, enabled);
     }
 
     // Each command is an argument list, never one string: no quoting to get
@@ -160,10 +160,10 @@ public static class ScheduledTasks
     }
 
     /// <summary>Creates or replaces the task for an admin layout. Needs an elevated process.</summary>
-    public static void Create(InstallLayout layout, string userId)
+    public static void Create(InstallLayout layout, string userId, bool enabled = true)
     {
         RequireAdmin(layout);
-        string xml = BuildXml(layout, userId);
+        string xml = BuildXml(layout, userId, enabled);
 
         // The definition is staged in the install folder, not in %TEMP%: this
         // process is elevated and schtasks reads the file by name, so a folder

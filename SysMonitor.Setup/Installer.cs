@@ -315,6 +315,10 @@ public static class Installer
     public static void InstallScoped(InstallScope scope, InstallOptions options)
     {
         KnownFolders folders = KnownFolders.Current();
+        if (scope == InstallScope.Admin)
+        {
+            SelfImage.Require();
+        }
         Install(InstallLayout.Create(scope, folders), options, WindowsInstallHost.Instance,
                 InstallSources.FromAssembly());
         if (scope == InstallScope.Admin)
@@ -358,7 +362,7 @@ public static class Installer
         {
             try
             {
-                host.SetAutostart(perUser, false);
+                host.RemoveAutostart(perUser);
             }
             catch (Exception)
             {
@@ -857,7 +861,7 @@ public static class Installer
 
         try
         {
-            host.SetAutostart(layout, false);
+            host.RemoveAutostart(layout);
         }
         catch (Exception)
         {

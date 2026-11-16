@@ -90,11 +90,20 @@ public class InstallAdminTests
 
         public void SetAutostart(InstallLayout layout, bool enabled)
         {
-            if ((!enabled && FailAutostartRemoval) || (enabled && FailAutostartSet))
+            if (enabled && FailAutostartSet)
             {
                 throw new InvalidOperationException("task service unavailable");
             }
             Calls.Add($"autostart {layout.Scope} {enabled}");
+        }
+
+        public void RemoveAutostart(InstallLayout layout)
+        {
+            if (FailAutostartRemoval)
+            {
+                throw new InvalidOperationException("task service unavailable");
+            }
+            Calls.Add("remove-autostart " + layout.Scope);
         }
 
         public bool IsAutostartEnabled(InstallLayout layout) => false;
@@ -132,7 +141,7 @@ public class InstallAdminTests
     }
 
     [TestMethod]
-    public void Admin_install_without_autostart_removes_the_task()
+    public void Admin_install_without_autostart_leaves_a_switched_off_task_not_none()
     {
         var host = new FakeHost();
 
@@ -197,7 +206,7 @@ public class InstallAdminTests
             "the user's config is not the installer's to remove");
         Assert.IsTrue(File.Exists(Path.Combine(_perUser.InstallDir, "notes.txt")),
             "a file the installer did not create stays, and so does its folder");
-        CollectionAssert.Contains(host.Calls, "autostart PerUser False");
+        CollectionAssert.Contains(host.Calls, "remove-autostart PerUser");
         CollectionAssert.Contains(host.Calls, "unregister PerUser");
         CollectionAssert.Contains(host.Calls, "stop " + _perUser.ExePath);
     }
@@ -219,7 +228,7 @@ public class InstallAdminTests
         Assert.IsTrue(File.Exists(_perUser.ExePath));
         Assert.IsTrue(File.Exists(_perUser.UninstallPath));
         Assert.IsTrue(File.Exists(_perUser.DesktopShortcut));
-        CollectionAssert.Contains(host.Calls, "autostart PerUser False");
+        CollectionAssert.Contains(host.Calls, "remove-autostart PerUser");
         CollectionAssert.DoesNotContain(host.Calls, "unregister PerUser");
         CollectionAssert.DoesNotContain(host.Calls, "stop " + _perUser.ExePath);
     }
@@ -291,7 +300,7 @@ public class InstallAdminTests
         Assert.IsFalse(File.Exists(_admin.StartMenuShortcut));
         Assert.IsTrue(File.Exists(Path.Combine(_admin.InstallDir, "notes.txt")), "a stranger's file stays");
         Assert.IsTrue(File.Exists(Path.Combine(_admin.SettingsDir, "config.wpf.json")), "settings stay unless asked");
-        CollectionAssert.Contains(host.Calls, "autostart Admin False");
+        CollectionAssert.Contains(host.Calls, "remove-autostart Admin");
         CollectionAssert.Contains(host.Calls, "unregister Admin");
     }
 

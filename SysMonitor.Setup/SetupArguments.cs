@@ -29,6 +29,9 @@ public sealed record SetupArguments(
     int? FinishPid,
     bool Elevated = false)
 {
+    /// <summary>What an elevated wizard exits with when it was closed without installing or uninstalling.</summary>
+    public const int NotInstalledExitCode = 2;
+
     public static SetupArguments Parse(IReadOnlyList<string> args)
     {
         ArgumentNullException.ThrowIfNull(args);
