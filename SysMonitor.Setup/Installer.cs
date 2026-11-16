@@ -72,11 +72,6 @@ public static class Installer
     /// </summary>
     public const string CoreName = "DiskInfoCore.dll";
 
-    private const string UninstallKey =
-        @"Software\Microsoft\Windows\CurrentVersion\Uninstall\SystemMonitor";
-    private const string RunKey =
-        @"Software\Microsoft\Windows\CurrentVersion\Run";
-
     /// <summary>Every file this installer creates. Nothing else is ever deleted.</summary>
     private static readonly string[] ProgramFiles = { ExeName, UninstallName, CoreName };
 
@@ -86,12 +81,16 @@ public static class Installer
         "config.wpf.json", "config.wpf.json.tmp", "sysmonitor-wpf.log",
     };
 
-    public static string InstallDir => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "Programs", Key);
+    /// <summary>
+    /// What this class installs today: the per-user layout. The admin layout
+    /// (R-022) is described by <see cref="InstallLayout"/> too, but nothing in
+    /// this class uses it yet.
+    /// </summary>
+    private static InstallLayout PerUser => InstallLayout.Create(InstallScope.PerUser);
 
-    public static string SettingsDir => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), AppName);
+    public static string InstallDir => PerUser.InstallDir;
+
+    public static string SettingsDir => PerUser.SettingsDir;
 
     public static string ExePath => Path.Combine(InstallDir, ExeName);
     public static string UninstallPath => Path.Combine(InstallDir, UninstallName);
@@ -100,37 +99,41 @@ public static class Installer
     /// </summary>
     public static string CorePath => Path.Combine(InstallDir, CoreName);
 
-    public static string DesktopShortcut => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
-        DisplayName + ".lnk");
+    public static string DesktopShortcut => PerUser.DesktopShortcut;
 
-    public static string StartMenuShortcut => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.Programs),
-        DisplayName + ".lnk");
+    public static string StartMenuShortcut => PerUser.StartMenuShortcut;
 
     /// <summary>
     /// The full set of paths this installer may delete, resolved and filtered
     /// so nothing outside the two directories it owns can ever be returned.
     /// </summary>
-    public static IEnumerable<string> OwnedPaths(bool includeSettings)
+    public static IEnumerable<string> OwnedPaths(bool includeSettings) =>
+        OwnedPaths(PerUser, includeSettings, ReadExtensionPayload());
+
+    public static IEnumerable<string> OwnedPaths(
+        InstallLayout layout, bool includeSettings, IEnumerable<PayloadFile> extensions)
     {
         foreach (string name in ProgramFiles)
         {
-            yield return Path.Combine(InstallDir, name);
+            yield return Path.Combine(layout.InstallDir, name);
         }
-        foreach (string extPath in ExtensionOwnedPaths(ReadExtensionPayload()))
+        if (layout.RequiresElevation)
+        {
+            yield return layout.ModeMarkerPath;
+        }
+        foreach (string extPath in ExtensionOwnedPaths(layout.InstallDir, extensions))
         {
             yield return extPath;
         }
-        yield return DesktopShortcut;
-        yield return StartMenuShortcut;
+        yield return layout.DesktopShortcut;
+        yield return layout.StartMenuShortcut;
         if (!includeSettings)
         {
             yield break;
         }
         foreach (string name in SettingsFiles)
         {
-            yield return Path.Combine(SettingsDir, name);
+            yield return Path.Combine(layout.SettingsDir, name);
         }
     }
 
@@ -181,6 +184,11 @@ public static class Installer
         Environment.SpecialFolder.Programs,
         Environment.SpecialFolder.StartMenu,
         Environment.SpecialFolder.UserProfile,
+        // The machine-wide install (R-022) is rooted in these.
+        Environment.SpecialFolder.ProgramFiles,
+        Environment.SpecialFolder.CommonApplicationData,
+        Environment.SpecialFolder.CommonDesktopDirectory,
+        Environment.SpecialFolder.CommonPrograms,
     }.Select(Environment.GetFolderPath)
      .Where(path => path.Length > 0)
      .Select(Path.GetFullPath)
@@ -283,36 +291,195 @@ public static class Installer
                          && major >= 8);
     }
 
-    public static void Install(bool desktopShortcut, bool startMenu, bool autostart)
+    /// <summary>Which kind of install is on this machine, if any. The machine-wide one wins.</summary>
+    public static InstallScope? DetectInstalledScope(KnownFolders folders)
     {
-        RequireOwnDirectory(InstallDir);
-        Directory.CreateDirectory(InstallDir);
-        RequireOwnDirectory(InstallDir);
+        // A scope whose folders Windows will not give us has no install to find.
+        InstallLayout? admin = InstallLayout.TryCreate(InstallScope.Admin, folders);
+        if (admin is not null && File.Exists(admin.ExePath))
+        {
+            return InstallScope.Admin;
+        }
+        InstallLayout? perUser = InstallLayout.TryCreate(InstallScope.PerUser, folders);
+        return perUser is not null && File.Exists(perUser.ExePath)
+            ? InstallScope.PerUser
+            : null;
+    }
 
-        StopRunningApp();
-        WritePayload(ExePath);
+    /// <summary>
+    /// Install for the real machine in the given scope. A machine-wide install
+    /// also turns off the start-up entry of a per-user install it supersedes;
+    /// removing that install's files is <see cref="MigrateFromPerUser(InstallLayout, IInstallHost, IReadOnlyList{PayloadFile})"/>,
+    /// which runs without administrator rights.
+    /// </summary>
+    public static void InstallScoped(InstallScope scope, InstallOptions options)
+    {
+        KnownFolders folders = KnownFolders.Current();
+        Install(InstallLayout.Create(scope, folders), options, WindowsInstallHost.Instance,
+                InstallSources.FromAssembly());
+        if (scope == InstallScope.Admin)
+        {
+            InstallLayout? perUser = InstallLayout.TryCreate(InstallScope.PerUser, folders);
+            if (perUser is not null)
+            {
+                MigrateFromPerUser(perUser, WindowsInstallHost.Instance, Array.Empty<PayloadFile>());
+            }
+        }
+    }
 
-        IReadOnlyList<PayloadFile> extensions = ReadExtensionPayload();
-        IReadOnlyList<string> notWritten = WriteExtensions(InstallDir, extensions);
-        RemoveLegacyCore(InstallDir);
+    /// <summary>
+    /// Retire a per-user install once a machine-wide one is in place. Only the
+    /// files this installer owns go, and never the settings.
+    ///
+    /// This must not delete as an administrator: the per-user folder is one the
+    /// user (and anything running as the user) can rewrite, and the safety
+    /// check on a delete target is made before the delete, not atomically with
+    /// it. An elevated process would be the one deleting through whatever the
+    /// folder had been turned into in between. So with administrator rights it
+    /// only stops the old copy from starting at logon (a registry value, no
+    /// path involved) and leaves the files for the unelevated run that follows.
+    /// Returns true when the files were removed.
+    /// </summary>
+    public static bool MigrateFromPerUser(
+        InstallLayout perUser, IInstallHost host, IReadOnlyList<PayloadFile> extensions)
+    {
+        ArgumentNullException.ThrowIfNull(perUser);
+        ArgumentNullException.ThrowIfNull(host);
+        if (perUser.Scope != InstallScope.PerUser)
+        {
+            throw new ArgumentException("Only a per-user install is migrated.", nameof(perUser));
+        }
+        if (!File.Exists(perUser.ExePath))
+        {
+            return false;
+        }
+
+        if (host.IsElevated)
+        {
+            try
+            {
+                host.SetAutostart(perUser, false);
+            }
+            catch (Exception)
+            {
+                // The files are still there to be removed by the unelevated run.
+            }
+            return false;
+        }
+
+        host.StopRunningApp(perUser.ExePath);
+        Uninstall(perUser, removeSettings: false, host, extensions);
+        return true;
+    }
+
+    /// <summary>The same, for the real machine: what the setup does once the elevated install has succeeded.</summary>
+    public static bool MigrateFromPerUser()
+    {
+        InstallLayout? perUser = InstallLayout.TryCreate(InstallScope.PerUser);
+        return perUser is not null
+            && MigrateFromPerUser(perUser, WindowsInstallHost.Instance, ReadExtensionPayload());
+    }
+
+    public static string? InstalledVersionOf(InstallLayout layout)
+    {
+        try
+        {
+            return File.Exists(layout.ExePath)
+                ? FileVersionInfo.GetVersionInfo(layout.ExePath).FileVersion
+                : null;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    public static void Install(bool desktopShortcut, bool startMenu, bool autostart) =>
+        Install(PerUser, new InstallOptions(desktopShortcut, startMenu, autostart),
+                WindowsInstallHost.Instance, InstallSources.FromAssembly());
+
+    /// <summary>
+    /// Install for the given layout. A machine-wide install needs an elevated
+    /// process. The Apps &amp; features entry is written before the start-up
+    /// entry, so an install whose start-up step fails can still be uninstalled;
+    /// that failure, like an extension file that could not be written, is
+    /// reported once everything else is in place.
+    /// </summary>
+    public static void Install(
+        InstallLayout layout,
+        InstallOptions options,
+        IInstallHost host,
+        InstallSources sources)
+    {
+        ArgumentNullException.ThrowIfNull(layout);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(host);
+        ArgumentNullException.ThrowIfNull(sources);
+        if (layout.RequiresElevation && !host.IsElevated)
+        {
+            throw new InvalidOperationException(
+                "The machine-wide install needs administrator rights.");
+        }
+        RequireOwnDirectory(layout.InstallDir);
+        Directory.CreateDirectory(layout.InstallDir);
+        RequireOwnDirectory(layout.InstallDir);
+
+        host.StopRunningApp(layout.ExePath);
+        WritePayload(sources.OpenApp, layout.ExePath);
+
+        IReadOnlyList<string> notWritten = WriteExtensions(layout.InstallDir, sources.Extensions);
+        RemoveLegacyCore(layout.InstallDir);
 
         // The uninstaller is this same executable; it decides what to do from
         // where it was started.
-        File.Copy(Environment.ProcessPath!, UninstallPath, overwrite: true);
+        File.Copy(sources.UninstallerSource, layout.UninstallPath, overwrite: true);
+        if (layout.RequiresElevation)
+        {
+            WriteModeMarker(layout);
+        }
 
-        Shortcuts.Write(desktopShortcut, DesktopShortcut, ExePath, InstallDir);
-        Shortcuts.Write(startMenu, StartMenuShortcut, ExePath, InstallDir);
-        SetAutostart(autostart);
-        RegisterUninstall();
+        host.WriteShortcut(options.DesktopShortcut, layout.DesktopShortcut, layout.ExePath, layout.InstallDir);
+        host.WriteShortcut(options.StartMenu, layout.StartMenuShortcut, layout.ExePath, layout.InstallDir);
+        host.RegisterUninstall(layout, CalculateEstimatedSizeKb(layout));
+
+        Exception? autostartError = null;
+        try
+        {
+            host.SetAutostart(layout, options.Autostart);
+        }
+        catch (Exception error)
+        {
+            autostartError = error;
+        }
 
         // Everything else is in place by now, so a package that could not be completed does not
         // leave the application half-installed; it is still reported rather than hidden.
+        var problems = new List<string>();
         if (notWritten.Count > 0)
         {
-            throw new IOException(
-                "The application was installed, but these extension files could not be written "
+            problems.Add("these extension files could not be written "
                 + "(close System Monitor and run the setup again): " + string.Join(", ", notWritten));
         }
+        if (autostartError is not null)
+        {
+            problems.Add("the start-up entry could not be set: " + autostartError.Message);
+        }
+        if (problems.Count > 0)
+        {
+            throw new IOException(
+                "The application was installed, but " + string.Join("; and ", problems),
+                autostartError);
+        }
+    }
+
+    private static void WriteModeMarker(InstallLayout layout)
+    {
+        if (File.Exists(layout.ModeMarkerPath)
+            && (File.GetAttributes(layout.ModeMarkerPath) & FileAttributes.ReparsePoint) != 0)
+        {
+            throw new IOException($"{layout.ModeMarkerPath} is a link and will not be written through.");
+        }
+        File.WriteAllText(layout.ModeMarkerPath, "{\"scope\": \"admin\"}\n");
     }
 
     private static void RemoveLegacyCore(string installDir)
@@ -331,12 +498,9 @@ public static class Installer
         }
     }
 
-    private static void WritePayload(string destination)
+    private static void WritePayload(Func<Stream> openApp, string destination)
     {
-        using Stream? source = Assembly.GetExecutingAssembly()
-            .GetManifestResourceStream("SystemMonitor.exe")
-            ?? throw new InvalidOperationException(
-                "This setup was built without the application payload.");
+        using Stream source = openApp();
         using var target = new FileStream(destination, FileMode.Create, FileAccess.Write);
         source.CopyTo(target);
     }
@@ -621,68 +785,21 @@ public static class Installer
         RemoveIfEmpty(installDir);
     }
 
-    /// <summary>A running copy holds its own file open; ask it to go first.</summary>
-    private static void StopRunningApp()
-    {
-        foreach (Process process in Process.GetProcessesByName("SystemMonitor"))
-        {
-            try
-            {
-                if (!string.Equals(process.MainModule?.FileName, ExePath,
-                                   StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-                process.CloseMainWindow();
-                if (!process.WaitForExit(4000))
-                {
-                    process.Kill();
-                    process.WaitForExit(4000);
-                }
-            }
-            catch (Exception)
-            {
-                // A process we cannot inspect is a process we leave alone.
-            }
-            finally
-            {
-                process.Dispose();
-            }
-        }
-    }
-
-    private static void RegisterUninstall()
-    {
-        using RegistryKey key = Registry.CurrentUser.CreateSubKey(UninstallKey);
-        key.SetValue("DisplayName", DisplayName);
-        key.SetValue("DisplayVersion", Version);
-        key.SetValue("Publisher", Publisher);
-        key.SetValue("DisplayIcon", ExePath);
-        key.SetValue("InstallLocation", InstallDir);
-        key.SetValue("UninstallString", "\"" + UninstallPath + "\"");
-        key.SetValue("QuietUninstallString", "\"" + UninstallPath + "\" /S");
-        key.SetValue("NoModify", 1, RegistryValueKind.DWord);
-        key.SetValue("NoRepair", 1, RegistryValueKind.DWord);
-        key.SetValue("EstimatedSize", CalculateEstimatedSizeKb(), RegistryValueKind.DWord);
-    }
-
-    private static int CalculateEstimatedSizeKb()
+    private static int CalculateEstimatedSizeKb(InstallLayout layout)
     {
         long totalBytes = 0;
-        if (File.Exists(ExePath))
+        foreach (string file in new[] { layout.ExePath, layout.CorePath })
         {
-            totalBytes += new FileInfo(ExePath).Length;
+            if (File.Exists(file))
+            {
+                totalBytes += new FileInfo(file).Length;
+            }
         }
-        if (File.Exists(CorePath))
-        {
-            totalBytes += new FileInfo(CorePath).Length;
-        }
-        string extensionsRoot = Path.Combine(InstallDir, "extensions");
-        if (Directory.Exists(extensionsRoot))
+        if (Directory.Exists(layout.ExtensionsDir))
         {
             try
             {
-                foreach (string file in Directory.EnumerateFiles(extensionsRoot, "*", SearchOption.AllDirectories))
+                foreach (string file in Directory.EnumerateFiles(layout.ExtensionsDir, "*", SearchOption.AllDirectories))
                 {
                     totalBytes += new FileInfo(file).Length;
                 }
@@ -706,81 +823,89 @@ public static class Installer
         }
     }
 
-    public static void SetAutostart(bool enabled)
-    {
-        using RegistryKey key = Registry.CurrentUser.CreateSubKey(RunKey);
-        if (enabled)
-        {
-            key.SetValue(Key, "\"" + ExePath + "\"");
-        }
-        else
-        {
-            key.DeleteValue(Key, throwOnMissingValue: false);
-        }
-    }
+    public static void SetAutostart(bool enabled) =>
+        WindowsInstallHost.Instance.SetAutostart(PerUser, enabled);
 
-    public static bool AutostartEnabled()
-    {
-        using RegistryKey? key = Registry.CurrentUser.OpenSubKey(RunKey);
-        return key?.GetValue(Key) is string;
-    }
+    public static bool AutostartEnabled() =>
+        WindowsInstallHost.Instance.IsAutostartEnabled(PerUser);
 
     // ----------------------------------------------------------- uninstall
     /// <summary>
     /// Remove what we own. <paramref name="skip"/> is the running uninstaller
     /// itself when it cannot delete its own file yet.
     /// </summary>
-    public static void Uninstall(bool removeSettings, string? skip = null)
+    public static void Uninstall(bool removeSettings, string? skip = null) =>
+        Uninstall(PerUser, removeSettings, WindowsInstallHost.Instance, ReadExtensionPayload(), skip);
+
+    public static void Uninstall(
+        InstallLayout layout,
+        bool removeSettings,
+        IInstallHost host,
+        IReadOnlyList<PayloadFile> extensions,
+        string? skip = null)
     {
-        SetAutostart(false);
-
-        UninstallExtensions(InstallDir, ReadExtensionPayload());
-
-        foreach (string path in ProgramFiles)
+        ArgumentNullException.ThrowIfNull(layout);
+        ArgumentNullException.ThrowIfNull(host);
+        if (layout.RequiresElevation && !host.IsElevated)
         {
-            string full = Path.Combine(InstallDir, path);
+            throw new InvalidOperationException(
+                "Removing the machine-wide install needs administrator rights.");
+        }
+
+        try
+        {
+            host.SetAutostart(layout, false);
+        }
+        catch (Exception)
+        {
+            // A start-up entry that cannot be removed must not stop the files
+            // from going; a task whose program is gone does nothing.
+        }
+
+        UninstallExtensions(layout.InstallDir, extensions);
+
+        var names = new List<string>(ProgramFiles);
+        if (layout.RequiresElevation)
+        {
+            names.Add(InstallLayout.ModeMarkerName);
+        }
+        foreach (string name in names)
+        {
+            string full = Path.Combine(layout.InstallDir, name);
             if (skip is not null
                 && string.Equals(Path.GetFullPath(full), Path.GetFullPath(skip),
                                  StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
-            Delete(full);
+            Delete(layout, full);
         }
 
-        Delete(DesktopShortcut);
-        Delete(StartMenuShortcut);
+        Delete(layout, layout.DesktopShortcut);
+        Delete(layout, layout.StartMenuShortcut);
 
         if (removeSettings)
         {
             foreach (string name in SettingsFiles)
             {
-                Delete(Path.Combine(SettingsDir, name));
+                Delete(layout, Path.Combine(layout.SettingsDir, name));
             }
-            RemoveIfEmpty(SettingsDir);
+            RemoveIfEmpty(layout.SettingsDir);
         }
 
-        RemoveIfEmpty(InstallDir);
-
-        try
-        {
-            Registry.CurrentUser.DeleteSubKeyTree(UninstallKey, throwOnMissingSubKey: false);
-        }
-        catch (Exception)
-        {
-            // Already gone, or someone else removed it; either way we are done.
-        }
+        RemoveIfEmpty(layout.InstallDir);
+        host.UnregisterUninstall(layout);
     }
 
-    private static void Delete(string path)
+    private static void Delete(InstallLayout layout, string path)
     {
         // Extension files go through UninstallExtensions, which guards each folder itself; nothing
         // under extensions\ is deleted from here.
         string[] parents =
         {
-            InstallDir, SettingsDir,
-            Path.GetDirectoryName(DesktopShortcut)!,
-            Path.GetDirectoryName(StartMenuShortcut)!,
+            layout.InstallDir, layout.SettingsDir,
+            Path.GetDirectoryName(layout.DesktopShortcut)!,
+            Path.GetDirectoryName(layout.StartMenuShortcut)!,
         };
         if (!IsSafeTarget(path, parents))
         {
