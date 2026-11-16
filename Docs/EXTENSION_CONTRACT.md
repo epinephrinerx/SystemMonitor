@@ -52,7 +52,7 @@ manifest.contract.Major ต้องเท่ากับ ContractInfo.Version.M
 
 การตรวจ "ไฟล์ที่ไม่ได้ลงรายการ" เป็นเหตุผลว่าทำไมตัวติดตั้งจึงต้องลบไฟล์เก่าของแพ็กเกจก่อนเขียน และทำไมไฟล์ที่ถูกโปรแกรมอื่นล็อกค้างไว้ทำให้ส่วนเสริมแสดง `HashMismatch`/`UnsafePath` จนกว่าจะรันตัวติดตั้งซ้ำ (§13)
 
-เจ้าของโฟลเดอร์: ตัวติดตั้ง per-user (`%LOCALAPPDATA%\Programs\SystemMonitor`) เป็นผู้เขียน/ถอน `extensions\<id>\` เอง ตรวจความเป็นเจ้าของ โต้แย้ง junction/ลิงก์/ชื่อไฟล์แปลก และเขียน `extension.json` เป็นไฟล์สุดท้าย (`SysMonitor.Setup/Installer.cs:WriteExtensions`, `UninstallExtensions`) ส่วนเสริมของบุคคลที่สามไม่ถูกแตะตอนถอนโปรแกรม
+เจ้าของโฟลเดอร์: ตัวติดตั้ง (per-user ที่ `%LOCALAPPDATA%\Programs\SystemMonitor` หรือแบบ admin ที่ `%ProgramFiles%\SystemMonitor`) เป็นผู้เขียน/ถอน `extensions\<id>\` เอง ตรวจความเป็นเจ้าของ โต้แย้ง junction/ลิงก์/ชื่อไฟล์แปลก และเขียน `extension.json` เป็นไฟล์สุดท้าย (`SysMonitor.Setup/Installer.cs:WriteExtensions`, `UninstallExtensions`) ส่วนเสริมของบุคคลที่สามไม่ถูกแตะตอนถอนโปรแกรม; ในโหมด admin ผู้ดูแลระบบคัดลอกส่วนเสริมของบุคคลที่สามเข้า `extensions\<id>\` ใต้ Program Files เองแล้วใช้การอนุมัติเดิม
 
 ---
 
@@ -456,7 +456,7 @@ exit code: `0` สำเร็จ (พิมพ์บรรทัดเดีย
 | # | ข้อจำกัด | เกี่ยวกับ |
 |---|---|---|
 | 1 | ถ้า `GetView` ค้างเกิน 5 วินาที โฮสต์ dispose ส่วนเสริมต่ออยู่ดี (รอเท่า `ReloadRetireWait`) | §5.3, §9 |
-| 2 | ติดตั้ง per-user: exe หลักอยู่ในโฟลเดอร์ที่ผู้ใช้เขียนได้ มัลแวร์สิทธิ์ผู้ใช้เดียวกันเขียนทับ exe ได้ (รวมทั้งปลอมเป็น "first-party") — ปิดได้ด้วยการติดตั้งแบบ admin ซึ่งเป็นงานแยก R-022 (**ยังไม่เริ่ม**) | §8, §7 |
+| 2 | ติดตั้ง per-user: exe หลักอยู่ในโฟลเดอร์ที่ผู้ใช้เขียนได้ มัลแวร์สิทธิ์ผู้ใช้เดียวกันเขียนทับ exe ได้ (รวมทั้งปลอมเป็น "first-party") — ปิดได้สำหรับผู้ที่เลือกติดตั้งแบบ admin (R-022, `Docs/adr/0002-machine-wide-install.md`; **ยังไม่ได้ตรวจบนเครื่องจริง**) | §8, §7 |
 | 3 | ปุ่ม "รันใหม่แบบผู้ดูแลระบบ" ขึ้นเมื่อส่วนเสริม SMART มีสถานะ `Loaded` แม้จะไม่มี `DiskInfoCore.dll` ในแพ็กเกจ (โฮสต์ไม่รู้ว่ามีไฟล์ native หรือไม่) | §8.6, §11 |
 | 4 | `ExtensionHost.Reload` ล้าง cached display name ของส่วนเสริม | §9 |
 | 5 | build ตรงผ่าน IDE/`dotnet build` โดยไม่ผ่าน `build-wpf.cmd` อาจฝัง `first-party-extensions.json` เวอร์ชันเก่า | §8.1, §11 |

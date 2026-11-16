@@ -296,8 +296,10 @@ public class InstallAdminTests
     }
 
     [TestMethod]
-    public void Admin_uninstall_removes_settings_when_asked()
+    public void Admin_uninstall_never_deletes_in_the_users_settings_folder_even_when_asked()
     {
+        // The settings folder is user-writable and the delete-target check is
+        // not atomic with the delete, so the elevated uninstall leaves it.
         var host = new FakeHost();
         Installer.Install(_admin, All, host, Sources());
         Directory.CreateDirectory(_admin.SettingsDir);
@@ -305,8 +307,21 @@ public class InstallAdminTests
 
         Installer.Uninstall(_admin, removeSettings: true, host, Sources().Extensions);
 
-        Assert.IsFalse(File.Exists(Path.Combine(_admin.SettingsDir, "config.wpf.json")));
+        Assert.IsTrue(File.Exists(Path.Combine(_admin.SettingsDir, "config.wpf.json")));
         Assert.IsFalse(Directory.Exists(_admin.InstallDir), "an empty install folder goes");
+    }
+
+    [TestMethod]
+    public void Per_user_uninstall_still_removes_settings_when_asked()
+    {
+        var host = new FakeHost { IsElevated = false };
+        Installer.Install(_perUser, All, host, Sources());
+        Directory.CreateDirectory(_perUser.SettingsDir);
+        File.WriteAllText(Path.Combine(_perUser.SettingsDir, "config.wpf.json"), "{}");
+
+        Installer.Uninstall(_perUser, removeSettings: true, host, Sources().Extensions);
+
+        Assert.IsFalse(File.Exists(Path.Combine(_perUser.SettingsDir, "config.wpf.json")));
     }
 
     [TestMethod]

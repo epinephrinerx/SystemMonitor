@@ -140,9 +140,20 @@ public partial class SetupWindow : Window
         Subheading.Text = "จะลบเฉพาะไฟล์ที่ตัวติดตั้งสร้างขึ้นเท่านั้น "
                         + "ไฟล์อื่นในโฟลเดอร์จะไม่ถูกแตะต้อง";
         ActionButton.Content = "ถอนการติดตั้ง";
-        Options.Children.Add(_removeSettings);
-        _removeSettings.IsChecked = _arguments.RemoveSettings;
-        Status.Text = "ไฟล์ตัวถอนการติดตั้งเองจะถูกลบหลังรีสตาร์ท Windows";
+        if (_scope == InstallScope.Admin)
+        {
+            // Running with administrator rights, the uninstaller does not delete
+            // inside the user's own settings folder.
+            Status.Text = "การตั้งค่าและ log ของคุณอยู่ที่ " + _layout.SettingsDir
+                        + " — ไม่ถูกลบ ลบเองได้ถ้าไม่ต้องการ\n"
+                        + "ไฟล์ตัวถอนการติดตั้งเองจะถูกลบหลังรีสตาร์ท Windows";
+        }
+        else
+        {
+            Options.Children.Add(_removeSettings);
+            _removeSettings.IsChecked = _arguments.RemoveSettings;
+            Status.Text = "ไฟล์ตัวถอนการติดตั้งเองจะถูกลบหลังรีสตาร์ท Windows";
+        }
     }
 
     private void Run()
@@ -172,6 +183,9 @@ public partial class SetupWindow : Window
             }
 
             Installer.InstallScoped(target, options);
+            // An earlier failed attempt in this window must not leave the exit
+            // code at 1 once a retry has worked.
+            Environment.ExitCode = 0;
             InstallLayout installed = InstallLayout.Create(target);
 
             RemoveLegacyBuilds();
@@ -244,7 +258,8 @@ public partial class SetupWindow : Window
             Launch: _launch.IsChecked == true,
             Run: true,
             RemoveSettings: false,
-            FinishPid: null);
+            FinishPid: null,
+            Elevated: true);
 
         Status.Text = "กำลังติดตั้งในหน้าต่างผู้ดูแลระบบ...";
         int? code = await Task.Run(() => Elevation.RelaunchAndWait(handover.ToArguments()));

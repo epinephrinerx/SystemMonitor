@@ -2,11 +2,11 @@
 
 เอกสารนี้อธิบายโครงสร้างและขอบเขตของ **System Monitor** (`SystemMonitor4.0`) ให้อัปเดตเมื่อมีการเปลี่ยน service boundary, data flow, storage หรือ dependency direction
 
-> ขอบเขตของเอกสาร: อธิบายสถานะหลัง **R-021 เฟส 0–4** (สัญญา + ตัวโหลด + โฮสต์ส่วนเสริม + SMART เป็นส่วนเสริมแรก + แพ็กเกจ/ตัวติดตั้ง) ส่วน **R-022 (ติดตั้งแบบผู้ดูแลระบบ / Program Files) ยังไม่เริ่ม** จึงยังไม่มีอยู่ในเอกสารนี้
+> ขอบเขตของเอกสาร: อธิบายสถานะหลัง **R-021** (สัญญา + ตัวโหลด + โฮสต์ส่วนเสริม + SMART เป็นส่วนเสริมแรก + แพ็กเกจ/ตัวติดตั้ง) และ **R-022** (ติดตั้งแบบทั้งเครื่อง / Program Files / Scheduled Task — ดู `Docs/adr/0002-machine-wide-install.md`) ซึ่ง **ลงมือและทดสอบด้วยโฟลเดอร์จำลองแล้ว แต่ยังไม่ได้ตรวจบนเครื่องจริง**
 
 ## 1. System overview
 
-System Monitor เป็น Windows desktop widget แบบ native (C#/.NET 8 WPF) ที่แสดงสถานะ CPU/RAM/Disk/GPU/Network จากตัวนับของ Windows และ ACPI thermal zone ตั้งแต่ R-021 ตัวโฮสต์ถูกแยกเป็น "core" ที่คงที่ บวก "ส่วนเสริม" ที่โหลดเป็น .NET assembly ตอนรันจากโฟลเดอร์ `extensions` ใต้โฟลเดอร์ exe โดยไม่ต้อง build โฮสต์ใหม่ โมดูล SMART ถูกย้ายออกมาเป็นส่วนเสริม first-party ตัวแรก (`SysMonitor.Ext.Smart`) และเป็นผู้ให้อุณหภูมิดิสก์ผ่านสัญญา `IDiskTemperatureSource` ตัวติดตั้งเป็นแบบ per-user ไม่ต้องใช้สิทธิ์ผู้ดูแลระบบ และแอปไม่ยกระดับสิทธิ์เองตอนเปิด
+System Monitor เป็น Windows desktop widget แบบ native (C#/.NET 8 WPF) ที่แสดงสถานะ CPU/RAM/Disk/GPU/Network จากตัวนับของ Windows และ ACPI thermal zone ตั้งแต่ R-021 ตัวโฮสต์ถูกแยกเป็น "core" ที่คงที่ บวก "ส่วนเสริม" ที่โหลดเป็น .NET assembly ตอนรันจากโฟลเดอร์ `extensions` ใต้โฟลเดอร์ exe โดยไม่ต้อง build โฮสต์ใหม่ โมดูล SMART ถูกย้ายออกมาเป็นส่วนเสริม first-party ตัวแรก (`SysMonitor.Ext.Smart`) และเป็นผู้ให้อุณหภูมิดิสก์ผ่านสัญญา `IDiskTemperatureSource` ตัวติดตั้งมีสองโหมด: per-user (ไม่ต้องใช้สิทธิ์ผู้ดูแลระบบ และแอปไม่ยกระดับสิทธิ์เองตอนเปิด) และแบบทั้งเครื่อง (R-022: ลง Program Files และแอปเปิดซ้ำตัวเองแบบยกระดับตอนเริ่ม)
 
 ### Goals
 
@@ -24,7 +24,7 @@ System Monitor เป็น Windows desktop widget แบบ native (C#/.NET 8 W
 - ไม่แก้ GUI MFC ของ CrystalDiskInfo และไม่ทำบน Linux
 - ไม่ยกระดับสิทธิ์อัตโนมัติ (ส่วนเสริมไม่ได้สิทธิ์เพิ่มเอง)
 - ไม่ตรวจจับ/กำจัดมัลแวร์ (หน้าที่ของ Windows Defender/แอนตี้ไวรัส)
-- ไม่อยู่ในรอบนี้: การย้ายไปติดตั้งใต้ `Program Files` (ชั้นที่ 3 ของโมเดลความเชื่อถือ) เป็นงานแยก R-022
+- ชั้นที่ 3 ของโมเดลความเชื่อถือ (ติดตั้งใต้ `Program Files`) ทำใน R-022 เป็นทางเลือกของตัวติดตั้ง: แอปที่ติดตั้งแบบนั้นเปิดแบบยกระดับทุกครั้ง ส่วนติดตั้งแบบ per-user ยังเป็นค่าเดิม
 
 ## 2. Context diagram
 
@@ -88,7 +88,7 @@ SystemMonitor4.0/
 ├── SysMonitor.Ext.Smart/        # ส่วนเสริม first-party: SMART + disk temperature
 ├── SysMonitor.Ext.Sample/       # ส่วนเสริมตัวอย่าง id "sample" (ไม่อยู่ใน allowlist)
 ├── SysMonitor.PackTool/         # แพ็กส่วนเสริม + SHA-256 + เติม allowlist
-├── SysMonitor.Setup/            # ตัวติดตั้ง per-user (+ payload/ ที่ฝังเป็น resource)
+├── SysMonitor.Setup/            # ตัวติดตั้ง (per-user และแบบทั้งเครื่อง) + payload/ ที่ฝังเป็น resource
 ├── SysMonitor.Tests/            # MSTest (+ Extensions/ สำหรับเทสต์ส่วนเสริม)
 ├── SysMonitor.Tests.DummyExtension/
 ├── Docs/                        # AI_WORKFLOW.md, ARCHITECTURE.md, EXTENSION_CONTRACT.md, TESTING.md, adr/, Requirements-upstream.md และเอกสารรีวิว/handoff (Requirements.md อยู่ที่ root)
@@ -107,7 +107,7 @@ SystemMonitor4.0/
 | `SysMonitor.Ext.Smart` | ส่วนเสริม first-party: สแกน SMART ผ่าน `DiskInfoCore.dll` และให้อุณหภูมิดิสก์; สร้างหน้า Widget/Overview/Tab ของ SMART | `SmartExtension` (`IExtension`, `IViewProvider`, `IDemandAware`, `IDiskTemperatureSource`, `IDisposable`), `SmartStrings`, `SmartViewBuilder`; native: `DiskInfoCore.dll` (C ABI v1, `di_abi_version`/`di_open`/`di_scan`/`di_disk_count`/`di_disk_info`/`di_close`) |
 | `SysMonitor.Ext.Sample` | ตัวอย่างส่วนเสริมที่ต้องผ่านขั้นอนุมัติ (id `sample`) | `SampleExtension` |
 | `SysMonitor.PackTool` | แพ็กโฟลเดอร์ส่วนเสริมจาก `extension.template.json`: คัดลอกเฉพาะไฟล์ที่ระบุ, คำนวณ SHA-256, สร้าง `extension.json`, เติม allowlist | CLI `--template --out --version [--file name=path] [--allowlist file]`; `ExtensionPacker.Pack`, `ExtensionPacker.UpdateAllowlist` |
-| `SysMonitor.Setup` (`SystemMonitor-Setup.exe`) | ติดตั้ง/ถอนแบบ per-user: `SystemMonitor.exe`, `extensions\<id>\`, shortcut, Run key, uninstall key | `Installer.Install/Uninstall/UninstallExtensions/OwnedPaths`, `Installer.InstallDir`, `Legacy`, `Shortcuts` |
+| `SysMonitor.Setup` (`SystemMonitor-Setup.exe`) | ติดตั้ง/ถอนสองโหมด: per-user (`%LOCALAPPDATA%`, HKCU, Run key) และ admin (`Program Files`, HKLM, Scheduled Task, `install-mode.json`); ขอ UAC ครั้งเดียวด้วยการเปิดตัวเองซ้ำ | `InstallLayout`/`InstallScope`, `Installer.Install/Uninstall/MigrateFromPerUser/OwnedPaths`, `IInstallHost`/`WindowsInstallHost`, `ScheduledTasks`, `SetupArguments`, `PrivateDirectory`, `Elevation`, `Legacy`, `Shortcuts` |
 | `SysMonitor.Tests` | ชุดทดสอบ MSTest (โฮสต์, ส่วนเสริม, ตัวติดตั้ง, config, palette ฯลฯ) | `dotnet test SysMonitor.Tests` |
 | `SysMonitor.Tests.DummyExtension` | ส่วนเสริมจำลองสำหรับเทสต์ตัวโหลด/โฮสต์ | assembly ที่ implement `IExtension` |
 
@@ -201,8 +201,8 @@ Failure behaviour:
 | `first-party-extensions.json` | embedded resource ใน `SystemMonitor.exe` (`LogicalName="first-party-extensions.json"`) | build (`PackTool`) | ไฟล์ต้นทาง `SysMonitor.Wpf\first-party-extensions.json` ถูก gitignore และสร้างใหม่ทุกครั้งที่รัน `build-wpf.cmd`; ปัจจุบันมี 1 hash |
 | `extensions\<id>\extension.json` + ไฟล์ใน `files[]` | `<โฟลเดอร์ exe>\extensions\<id>\` (`App.OnStartup` ประกอบ path เอง) | `SysMonitor.Setup` เขียน, `ExtensionLoader` อ่าน | ไฟล์นอก manifest ทำให้ `UnsafePath`; `extension.json` ถูกเขียนเป็นไฟล์สุดท้ายตอนติดตั้ง |
 | `sysmonitor-wpf.log` | `%APPDATA%\SysMonitor\sysmonitor-wpf.log` (`Diag.Path`) | `Diag` | ตัดครึ่งเมื่อเกิน 256 KiB; timestamp invariant culture |
-| โฟลเดอร์ติดตั้ง | `%LOCALAPPDATA%\Programs\SystemMonitor\` (`Installer.InstallDir`) | `SysMonitor.Setup` | per-user; ถอนไม่ไล่ลบทั้งโฟลเดอร์ ใช้รายการไฟล์ที่ตัวเองเป็นเจ้าของ |
-| ไฟล์ติดตั้งชั่วคราวของ Updater | `%TEMP%\SystemMonitor-Setup-<version>.exe` | `Updater.DownloadAsync` | ตั้งชื่อเอง ไม่ใช้ชื่อจาก response; ลบเมื่อดาวน์โหลดล้มเหลว |
+| โฟลเดอร์ติดตั้ง | per-user: `%LOCALAPPDATA%\Programs\SystemMonitor\` · admin: `%ProgramFiles%\SystemMonitor\` (`InstallLayout`, path มาจาก known folder ของ Windows) | `SysMonitor.Setup` | ถอนไม่ไล่ลบทั้งโฟลเดอร์ ใช้รายการไฟล์ที่ตัวเองเป็นเจ้าของ; แบบ admin มี `install-mode.json` ที่แอปอ่านเพื่อรู้ว่าต้องยกระดับ (เชื่อเฉพาะเมื่ออยู่ใน Program Files) |
+| ไฟล์ติดตั้งชั่วคราวของ Updater | แอปปกติ: `%TEMP%\SystemMonitor-Setup-<version>.exe` · แอปที่ยกระดับ: `%ProgramData%\SysMonitor-update-<guid>\` (ACL เฉพาะ Administrators/SYSTEM) | `Updater.DownloadAsync` | ตั้งชื่อเอง ไม่ใช้ชื่อจาก response; ลบเมื่อดาวน์โหลดล้มเหลว; ไม่ตรวจแฮช/ลายเซ็น |
 
 - Source of truth: ไฟล์ JSON ในโปรไฟล์ผู้ใช้; ไม่มีฐานข้อมูล ไม่มี schema migration และไม่มี backup/restore อัตโนมัติ
 - Identifier: extension ใช้ `id` จาก manifest (regex `^[a-z0-9][a-z0-9._-]{0,63}$`, ต้องเท่ากับชื่อโฟลเดอร์); ความเชื่อถือผูกกับ SHA-256 ของ `extension.json` ไม่ใช่ชื่อ
@@ -235,7 +235,7 @@ Failure behaviour:
 - **ส่วนเสริมใน config** — `extensions` เป็น dictionary `{id: {enabled}}`; `show_smart` รุ่นเก่าย้ายเป็น `extensions.smart`; `FullTab` ค่า `smart`/`smartN` ย้ายเป็น `ext:smart:status`/`ext:smart:diskN`
 - **Logging (Diag)** — ไฟล์ข้อความบรรทัดเดียวต่อเหตุการณ์: start banner, heartbeat ทุก 10 นาที (rss + heap + GC), exception ที่ดักได้ (จำกัด 1 ครั้ง/นาที/context), ข้อความจากส่วนเสริมผ่าน `IExtensionContext.Log`; diagnostics ปิดได้ด้วย `AppConfig.Diagnostics`; ตัวช่วย elevated เขียน log แม้ผู้ใช้ปิด diagnostics
 - **Localization** — `Lang` ใน `SysMonitor.Wpf/I18n.cs` เก็บ dictionary `th`/`en` และ fallback ไป `en` แล้วคืน key ถ้าไม่พบ; ภาษาที่เลือกถูกส่งต่อให้ส่วนเสริมทุกครั้งผ่านพารามิเตอร์ `language` ของ `IViewProvider.GetDisplayName`/`GetView`; `IExtensionContext.Language` เป็นค่าภาษา ณ ตอนโหลดเท่านั้น
-- **Elevation** — ไม่ยกระดับตอนเปิด; มีโปรเซส elevated ชั่วคราวสองแบบเท่านั้น: `--approve-extension <id> <sha256>` และ `--elevated-op kill|service …` (แท็บ memory) ทั้งคู่จบแล้วปิด; โหมด elevated โหลดได้เฉพาะส่วนเสริม first-party
+- **Elevation** — แอปที่ติดตั้งแบบ per-user ไม่ยกระดับตอนเปิด; มีโปรเซส elevated ชั่วคราวสองแบบเท่านั้น: `--approve-extension <id> <sha256>` และ `--elevated-op kill|service …` (แท็บ memory) ทั้งคู่จบแล้วปิด · แอปที่ติดตั้งแบบทั้งเครื่อง (R-022) เปิดซ้ำตัวเองแบบยกระดับตอนเริ่มก่อนจับ lock single-instance (`ElevatedLaunch.TryRelaunch`; ข้ามได้ด้วย `--no-elevate`; ผู้ใช้ปฏิเสธ UAC = ทำงานต่อแบบไม่ยกระดับ) และตัวติดตั้งยกระดับตัวเองด้วย `runas` ครั้งเดียวเมื่องานเป็นแบบทั้งเครื่อง · โหมด elevated โหลดได้เฉพาะส่วนเสริม first-party
 - **DPI / theme / typography** — per-monitor-v2 DPI ประกาศใน `SysMonitor.Wpf/app.manifest`; ธีม light/dark มาจาก `AppConfig.Theme` + `Palette`; ขนาดตัวอักษรมาจาก `AppConfig.FontScale` ผ่าน `FontRamp`
 - **Single instance** — mutex ต่อ session (`Local\SystemMonitor.SingleInstance`); `--allow-multiple` ใช้สำหรับเทียบ build เท่านั้น
 - ไม่มี authentication, authorization แบบผู้ใช้, secrets, metrics/tracing, caching ชั้น network หรือ rate limiting ในระบบนี้
@@ -244,7 +244,7 @@ Failure behaviour:
 
 | Attribute | Target | How verified |
 |---|---|---|
-| Test suite | เขียวทุกครั้งก่อนแพ็ก | `build-wpf.cmd` ขั้น `[1/5]` รัน `dotnet test SysMonitor.Tests` และหยุดทันทีถ้าไม่ผ่าน; บันทึกล่าสุดใน `Requirements.md` R-021 เฟส 4 คือ 609 ผ่าน 2 ข้าม (รันซ้ำเมื่อ 2026-11-16 ได้ผลเดิม: 609 ผ่าน, 2 ข้าม, 0 ล้ม) |
+| Test suite | เขียวทุกครั้งก่อนแพ็ก | `build-wpf.cmd` ขั้น `[1/5]` รัน `dotnet test SysMonitor.Tests` และหยุดทันทีถ้าไม่ผ่าน; ผลล่าสุด 2026-11-16 หลัง R-022 เฟส 3: 679 ผ่าน, 2 ข้าม (สร้าง file symlink ไม่ได้), 0 ล้ม (บันทึกใน `Requirements.md` R-022) |
 | เริ่มได้โดยไม่มีส่วนเสริม | โฮสต์ไม่ล้ม | `ExtensionLoader.LoadAll` คืนลิสต์ว่างเมื่อไม่มีโฟลเดอร์ และ `ExtensionHost` แสดงเฉพาะ entry ที่มี |
 | ส่วนเสริมเสียไม่ทำโฮสต์ crash | คืนสถานะแทน throw | `ExtensionLoader` กลืน exception เป็น `ExtensionStatus`; เทสต์ใน `SysMonitor.Tests/Extensions` |
 | ความถูกต้องของ hash/ความเชื่อถือ | ไม่โหลดเมื่อไม่ตรง/ไม่อนุมัติ | unit tests ของ loader/host/approval (`ExtensionLoaderTests`, `ExtensionHostTests`, `ApprovalStoreTests`, `ExtensionApprovalTests`) ด้วยโฟลเดอร์ชั่วคราว |
@@ -257,6 +257,7 @@ Failure behaviour:
 | ADR | Decision | Status |
 |---|---|---|
 | `Docs/adr/0001-extension-architecture.md` — Extension architecture | แยก core/ส่วนเสริมด้วยสัญญา managed .NET เดียว (`SysMonitor.Extensibility`), โหลดจากโฟลเดอร์ใต้ exe ด้วย collectible `AssemblyLoadContext`, ตรวจ SHA-256 ของ manifest และทุกไฟล์ก่อนรันโค้ด, ความเชื่อถือสามชั้น (first-party ที่ฝังใน exe / อนุมัติโดยผู้ใช้ใน `%ProgramData%` / ไม่เชื่อถือ), elevated โหลดเฉพาะ first-party, ติดตั้ง per-user และบันทึกช่องโหว่ที่เหลือ (exe เขียนทับได้) ว่าเป็นงานแยก R-022 | Accepted |
+| `Docs/adr/0002-machine-wide-install.md` — Machine-wide install | ติดตั้งแบบ admin เป็นทางเลือก: `Program Files`, HKLM, Scheduled Task ระดับสูงสุด, ยกระดับด้วยการเปิดตัวเองซ้ำ (ไม่ใช้ manifest), ไม่ลบ/รัน/จัดเตรียมไฟล์ในที่ที่ผู้ใช้เขียนได้ด้วยสิทธิ์ผู้ดูแล, per-user ไม่เปลี่ยน | Accepted (ยังไม่ได้ตรวจบนเครื่องจริง) |
 
 - สัญญาฉบับเต็ม (ฟิลด์, วิธีโหลด, ข้อผิดพลาด, สิทธิ์) อยู่ที่ `Docs/EXTENSION_CONTRACT.md`
 
@@ -266,7 +267,7 @@ Failure behaviour:
 
 1. ตัวช่วยอนุมัติเขียน Diag log แม้ผู้ใช้ปิด diagnostics — ผลกระทบ: มีร่องรอยการใช้งานเสมอเมื่ออนุมัติส่วนเสริม
 2. ถ้า `IViewProvider.GetView` ค้างเกิน 5 วินาที โฮสต์ `Dispose` ส่วนเสริมต่อทั้งที่ยังมีผู้เรียกค้าง — ผลกระทบ: ส่วนเสริมที่ช้าเสี่ยงถูกเรียกหลัง dispose
-3. ติดตั้งแบบ per-user: exe หลักอยู่ในโฟลเดอร์ที่ผู้ใช้เขียนได้ มัลแวร์สิทธิ์ผู้ใช้เขียนทับ exe ได้ — ปิดได้เฉพาะทางติดตั้งแบบ admin ซึ่งเป็น R-022 (ยังไม่เริ่ม)
+3. ติดตั้งแบบ per-user: exe หลักอยู่ในโฟลเดอร์ที่ผู้ใช้เขียนได้ มัลแวร์สิทธิ์ผู้ใช้เขียนทับ exe ได้ — ปิดได้เฉพาะสำหรับผู้ที่เลือกติดตั้งแบบ admin (R-022, `Docs/adr/0002-machine-wide-install.md`) ส่วน per-user ยังเป็นค่าเดิม
 4. ปุ่ม "รันใหม่แบบผู้ดูแลระบบ" ในหน้า settings ขึ้นเมื่อส่วนเสริม SMART มีสถานะ `Loaded` แม้ไม่มี `DiskInfoCore.dll` (โฮสต์ไม่รู้ว่าไฟล์ขาด) — และปุ่ม restart ใน sidebar หลักใช้ป้าย "รันใหม่แบบผู้ดูแลระบบ" ทุกครั้งที่ยังไม่ elevated โดยไม่ดูส่วนเสริมเลย
 5. `ExtensionHost.Reload` ล้าง cached display name — ผลกระทบ: ชื่อที่แสดงอาจเปลี่ยนกลับเป็นชื่อใน manifest ชั่วขณะก่อน `GetView` รอบถัดไป
 6. เทสต์ `ExtensionHost_SetEnabled_LeavesRealConfigUntouched` อ่าน `%APPDATA%\SystemMonitor\config.wpf.json` จริง (อ่านอย่างเดียว) — ผลกระทบ: เทสต์แตะโปรไฟล์ของผู้รัน
@@ -282,4 +283,4 @@ Failure behaviour:
 - `Diag` เขียน log ที่ `%APPDATA%\SysMonitor\` แต่ `Installer.SettingsFiles` ระบุไฟล์ log ใต้ `%APPDATA%\SystemMonitor\` (§7)
 - `SysMonitor.Wpf/README.md` ยังระบุ config อยู่ที่ `%APPDATA%\SysMonitor\config.wpf.json` ซึ่งไม่ตรงกับ `AppConfig.Path`
 
-งานที่ยังไม่ทำ (ห้ามถือว่าเสร็จ): R-022 ติดตั้งแบบ admin/Program Files/Scheduled Task · การเทียบหน้าจอจริงก่อน–หลัง · เทียบอุณหภูมิ ±2 °C กับ CrystalDiskInfo · ตรวจ ACL ของ `%ProgramData%` จริง · ลองอนุมัติผ่าน UAC จริง
+งานที่ยังไม่ทำ (ห้ามถือว่าเสร็จ): ตรวจ R-022 บนเครื่องจริง (UAC, Scheduled Task, ACL ของ Program Files/ProgramData, การย้ายและการถอนจริง) · เทียบอุณหภูมิ ±2 °C กับ CrystalDiskInfo (R-019/R-020) · ตรวจ ACL ของ `%ProgramData%\SystemMonitor` จริง · ลองอนุมัติส่วนเสริมผ่าน UAC จริง

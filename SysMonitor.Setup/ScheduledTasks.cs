@@ -99,7 +99,9 @@ public static class ScheduledTasks
         Path.Combine(Environment.SystemDirectory, "schtasks.exe");
 
     /// <summary>Runs schtasks with the given arguments and returns its exit code.</summary>
-    private static int Run(IReadOnlyList<string> arguments)
+    private static int Run(IReadOnlyList<string> arguments) => RunCapture(arguments).Exit;
+
+    private static (int Exit, string Output) RunCapture(IReadOnlyList<string> arguments)
     {
         var start = new ProcessStartInfo(SchtasksPath)
         {
@@ -115,17 +117,47 @@ public static class ScheduledTasks
         using Process process = Process.Start(start)
             ?? throw new InvalidOperationException("schtasks.exe did not start.");
         // Drain both pipes so a full buffer cannot stall the child.
-        process.StandardOutput.ReadToEndAsync();
+        Task<string> output = process.StandardOutput.ReadToEndAsync();
         process.StandardError.ReadToEndAsync();
         if (!process.WaitForExit(30_000))
         {
             process.Kill();
             throw new TimeoutException("schtasks.exe did not finish.");
         }
-        return process.ExitCode;
+        return (process.ExitCode, output.GetAwaiter().GetResult());
     }
 
     public static bool Exists(string taskName) => Run(QueryArguments(taskName)) == 0;
+
+    /// <summary>
+    /// Whether the task exists and is switched on. The app can turn the task off
+    /// from its sidebar; a setup that took "exists" for "on" would turn it back
+    /// on at the next update.
+    /// </summary>
+    public static bool IsEnabled(string taskName)
+    {
+        (int exit, string output) = RunCapture(new[] { "/Query", "/TN", RequireName(taskName), "/XML" });
+        return exit == 0 && ParseEnabled(output) == true;
+    }
+
+    /// <summary>
+    /// Settings/Enabled of a task definition. A definition that does not say is
+    /// enabled (the schema default); one that cannot be read at all is null.
+    /// </summary>
+    public static bool? ParseEnabled(string xml)
+    {
+        try
+        {
+            XElement root = XDocument.Parse(xml).Root ?? throw new FormatException("no root element");
+            XElement? enabled = root.Elements().FirstOrDefault(e => e.Name.LocalName == "Settings")
+                ?.Elements().FirstOrDefault(e => e.Name.LocalName == "Enabled");
+            return enabled is null || !bool.TryParse(enabled.Value, out bool value) || value;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
 
     /// <summary>Creates or replaces the task for an admin layout. Needs an elevated process.</summary>
     public static void Create(InstallLayout layout, string userId)

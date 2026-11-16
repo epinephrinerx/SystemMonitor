@@ -4,6 +4,10 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
+    <!-- The machine-wide install starts this program elevated at logon from a
+         task that carries the user's environment: a startup hook named there
+         would run with administrator rights. -->
+    <StartupHookSupport>false</StartupHookSupport>
     <!-- For NotifyIcon only. Part of the desktop framework, not a package. -->
     <UseWindowsForms>true</UseWindowsForms>
     <!-- WFAC010 wants DPI configured through Application.SetHighDpiMode. That

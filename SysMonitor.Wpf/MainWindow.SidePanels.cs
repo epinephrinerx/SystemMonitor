@@ -90,8 +90,36 @@ public partial class MainWindow
         {
             target.Children.Add(Check(lang["snap"], _config.Snap, value => _config.Snap = value));
             string exePath = Environment.ProcessPath ?? string.Empty;
-            target.Children.Add(Check(lang["autostart"], Startup.IsEnabled(exePath),
-                                      value => Startup.Set(value, exePath)));
+            if (InstallMode.IsMachineWideInstall)
+            {
+                // Started by a Scheduled Task that the setup made, not a Run
+                // value (which would start it un-elevated and twice). Changing
+                // the task needs administrator rights, so without them the box
+                // shows the state and stays disabled.
+                CheckBox? startup = null;
+                bool reverting = false;
+                // Null: no task (the install was made without "start with
+                // Windows") or it cannot be read. There is nothing to switch,
+                // and the app does not create tasks; the setup does.
+                bool? taskState = MachineWideStartup.IsEnabled();
+                startup = Check(lang["autostart"], taskState == true, value =>
+                {
+                    if (reverting || MachineWideStartup.Set(value))
+                    {
+                        return;
+                    }
+                    reverting = true;
+                    startup!.IsChecked = !value;
+                    reverting = false;
+                });
+                startup.IsEnabled = _sampler.Elevated && taskState is not null;
+                target.Children.Add(startup);
+            }
+            else
+            {
+                target.Children.Add(Check(lang["autostart"], Startup.IsEnabled(exePath),
+                                          value => Startup.Set(value, exePath)));
+            }
         }
 
         target.Children.Add(Check(lang["light_mode"], _config.Theme == "light", value =>

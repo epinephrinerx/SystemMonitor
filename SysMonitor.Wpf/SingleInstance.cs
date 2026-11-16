@@ -16,6 +16,46 @@ public sealed class SingleInstance : IDisposable
 
     private Mutex? _mutex;
 
+    /// <summary>
+    /// Is a copy running right now? Looks without taking the lock. A copy this
+    /// process may not even open (the running one is elevated, this one is not,
+    /// or the reverse) counts as running too.
+    /// </summary>
+    public static bool IsRunning(string name)
+    {
+        try
+        {
+            if (Mutex.TryOpenExisting(name, out Mutex? existing))
+            {
+                existing.Dispose();
+                return true;
+            }
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Waits until no copy is running. False when one still is after
+    /// <paramref name="wait"/>.
+    /// </summary>
+    public static bool WaitUntilGone(string name, TimeSpan wait)
+    {
+        DateTime end = DateTime.UtcNow + wait;
+        while (IsRunning(name))
+        {
+            if (DateTime.UtcNow >= end)
+            {
+                return false;
+            }
+            Thread.Sleep(100);
+        }
+        return true;
+    }
+
     private SingleInstance(Mutex mutex) => _mutex = mutex;
 
     /// <summary>

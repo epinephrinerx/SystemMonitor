@@ -135,8 +135,35 @@ internal static class Updater
         && uri.Scheme == Uri.UriSchemeHttps
         && AllowedHosts.Contains(uri.Host, StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Where elevated downloads are staged, one fresh directory each, under ProgramData.</summary>
+    internal const string StagingPrefix = "SysMonitor-update-";
+
     /// <summary>
-    /// Fetch the installer into the temp directory and hand back its path.
+    /// The installer is run right after it is written, and by an elevated copy
+    /// it is run with administrator rights. In %TEMP% any process of the same
+    /// user could replace it in between, so an elevated download is staged in a
+    /// directory only administrators can write to. An ordinary copy keeps the
+    /// temp directory, as before.
+    /// </summary>
+    internal static string StagingDirectory() =>
+        StagingDirectory(Native.Win32.IsElevated(), Path.GetTempPath(),
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData));
+
+    internal static string StagingDirectory(bool elevated, string tempPath, string programData)
+    {
+        if (!elevated)
+        {
+            return tempPath;
+        }
+        AdminStaging.RemoveOld(programData, StagingPrefix);
+        return AdminStaging.Create(programData, StagingPrefix);
+    }
+
+    private static bool IsStagingDirectory(string directory) =>
+        Path.GetFileName(directory).StartsWith(StagingPrefix, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Fetch the installer into a staging directory and hand back its path.
     ///
     /// Written under a name of our own making rather than one taken from the
     /// response: a filename that arrived over the network has no business
@@ -151,8 +178,18 @@ internal static class Updater
             return null;
         }
 
-        string path = Path.Combine(Path.GetTempPath(),
-            $"SystemMonitor-Setup-{release.Version}.exe");
+        string? directory = null;
+        string path;
+        try
+        {
+            directory = StagingDirectory();
+            path = Path.Combine(directory, $"SystemMonitor-Setup-{release.Version}.exe");
+        }
+        catch (Exception error)
+        {
+            Diag.ReportException("Update staging", error);
+            return null;
+        }
         try
         {
             using HttpResponseMessage response = await Http
@@ -187,6 +224,10 @@ internal static class Updater
             try
             {
                 File.Delete(path);      // a half-written installer must not be run
+                if (directory is not null && IsStagingDirectory(directory))
+                {
+                    Directory.Delete(directory);
+                }
             }
             catch (Exception)
             {

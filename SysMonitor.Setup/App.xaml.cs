@@ -20,6 +20,9 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        // Before anything is decided or copied: see SelfImage.
+        SelfImage.HoldOwn();
+
         SetupArguments arguments = SetupArguments.Parse(e.Args);
 
         // The temporary copy: wait for the installed uninstaller to let go of
@@ -39,25 +42,33 @@ public partial class App : Application
 
         if (scope == InstallScope.Admin && !Elevation.IsElevated())
         {
-            // One UAC prompt, here at the start. The elevated copy gets the
-            // same arguments, and --admin so it makes the same choice.
-            IReadOnlyList<string> handover = (arguments with { Admin = true }).ToArguments();
-            if (arguments.Silent)
+            if (arguments.Elevated)
             {
-                // An unattended caller is told what really happened, not just
-                // that the elevated copy started.
-                int? code = Elevation.RelaunchAndWait(handover);
-                Environment.ExitCode = code ?? 1;
-                if (code == 0 && !uninstalling)
-                {
-                    // Back without administrator rights, which is what removing
-                    // the old per-user files needs (see MigrateFromPerUser).
-                    TryMigrate();
-                }
-            }
-            else if (!Elevation.Relaunch(handover))
-            {
+                // Our own relaunch came back without administrator rights (UAC
+                // off, a compatibility layer): asking again would never end.
                 Environment.ExitCode = 1;
+                if (!arguments.Silent)
+                {
+                    MessageBox.Show(
+                        "ไม่ได้รับสิทธิ์ผู้ดูแลระบบ จึงไม่ได้ติดตั้งแบบทั้งเครื่อง",
+                        "System Monitor", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+                Shutdown();
+                return;
+            }
+
+            // One UAC prompt, here at the start. The elevated copy gets the
+            // same arguments, and --admin so it makes the same choice. This
+            // copy waits for it and reports what really happened, then (back
+            // without administrator rights, which is what removing the old
+            // per-user files needs, see MigrateFromPerUser) retires the
+            // per-user install if the machine-wide one is in place.
+            IReadOnlyList<string> handover = (arguments with { Admin = true, Elevated = true }).ToArguments();
+            int? code = Elevation.RelaunchAndWait(handover);
+            Environment.ExitCode = code ?? 1;
+            if (code == 0 && !uninstalling)
+            {
+                TryMigrate();
             }
             Shutdown();
             return;

@@ -158,10 +158,46 @@ public sealed class WindowsInstallHost : IInstallHost
     {
         if (layout.Autostart == AutostartMechanism.ScheduledTask)
         {
-            return ScheduledTasks.Exists(layout.ScheduledTaskName);
+            return ScheduledTasks.IsEnabled(layout.ScheduledTaskName);
         }
         using RegistryKey? key = Registry.CurrentUser.OpenSubKey(RunKey);
         return key?.GetValue(Installer.Key) is string;
+    }
+}
+
+/// <summary>
+/// Keeps this setup's own file from being renamed or replaced while it runs.
+/// A running program can be renamed on Windows, so a process of the same user
+/// could swap another file into the setup's path after the UAC prompt, or
+/// after the elevated copy has started, and have that file copied into
+/// Program Files as the uninstaller. Holding the file open without delete
+/// sharing blocks the rename and the overwrite, and still lets the loader and
+/// the copy read it.
+/// </summary>
+public static class SelfImage
+{
+    private static FileStream? _held;
+
+    /// <summary>Open the file for reading with write and delete sharing denied. Null when that is not possible.</summary>
+    public static FileStream? Hold(string path)
+    {
+        try
+        {
+            return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Hold this process's own executable until the process ends.</summary>
+    public static void HoldOwn()
+    {
+        if (_held is null && Environment.ProcessPath is string path)
+        {
+            _held = Hold(path);
+        }
     }
 }
 

@@ -14,6 +14,8 @@ namespace SysMonitor.Setup;
 ///   --run                 start the wizard and run it without waiting for a click
 ///   --settings            uninstall: remove settings and logs too
 ///   --finish &lt;pid&gt;       (internal) the temporary uninstaller finishing the job
+///   --elevated            (internal) started by the setup's own UAC relaunch;
+///                         a copy that still is not elevated must not ask again
 /// </summary>
 public sealed record SetupArguments(
     bool Silent,
@@ -24,7 +26,8 @@ public sealed record SetupArguments(
     bool Launch,
     bool Run,
     bool RemoveSettings,
-    int? FinishPid)
+    int? FinishPid,
+    bool Elevated = false)
 {
     public static SetupArguments Parse(IReadOnlyList<string> args)
     {
@@ -70,7 +73,8 @@ public sealed record SetupArguments(
             Launch: Has("--launch"),
             Run: Has("--run"),
             RemoveSettings: Has("--settings"),
-            FinishPid: finish);
+            FinishPid: finish,
+            Elevated: Has("--elevated"));
     }
 
     /// <summary>The arguments to hand to the elevated copy.</summary>
@@ -99,6 +103,10 @@ public sealed record SetupArguments(
         if (RemoveSettings)
         {
             list.Add("--settings");
+        }
+        if (Elevated)
+        {
+            list.Add("--elevated");
         }
         if (FinishPid is int pid)
         {

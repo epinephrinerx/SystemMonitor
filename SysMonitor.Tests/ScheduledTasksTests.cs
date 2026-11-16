@@ -106,6 +106,19 @@ public class ScheduledTasksTests
     }
 
     [TestMethod]
+    public void A_task_the_app_switched_off_is_not_mistaken_for_one_that_is_on()
+    {
+        const string template = "<Task xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\">"
+            + "<Settings><Enabled>{0}</Enabled></Settings></Task>";
+
+        Assert.AreEqual(true, ScheduledTasks.ParseEnabled(string.Format(template, "true")));
+        Assert.AreEqual(false, ScheduledTasks.ParseEnabled(string.Format(template, "false")));
+        Assert.AreEqual(true, ScheduledTasks.ParseEnabled(
+            "<Task xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\"><Settings/></Task>"));
+        Assert.IsNull(ScheduledTasks.ParseEnabled("ERROR: The system cannot find the file specified."));
+    }
+
+    [TestMethod]
     public void The_schtasks_command_lines_are_argument_lists_with_a_plain_task_name()
     {
         CollectionAssert.AreEqual(

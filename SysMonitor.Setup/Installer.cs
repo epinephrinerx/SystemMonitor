@@ -376,7 +376,10 @@ public static class Installer
     public static bool MigrateFromPerUser()
     {
         InstallLayout? perUser = InstallLayout.TryCreate(InstallScope.PerUser);
-        return perUser is not null
+        InstallLayout? admin = InstallLayout.TryCreate(InstallScope.Admin);
+        // Only once the machine-wide install is really there: an elevated copy
+        // that was cancelled or failed must not cost the user the install they have.
+        return perUser is not null && admin is not null && File.Exists(admin.ExePath)
             && MigrateFromPerUser(perUser, WindowsInstallHost.Instance, ReadExtensionPayload());
     }
 
@@ -884,7 +887,11 @@ public static class Installer
         Delete(layout, layout.DesktopShortcut);
         Delete(layout, layout.StartMenuShortcut);
 
-        if (removeSettings)
+        // The settings folder is the user's and is writable by the user, so an
+        // elevated uninstall leaves it alone: the safety check on a delete
+        // target is not atomic with the delete (see MigrateFromPerUser). The
+        // wizard says where the settings are, for anyone who wants them gone.
+        if (removeSettings && !layout.RequiresElevation)
         {
             foreach (string name in SettingsFiles)
             {

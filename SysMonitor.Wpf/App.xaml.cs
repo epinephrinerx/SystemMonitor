@@ -36,6 +36,14 @@ public partial class App : Application
             return;
         }
 
+        // A machine-wide install (R-022) runs elevated: start that copy and end
+        // this one, before the one-copy lock is taken.
+        if (ElevatedLaunch.TryRelaunch(e.Args))
+        {
+            Shutdown();
+            return;
+        }
+
         // --allow-multiple is for checking a build next to the copy that is
         // already running; nobody launches it by accident.
         _guarded = !e.Args.Contains("--allow-multiple");
