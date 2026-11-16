@@ -11,11 +11,45 @@
 - Repository: local — `D:\Dev\Apps\SystemMonitor4.0` (remote `upstream` = https://github.com/epinephrinerx/SystemMonitor; v4.0.0 push และ release แล้ว)
 - Package/runtime หลัก: C# / .NET 8 (LTS)
 - Package manager: dotnet CLI / NuGet
-- Coding Owner : Claude Code — Sonnet 5.5 — effort high
-- Writing Owner : agy — Gemini 3.8 Flash — effort high
-- Reviewer 1 : Claude Code — Fable 5.1 — effort high
-- Reviewer 2 : Codex — GPT-6.1-Sol — effort high
-- Integrator : Claude Code — Opus 5.5 — effort high
+### Agent Roster
+
+แต่ละบทบาทมีสามช่อง: ตัว agent (ผู้ให้บริการ/เครื่องมือ), model และ effort (ผู้ใช้กำหนดเมื่อ 2026-11-16)
+
+- Coding Owner : Claude Code
+- Coding Owner Model : Claude Opus 5.5
+- Coding Owner Effort : High
+- Writing Owner 1 : opencode
+- Writing Owner 1 Model : Gemini Flash-Lite (opencode id `google/gemini-3.5-flash-lite`)
+- Writing Owner 1 Effort : Medium
+- Writing Owner 2 : opencode
+- Writing Owner 2 Model : DeepSeek V4.1 Flash (opencode id `opencode-go/deepseek-v4.1-flash`; ผู้ใช้ยืนยันใช้ชื่อนี้แทน "1017" 2026-11-16)
+- Writing Owner 2 Effort : Medium
+- Writing Owner 3 : opencode
+- Writing Owner 3 Model : Qwen3.8 Flash (opencode id `opencode-go/qwen3.8-flash`)
+- Writing Owner 3 Effort : Medium
+- Test Author : agy
+- Test Author Model : Gemini 3.8 Flash
+- Test Author Effort : Medium
+- Inspector : Codex (session แยกจาก Reviewer2)
+- Inspector Model : GPT-6-sol
+- Inspector Effort : Medium
+- Reviewer1 : Claude Code
+- Reviewer1 Model : Claude Fable 5.1
+- Reviewer1 Effort : Medium
+- Reviewer2 : Codex
+- Reviewer2 Model : GPT-6-sol
+- Reviewer2 Effort : High
+- Integrator : Claude Code
+- Integrator Model : Claude Opus 5.5
+- Integrator Effort : Medium
+- Session หลัก (ประสานงาน) : = Coding Owner (ค่าตั้งต้น ผู้ใช้ยังไม่ได้ระบุแยก)
+
+หมายเหตุของ roster:
+
+- Inspector กับ Reviewer2 ใช้โมเดล GPT-6-sol เดียวกัน (กฎอนุญาต) จึงต้องเปิดคนละ session ไม่แชร์ context กัน เหตุผล: ผู้ใช้เลือกตามนี้ และ Inspector ไม่ซ้ำกับ Reviewer1
+- Test Author (Gemini 3.8 Flash) กับ Writing Owner 1 (Gemini Flash-Lite) เป็นตระกูล Gemini เดียวกันแต่คนละโมเดล ผ่านกฎเรื่องห้ามซ้ำ
+- ช่องที่ยังค้าง (ผู้ใช้ยังไม่ได้ระบุ): Max Sessions ต่อ agent, Progress Report Interval, No-Response Timeout
+- หน้าที่ของ Test Author, Inspector และ Session หลัก ยังไม่ถูกเขียนใน §5 ของไฟล์นี้ (§5 ยังเป็นรุ่นเก่าที่อ้างถึง Writing Owner เดียว) — รอคำสั่งว่าจะนำหัวข้อจากแม่แบบ startproject 2026-11-10 มาเพิ่มหรือไม่
 
 ## 2. ลำดับความสำคัญของข้อมูล
 
