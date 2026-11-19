@@ -17,6 +17,13 @@ internal static class Program
             return Probe.Run();
         }
 
+        // --probe-update makes one real GitHub check (GET only) and prints the
+        // parsed result, so the update path can be seen without a release.
+        if (options.ProbeUpdate)
+        {
+            return Probe.RunUpdate();
+        }
+
         SingleInstanceLock? guard = null;
         if (!options.AllowMultiple)
         {

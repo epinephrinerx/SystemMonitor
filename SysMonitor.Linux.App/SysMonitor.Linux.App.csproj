@@ -22,4 +22,10 @@
     <ProjectReference Include="..\SysMonitor.Linux\SysMonitor.Linux.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The app's own icon (spec section 9): the tray uses it, with an
+         embedded fallback when an install ships without this file. -->
+    <None Include="..\SysMonitor.ico" Link="Assets\SysMonitor.ico" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

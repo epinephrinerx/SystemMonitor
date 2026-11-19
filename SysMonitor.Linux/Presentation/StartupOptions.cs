@@ -17,9 +17,18 @@ public sealed class StartupOptions
     /// <summary>Print the built view models and exit without opening a window.</summary>
     public bool ProbeUi { get; init; }
 
+    /// <summary>Make one real GitHub check, print the result and exit. No download.</summary>
+    public bool ProbeUpdate { get; init; }
+
+    /// <summary>
+    /// The switches this copy was started with, so Restart can hand the new
+    /// copy exactly the same command line.
+    /// </summary>
+    public IReadOnlyList<string> Arguments { get; init; } = Array.Empty<string>();
+
     public static StartupOptions Parse(IEnumerable<string>? args)
     {
-        bool expanded = false, full = false, allowMultiple = false, probeUi = false;
+        bool expanded = false, full = false, allowMultiple = false, probeUi = false, probeUpdate = false;
         int heartbeat = 600;
 
         string[] list = args?.ToArray() ?? Array.Empty<string>();
@@ -42,6 +51,10 @@ public sealed class StartupOptions
             {
                 probeUi = true;
             }
+            else if (Equals(arg, "--probe-update"))
+            {
+                probeUpdate = true;
+            }
             else if (Equals(arg, "--heartbeat") && i + 1 < list.Length
                      && int.TryParse(list[i + 1], out int seconds) && seconds > 0)
             {
@@ -57,6 +70,8 @@ public sealed class StartupOptions
             AllowMultiple = allowMultiple,
             HeartbeatSeconds = heartbeat,
             ProbeUi = probeUi,
+            ProbeUpdate = probeUpdate,
+            Arguments = list,
         };
     }
 

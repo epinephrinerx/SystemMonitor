@@ -115,6 +115,7 @@ internal static class Probe
 
         DescribeFull(text, shell);
         DescribeMemory(text, shell, snapshot);
+        DescribeIntegrations(text, shell, snapshot);
 
         text.AppendLine($"Legend: \"{shell.Overall.Legend}\"");
         text.AppendLine(
@@ -203,6 +204,73 @@ internal static class Probe
             text.AppendLine("  note: " + memory.ServiceNote);
         }
         text.AppendLine();
+    }
+
+    /// <summary>The running version, as three parts, the way the updater reads tags.</summary>
+    private static string Version =>
+        typeof(Probe).Assembly.GetName().Version?.ToString(3) ?? "4.3.0";
+
+    /// <summary>
+    /// The phase-3 integrations (spec sections 8 and 9): what autostart would
+    /// write without writing it, the tray tooltip for this snapshot, and the
+    /// Linux update asset names. The autostart directory is only read.
+    /// </summary>
+    private static void DescribeIntegrations(StringBuilder text, ShellModel shell, Snapshot snapshot)
+    {
+        var autostart = new FileAutostart();
+        text.AppendLine(
+            $"Autostart: enabled={autostart.IsEnabled}  can_enable={autostart.CanEnable}  " +
+            $"file={autostart.Path}  exe={autostart.Executable}");
+        if (autostart.CanEnable)
+        {
+            text.AppendLine("  would write:");
+            foreach (string line in autostart.Text.TrimEnd('\n').Split('\n'))
+            {
+                text.AppendLine("    " + line);
+            }
+        }
+        else
+        {
+            text.AppendLine(
+                "  would write: nothing (the executable path has a control character)");
+        }
+
+        text.AppendLine("Tray tooltip: " + Escape(TrayText.Build(snapshot, shell.Language)));
+
+        string architecture = UpdateAssets.ArchitectureSuffix();
+        string archive = UpdateAssets.ArchiveName(Version, architecture);
+        text.AppendLine(
+            $"Update assets ({architecture}): {archive} + {UpdateAssets.ChecksumName(archive)}");
+        text.AppendLine();
+    }
+
+    /// <summary>One line, with the newline visible: a tooltip is two lines.</summary>
+    private static string Escape(string text) =>
+        text.Replace("\\", "\\\\").Replace("\n", "\\n");
+
+    /// <summary>
+    /// <c>--probe-update</c>: one real GitHub check (GET only, no download) and
+    /// the parsed result on stdout. The log lines go to stderr.
+    /// </summary>
+    public static int RunUpdate()
+    {
+        string version = Version;
+        string architecture = UpdateAssets.ArchitectureSuffix();
+        string archive = UpdateAssets.ArchiveName(version, architecture);
+
+        var updater = new GitHubUpdater(
+            version,
+            architecture: architecture,
+            log: line => Console.Error.WriteLine("probe-update: " + line));
+        UpdateCheck result = updater.CheckAsync(CancellationToken.None).GetAwaiter().GetResult();
+
+        Console.WriteLine($"System Monitor {version} -- --probe-update");
+        Console.WriteLine($"endpoint {UpdateReleaseParser.Endpoint}");
+        Console.WriteLine($"arch {architecture}  assets {archive} + {UpdateAssets.ChecksumName(archive)}");
+        Console.WriteLine(result.Succeeded
+            ? $"result ok  latest={result.Version}"
+            : $"result check_failed  reason={result.Reason}");
+        return 0;
     }
 
     private static string Describe(MemService service, ShellModel shell) =>

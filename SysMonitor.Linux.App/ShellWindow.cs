@@ -35,8 +35,9 @@ internal sealed class ShellWindow : Window
     private readonly ShellModel _shell;
     private readonly StartupOptions _options;
     private readonly Diagnostics _diagnostics;
-    private readonly IRestarter _restarter = new NoopRestarter();
-    private readonly ITray _tray = new NoopTray();
+    private readonly IRestarter _restarter;
+    private readonly ITray _tray;
+    private readonly ICommandRunner _commands;
 
     private readonly WidgetView _widget;
     private readonly OverallView _overall;
@@ -63,6 +64,20 @@ internal sealed class ShellWindow : Window
     private volatile bool _memoryVisible;
     private int _forceMemory;
 
+    // Close/quit state (spec section 9): close hiding to the tray is not a
+    // quit, and a tray icon exists only while the window is hidden.
+    private bool _quitting;
+    private bool _shutDown;
+    private volatile bool _hiddenToTray;
+
+    // No-tray fallback (amendment 1): the window is borderless and normally
+    // off the taskbar, so minimising it without a tray icon would strand it.
+    // The fallback adds it to the taskbar until it is shown again, and its
+    // line is logged once per run.
+    private const bool ShowInTaskbarConfigured = false;
+    private bool _fallbackLogged;
+    private bool _fallbackInTaskbar;
+
     // Pointer state. Every resize frame is computed from _startRect, never from
     // the previous frame (spec section 1).
     private DragMode _drag;
@@ -71,18 +86,32 @@ internal sealed class ShellWindow : Window
     private RectD _startRect;
     private double _dragScale = 1;
 
-    public ShellWindow(ShellModel shell, StartupOptions options, Diagnostics diagnostics)
+    public ShellWindow(
+        ShellModel shell,
+        StartupOptions options,
+        Diagnostics diagnostics,
+        ITray? tray = null,
+        IRestarter? restarter = null,
+        ICommandRunner? commands = null)
     {
         _shell = shell;
         _options = options;
         _diagnostics = diagnostics;
+        _commands = commands ?? new ProcessCommandRunner();
+
+        // Neither integration can be built before the window exists: the tray
+        // needs its restore/exit callbacks, and a restart has to shut this copy
+        // down once the new one has started.
+        _tray = tray ?? new TrayIconHost(shell, RestoreFromTray, Quit, diagnostics);
+        _restarter = restarter
+            ?? new ProcessRestarter(Environment.ProcessPath, options.Arguments);
         _lastMode = shell.View.Mode;
         _appliedFontScale = shell.Config.FontScale;
 
         Title = "System Monitor";
         WindowDecorations = WindowDecorations.None;
         CanResize = false;
-        ShowInTaskbar = false;
+        ShowInTaskbar = ShowInTaskbarConfigured;
         Topmost = shell.Config.AlwaysOnTop;
         Background = Brushes.Transparent;
         TransparencyLevelHint = new[] { WindowTransparencyLevel.Transparent };
@@ -165,7 +194,9 @@ internal sealed class ShellWindow : Window
             _wake.Set();
         };
         shell.OpenRequested += OpenPanel;
-        shell.RestartRequested += () => _restarter.Restart();
+        shell.RestartRequested += RestartApp;
+        // The menu's Close and the widget's close button both go through
+        // Window.Close, so the close action decides between tray and exit.
         shell.CloseRequested += Close;
 
         Opened += OnOpened;
@@ -237,34 +268,178 @@ internal sealed class ShellWindow : Window
 
     private async Task AutoCheckAsync()
     {
-        await _shell.CheckUpdatesAsync();
-        if (_shell.Updates.State == UpdatePanelState.Phase.CheckFailed
-            && _shell.Config.AutoCheckUpdates)
+        // Amendment 2, item 6: the sequence (check, 60 s, retry, setting still
+        // on) belongs to UpdateAutoCheck; the window only starts it.
+        try
         {
-            await Task.Delay(TimeSpan.FromSeconds(60));
-            if (_shell.Config.AutoCheckUpdates)
-            {
-                await _shell.CheckUpdatesAsync();
-            }
+            await _shell.AutoCheck.RunAsync(_stop.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // The app is quitting during the wait.
         }
     }
 
+    /// <summary>
+    /// The close button and the menu's Close (spec section 9): with
+    /// <c>close_action=tray</c> the window hides and the tray keeps a way back;
+    /// any other close, the tray's Exit item and session end quit for real.
+    /// </summary>
     private void OnClosing(object? sender, WindowClosingEventArgs e)
     {
+        if (!_quitting && string.Equals(_shell.Config.CloseAction, "tray", StringComparison.Ordinal))
+        {
+            e.Cancel = true;
+            HideToTray();
+            return;
+        }
+
+        _quitting = true;
+        Shutdown();
+    }
+
+    /// <summary>Session end (logoff or shutdown): save the placement, then go.</summary>
+    public void PrepareForShutdown()
+    {
+        _quitting = true;
         SavePlacement();
+        _diagnostics.Line("session ending; placement saved");
+    }
+
+    /// <summary>Quit for good: the close action, the tray Exit item or a restart.</summary>
+    private void Quit()
+    {
+        if (_quitting)
+        {
+            return;
+        }
+        _quitting = true;
+        Close();
+    }
+
+    private void RestartApp()
+    {
+        SavePlacement();
+        _shell.Save();
+        if (_restarter.Restart())
+        {
+            _diagnostics.Line("restart: a new copy started; shutting down");
+            Quit();
+            return;
+        }
+        _diagnostics.Line("restart failed: the new copy did not start");
+    }
+
+    /// <summary>
+    /// Hide to the tray: save the placement, stop the UI timer, show the icon
+    /// and hide. The sampler keeps running, and while hidden each fresh sample
+    /// still reaches the model, so history fills and the tooltip stays current.
+    /// </summary>
+    private void HideToTray()
+    {
+        SavePlacement();
+        string tooltip = TrayText.Build(_shell.Snapshot, _shell.Language);
+
+        // Amendment 2, item 5: the icon is a StatusNotifierItem, so a host has
+        // to exist before the window may leave the screen. TrayIconHost can
+        // still fail while creating it; both cases take the same way back.
+        if (!TrayHost.IsAvailable(_commands) || !_tray.Show(tooltip))
+        {
+            FallbackToTaskbar();
+            return;
+        }
+
+        ClosePanels();
+        _hiddenToTray = true;
+        _tick.Stop();
+        Hide();
+        _diagnostics.Line("hidden to tray");
+    }
+
+    /// <summary>
+    /// No tray (amendment 1): a borderless window that is also off the taskbar
+    /// would be stranded once minimised, so put it back on the taskbar until it
+    /// is shown again. Logged once per run.
+    /// </summary>
+    private void FallbackToTaskbar()
+    {
+        if (!_fallbackLogged)
+        {
+            _fallbackLogged = true;
+            _diagnostics.Line("close to tray unavailable; minimising to the taskbar instead");
+        }
+        _fallbackInTaskbar = true;
+        ShowInTaskbar = true;
+        WindowState = WindowState.Minimized;
+    }
+
+    /// <summary>A left click on the tray icon, or its Show item.</summary>
+    private void RestoreFromTray()
+    {
+        if (!_hiddenToTray)
+        {
+            return;
+        }
+
+        _hiddenToTray = false;
+        _tray.Hide();
+        Show();
+        WindowState = WindowState.Normal;
+        Activate();
+        _tick.Start();
+        OnTick();
+        _diagnostics.Line("restored from tray");
+    }
+
+    /// <summary>
+    /// Amendment 1: a no-tray fallback keeps the window on the taskbar only
+    /// while it is minimised. Showing it again restores the configured value,
+    /// whether it came back through the window manager or through this class.
+    /// </summary>
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+        if (change.Property == WindowStateProperty
+            && _fallbackInTaskbar
+            && WindowState != WindowState.Minimized)
+        {
+            _fallbackInTaskbar = false;
+            ShowInTaskbar = ShowInTaskbarConfigured;
+        }
+    }
+
+    /// <summary>Quit: stop the timers and the sampler, save, drop the tray.</summary>
+    private void Shutdown()
+    {
+        if (_shutDown)
+        {
+            return;
+        }
+        _shutDown = true;
+        _hiddenToTray = false;
+        SavePlacement();
+        _shell.Save();
         _tick.Stop();
         _heartbeat.Stop();
         _stop.Cancel();
         _wake.Set();
+        ClosePanels();
+        _tray.Hide();
+        _diagnostics.Line("closing");
+    }
+
+    private void ClosePanels()
+    {
         foreach (PanelWindow panel in _panels.Values.ToList())
         {
             panel.Close();
         }
-        _diagnostics.Line("closing");
     }
 
     private void OnClosed(object? sender, EventArgs e)
     {
+        Shutdown();
+        _tray.Dispose();
         // No pidfd may outlive the window: close whatever a pending kill holds.
         _shell.CancelKills();
         _shell.DataChanged -= OnDataChanged;
@@ -299,6 +474,20 @@ internal sealed class ShellWindow : Window
                     lastService = now;
                 }
                 Volatile.Write(ref _latest, snapshot);
+                if (_hiddenToTray)
+                {
+                    // The UI timer is stopped while hidden, so the sampler
+                    // hands its sample to the UI thread: history keeps filling
+                    // and the tray tooltip follows the numbers. Rotation waits
+                    // for the window to come back.
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        if (_hiddenToTray && !_stop.IsCancellationRequested)
+                        {
+                            Feed();
+                        }
+                    });
+                }
             }
             catch (Exception exception)
             {
@@ -328,19 +517,29 @@ internal sealed class ShellWindow : Window
 
     private void OnTick()
     {
+        Feed();
+        _shell.Tick();
+    }
+
+    /// <summary>Hand the newest sample to the model, once.</summary>
+    private void Feed()
+    {
         Snapshot? latest = Volatile.Read(ref _latest);
         if (!ReferenceEquals(latest, _rendered))
         {
             _rendered = latest;
             _shell.SetSnapshot(latest);
         }
-        _shell.Tick();
     }
 
     // ------------------------------------------------------------ events
 
     private void OnDataChanged()
     {
+        if (_hiddenToTray)
+        {
+            _tray.Show(TrayText.Build(_shell.Snapshot, _shell.Language));
+        }
         _widget.Render();
         _overall.RenderCards();
         _full.RenderData();
@@ -581,8 +780,8 @@ internal sealed class ShellWindow : Window
         if (await _shell.DownloadUpdateAsync())
         {
             // The installer has started; the spec says the app exits.
-            _tray.Hide();
-            Close();
+            _shell.Save();
+            Quit();
         }
     }
 

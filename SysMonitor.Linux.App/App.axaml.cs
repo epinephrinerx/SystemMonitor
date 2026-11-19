@@ -43,11 +43,14 @@ public sealed class App : Application
         config.LastView = start.ToKey();
 
         _diagnostics = new Diagnostics(enabled: config.Diagnostics);
+        string version = typeof(App).Assembly.GetName().Version?.ToString(3) ?? "4.3.0";
         _shell = new ShellModel(
             config,
-            version: typeof(App).Assembly.GetName().Version?.ToString(3) ?? "4.3.0",
+            version: version,
             killTargets: new SysMonitor.Linux.Sensors.ProcessSignals(),
-            ownUid: SysMonitor.Linux.Sensors.Posix.Uid);
+            ownUid: SysMonitor.Linux.Sensors.Posix.Uid,
+            autostart: new FileAutostart(log: _diagnostics.Line),
+            updater: new GitHubUpdater(version, log: _diagnostics.Line));
 
         RequestedThemeVariant = ThemeFor(config.Theme);
 
@@ -55,6 +58,9 @@ public sealed class App : Application
         desktop.MainWindow = window;
         desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
         _shell.StructureChanged += () => RequestedThemeVariant = ThemeFor(_shell.Config.Theme);
+
+        // Logoff or shutdown saves the placement on the way out (spec 9).
+        desktop.ShutdownRequested += (_, _) => window.PrepareForShutdown();
 
         _diagnostics.Line($"start view={start.ToKey()} lang={config.Lang} theme={config.Theme}");
         base.OnFrameworkInitializationCompleted();

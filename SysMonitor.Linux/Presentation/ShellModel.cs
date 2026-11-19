@@ -108,6 +108,11 @@ public sealed class ShellModel
         History = new HistoryBoard();
         Updates = new UpdatePanelState(_version);
 
+        // One auto-check for the life of the model: the window calls it and
+        // keeps no copy of the retry rules (Amendment 2, item 6).
+        AutoCheck = new UpdateAutoCheck(
+            _updater, () => Config.AutoCheckUpdates, CheckForUpdatesAsync);
+
         Rebuild();
     }
 
@@ -138,6 +143,9 @@ public sealed class ShellModel
     public DiskAlertTracker Alerts { get; }
     public HistoryBoard History { get; }
     public UpdatePanelState Updates { get; }
+
+    /// <summary>The start-up check and its one retry (Amendment 2, item 6).</summary>
+    public UpdateAutoCheck AutoCheck { get; }
     public string Version => _version;
 
     public Palette Palette => Palette.For(Config.Theme);
@@ -719,20 +727,20 @@ public sealed class ShellModel
     // ---------------------------------------------------------- updater
 
     /// <summary>One check. Errors become the panel's "check failed" line.</summary>
-    public async Task CheckUpdatesAsync()
+    public async Task<UpdateCheck> CheckForUpdatesAsync(CancellationToken cancellationToken)
     {
         if (Updates.Busy)
         {
-            return;
+            return new UpdateCheck(false, null, "a check is already running");
         }
 
         Updates.StartCheck();
         Rebuild();
         StructureChanged?.Invoke();
+        UpdateCheck result;
         try
         {
-            UpdateCheck result = await _updater.CheckAsync(CancellationToken.None)
-                .ConfigureAwait(true);
+            result = await _updater.CheckAsync(cancellationToken).ConfigureAwait(true);
             if (result.Succeeded)
             {
                 Updates.Checked(Updates.CurrentVersion, result.Version);
@@ -742,13 +750,19 @@ public sealed class ShellModel
                 Updates.CheckFailed();
             }
         }
-        catch (Exception)
+        catch (Exception exception)
         {
+            result = new UpdateCheck(false, null, exception.Message);
             Updates.CheckFailed();
         }
         Rebuild();
         StructureChanged?.Invoke();
+        return result;
     }
+
+    /// <summary>The sidebar button's check.</summary>
+    public Task<UpdateCheck> CheckUpdatesAsync() =>
+        CheckForUpdatesAsync(CancellationToken.None);
 
     /// <summary>Download and start the installer; false clears the pending update.</summary>
     public async Task<bool> DownloadUpdateAsync()

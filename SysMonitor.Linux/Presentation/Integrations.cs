@@ -11,19 +11,32 @@ public interface IAutostart
     void Set(bool enabled);
 }
 
-public interface ITray
+public interface ITray : IDisposable
 {
     /// <summary>The tray icon exists only while the window is hidden.</summary>
-    void Show(string tooltip);
+    bool Available { get; }
+
+    /// <summary>
+    /// Create the icon if needed and set its tooltip; false when the desktop
+    /// has no tray to put it in. A caller that gets false must not hide the
+    /// window, or there would be no way back.
+    /// </summary>
+    bool Show(string tooltip);
+
     void Hide();
 }
 
 public interface IRestarter
 {
-    void Restart();
+    /// <summary>True when the new copy started, so this one can shut down.</summary>
+    bool Restart();
 }
 
-public sealed record UpdateCheck(bool Succeeded, string? Version);
+/// <summary>
+/// One check: whether it succeeded, the release version when it did, and the
+/// reason when it did not (a missing Linux asset is a failure, not "current").
+/// </summary>
+public sealed record UpdateCheck(bool Succeeded, string? Version, string? Reason = null);
 
 public interface IUpdater
 {
@@ -45,13 +58,15 @@ public sealed class NoopAutostart : IAutostart
 
 public sealed class NoopTray : ITray
 {
-    public void Show(string tooltip) { }
+    public bool Available => false;
+    public bool Show(string tooltip) => false;
     public void Hide() { }
+    public void Dispose() { }
 }
 
 public sealed class NoopRestarter : IRestarter
 {
-    public void Restart() { }
+    public bool Restart() => false;
 }
 
 /// <summary>Phase 2a: reports the current version and finds nothing newer.</summary>
