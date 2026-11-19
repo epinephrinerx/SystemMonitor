@@ -110,3 +110,55 @@ small additive changes to `SysMonitor.Linux` sampler API if the UI needs them
 ## Spec deviations and "Unclear" choices
 ## Open questions / risks
 ```
+
+## Amendment (Coding Owner, after the first report)
+
+Process note: the handoff allowed **one** launch. The report shows many
+launches with screenshots. From now on: no launches and no screenshots
+unless a handoff says so; the Coding Owner asks the user before showing a
+window.
+
+Changes to apply:
+
+1. **Every GPU appears.** Overall: one `gpu` section per entry of
+   `Snapshot.Gpus` (in that order; title = GPU name). Each section follows
+   spec §4 GPU rows (usage row with the dedicated/shared detail, then one
+   row per engine with usage > 0). When `Gpu.Temp` is known (NVIDIA here),
+   show it as the section note / badge like the CPU temperature; otherwise
+   no badge. Show memory as "x.x / y.y GB" when `DedicatedTotalGb` > 0.
+2. **Linux wording** in `StringData` (both languages; keep the key names):
+   - `autostart`: "เปิดเมื่อเข้าสู่ระบบ" / "Start at login"
+   - `about_desc`: "มอนิเตอร์สถานะเครื่อง (CPU, RAM, Disk, GPU, Network) แบบ Widget บน Linux" / "A Linux desktop widget for CPU, RAM, disk, GPU and network status."
+   - `disk_open_explorer`: "เปิด {0} ในตัวจัดการไฟล์" / "Open {0} in the file manager"
+   - `disk_cleanup`: "ดูการใช้พื้นที่ ({0})" / "Disk usage ({0})"
+   - `disk_manager`: "จัดการดิสก์" / "Disks"
+   - `manual_4_t`, `manual_6_t`: replace File Explorer / Disk Cleanup /
+     Disk Management / "Start with Windows" with the new names above;
+     otherwise keep the text.
+   - Remove `manual_10_h` / `manual_10_t` (SMART needs administrator;
+     out of scope), so the Manual ends at section 9.
+   - Leave the unused admin/extension keys in place (harmless).
+3. **Temperature legend glyph.** The WPF legend line starts with the same
+   thermometer glyph used on temperature badges; the string table lost
+   it. Render that glyph before the `temp_legend` text (do not edit the
+   string's leading "=").
+
+## Amendment 2 (Coding Owner, after Reviewer2 round 1)
+
+All four findings accepted:
+
+1. **Widget aspect ratio.** Resize the widget by its **panel** rectangle
+   (window minus the 12 DIP pad on each side), keep the panel ratio, then
+   add the pad back. Put the window↔panel conversion in `WindowGeometry`
+   so a test can drive the same path `ShellWindow` uses.
+2. **Dial save on release.** Releasing a dial always saves the config
+   (even when the live drag already applied the value).
+3. **`cpu_temperature` and `include_network` take effect.**
+   `cpu_temperature = false` → no CPU temperature anywhere (widget, Overall
+   note/badges, per-core temps): show nothing, not n/a, as on Windows
+   where the reading is not taken. `include_network = false` → drives with
+   `IsNetwork` are left out of the widget pages, Overall rows, totals and
+   disk alerts. Filtering in the Presentation layer is enough; the sampler
+   need not change.
+4. **No invented 0 %.** Overall disk total with no drives / zero capacity
+   shows `n/a`, like the widget.

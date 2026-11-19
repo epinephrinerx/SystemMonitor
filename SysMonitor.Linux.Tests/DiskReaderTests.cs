@@ -155,8 +155,11 @@ public sealed class DiskReaderTests
         Assert.IsTrue(rootDisk.WriteMb > 1.9 && rootDisk.WriteMb < 2.1);
 
         // Physical disk properties resolved from slave walk (nvme0n1p2 -> nvme0n1)
-        Assert.IsNotNull(rootDisk.Detail.Disk);
-        Assert.AreEqual("NVMe Slave Disk", rootDisk.Detail.Disk.Model);
-        Assert.AreEqual("SERIAL123", rootDisk.Detail.Disk.Serial);
+        DriveDetail? detail = rootDisk.Detail;
+        Assert.IsNotNull(detail);
+        PhysicalDisk? physDisk = detail.Disk;
+        Assert.IsNotNull(physDisk);
+        Assert.AreEqual("NVMe Slave Disk", physDisk.Model);
+        Assert.AreEqual("SERIAL123", physDisk.Serial);
     }
 }

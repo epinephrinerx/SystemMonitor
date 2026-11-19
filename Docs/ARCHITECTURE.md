@@ -118,10 +118,11 @@ SystemMonitor4.0/
 | `SysMonitor.Core` | ไม่มี | โมเดลกลาง (`Model/`, `Sensors/IoRate.cs`): ไม่มี `ProjectReference`, ไม่มี package, ไม่เรียก OS API; `InternalsVisibleTo` ให้ `SysMonitor.Linux`, `SysMonitor.Linux.Tests` |
 | `SysMonitor.Linux` | `SysMonitor.Core` | ตัวอ่านค่า Linux (R-027): `/proc`, `/sys`, `iw`, `nvidia-smi` ผ่าน `ICommandRunner`; ไม่มี package; ทุก reader รับ root (ค่าเริ่มต้น `/`) เพื่อเทสต์ด้วย tree จำลอง; `InternalsVisibleTo` ให้ `SysMonitor.Linux.Tests` |
 | `SysMonitor.Linux.Probe` | `SysMonitor.Linux` | console probe (R-027): เก็บสอง sample ห่างกัน 1 วินาที แล้วพิมพ์รายงานอ่านง่าย หรือ JSON (`--json`); ไม่มี package และไม่เปิดหน้าต่าง |
+| `SysMonitor.Linux.App` | `SysMonitor.Linux` | แอป Avalonia (R-027 เฟส 2a) — **โปรเจกต์ผลิตภัณฑ์เดียวที่ใช้ package**: `Avalonia`, `Avalonia.Desktop`, `Avalonia.Themes.Fluent` 12.1.5 (MIT licence) เพราะ Linux ไม่มีสแตก UI ที่มากับ .NET แบบ WPF; เป็น UI ล้วน (หน้าต่าง/คอนโทรล/การต่อ event) ตรรกะและข้อมูลทั้งหมดอยู่ที่ `SysMonitor.Linux/Presentation` และไม่เรียก OS API ของ Windows |
 
 Branch `linux-native` is Linux-only (R-027); the Windows projects live on `main`.
 
-- **ไม่มี `PackageReference` ในโปรเจกต์ผลิตภัณฑ์ทั้งหมด** (`SysMonitor.Wpf.csproj` ระบุไว้ตรง ๆ ว่า "No package references") ข้อยกเว้นคือ `SysMonitor.Tests` ที่ใช้ `Microsoft.NET.Test.Sdk`, `MSTest.TestAdapter`, `MSTest.TestFramework`
+- **ไม่มี `PackageReference` ในโปรเจกต์ผลิตภัณฑ์ทั้งหมด** (`SysMonitor.Wpf.csproj` ระบุไว้ตรง ๆ ว่า "No package references") ข้อยกเว้นคือ `SysMonitor.Tests` ที่ใช้ `Microsoft.NET.Test.Sdk`, `MSTest.TestAdapter`, `MSTest.TestFramework` และ `SysMonitor.Linux.App` ที่ใช้ Avalonia 12.1.5 (MIT) ตาม R-027 ข้อตัดสิน 1 — เฉพาะโปรเจกต์ UI ของ Linux; `SysMonitor.Core`, `SysMonitor.Linux`, `SysMonitor.Linux.Probe` ยังไม่มี package
 - ไม่มี circular dependency; ทิศทางเดียวคือ extension → contract ← host
 - ความเข้ากันได้ของสัญญา: manifest `contract` ต้อง major เท่ากับ `ContractInfo.Version` และ minor ≤ ของโฮสต์; `min_host` ต้อง ≤ รุ่นโฮสต์ (`ExtensionLoader.LoadSingleFolder`)
 
