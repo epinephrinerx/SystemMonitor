@@ -10,6 +10,7 @@ public sealed class Snapshot
     private readonly IReadOnlyList<Core> _cores = Array.Empty<Core>();
     private readonly IReadOnlyList<Disk> _disks = Array.Empty<Disk>();
     private readonly IReadOnlyList<Adapter> _adapters = Array.Empty<Adapter>();
+    private readonly IReadOnlyList<Gpu> _gpus = Array.Empty<Gpu>();
     private readonly IReadOnlyList<Module> _modules = Array.Empty<Module>();
     private readonly IReadOnlyList<ProcessEntry> _processes = Array.Empty<ProcessEntry>();
     private readonly IReadOnlyList<ServiceEntry> _services = Array.Empty<ServiceEntry>();
@@ -32,6 +33,13 @@ public sealed class Snapshot
     {
         get => _adapters;
         init => _adapters = Seal(value);
+    }
+
+    /// <summary>The graphics adapters present on the machine, primary first.</summary>
+    public IReadOnlyList<Gpu> Gpus
+    {
+        get => _gpus;
+        init => _gpus = Seal(value);
     }
 
     public IReadOnlyList<Module> Modules
@@ -90,7 +98,10 @@ public sealed class Snapshot
     /// <summary>What the processor is. Empty until the first slow pass.</summary>
     public CpuInfo CpuInfo { get; init; } = new();
 
-    /// <summary>The graphics adapter. Not present on a machine with no WDDM counters.</summary>
+    /// <summary>
+    /// The primary graphics adapter: the one the firmware boots with, or the
+    /// first one found.  <see cref="Gpus"/> holds all of them.
+    /// </summary>
     public Gpu Gpu { get; init; } = new();
 
     /// <summary>
@@ -126,7 +137,10 @@ public sealed class Ram
 
 public sealed class Disk
 {
+    /// <summary>The mount point, for example <c>/</c> or <c>/boot/efi</c>.</summary>
     public required string Letter { get; init; }
+
+    /// <summary>The filesystem label, or empty when it has none.</summary>
     public string Label { get; init; } = string.Empty;
     public string Media { get; init; } = "Disk";
     public string Bus { get; init; } = "Unknown";
@@ -150,7 +164,7 @@ public sealed class Disk
     /// </summary>
     public DriveDetail? Detail { get; init; }
 
-    public string Title => Letter + ":" + (Label.Length > 0 ? $" ({Label})" : string.Empty);
+    public string Title => Letter + (Label.Length > 0 ? $" ({Label})" : string.Empty);
 }
 
 /// <summary>A wired or wireless adapter that is currently up.</summary>
@@ -253,7 +267,7 @@ public sealed class Module
 }
 
 /// <summary>
-/// A physical disk, as Windows describes it. Static for the life of the
+/// A physical disk behind a mounted filesystem. Static for the life of the
 /// machine, so it is read once and cached.
 /// </summary>
 public sealed class PhysicalDisk
@@ -299,8 +313,8 @@ public sealed class PhysicalDisk
 }
 
 /// <summary>
-/// Where a drive letter actually lives: which physical disk, which partition
-/// of it, and how the filesystem on it is set up.
+/// Where a mounted filesystem actually lives: which physical disk, which
+/// partition of it, and how the filesystem on it is set up.
 /// </summary>
 public sealed class DriveDetail
 {
@@ -341,7 +355,7 @@ public sealed class CpuInfo
     public int Cores { get; init; }
     public int Logical { get; init; }
 
-    /// <summary>The rated clock, in MHz. Zero when WMI would not say.</summary>
+    /// <summary>The rated clock, in MHz. Zero when the firmware or driver will not say.</summary>
     public int BaseMhz { get; init; }
 
     public int L2Kb { get; init; }
@@ -355,11 +369,10 @@ public sealed class CpuInfo
 }
 
 /// <summary>
-/// The graphics adapter, from the WDDM performance counters.
+/// One graphics adapter.
 ///
-/// `Present` is false on a machine whose driver publishes no counters at all,
-/// which is a remote session or a very old adapter; the UI leaves the section
-/// out rather than drawing an empty graph.
+/// `Present` is false when the machine exposes no adapter at all; the UI leaves
+/// the section out rather than drawing an empty graph.
 /// </summary>
 public sealed class Gpu
 {
@@ -380,18 +393,28 @@ public sealed class Gpu
             : value.ToArray();
     }
 
-    /// <summary>Dedicated video memory in use. Zero on an adapter with none.</summary>
+    /// <summary>
+    /// Dedicated video memory in use.  Zero on an adapter with none, or when
+    /// the driver does not report it.
+    /// </summary>
     public double DedicatedGb { get; init; }
+
+    /// <summary>
+    /// Dedicated video memory capacity.  Zero when the driver does not report
+    /// it, which is always the case for an adapter with no dedicated memory of
+    /// its own.
+    /// </summary>
+    public double DedicatedTotalGb { get; init; }
 
     /// <summary>System memory the adapter has borrowed.</summary>
     public double SharedGb { get; init; }
 
     /// <summary>
-    /// No consumer iGPU exposes a temperature Windows will hand out, and a
-    /// discrete card needs an undocumented WDDM call to ask. Task Manager
-    /// shows "N/A" on this machine for the same reason.
+    /// Null when neither the driver nor a hwmon sensor reports it.  A sensor
+    /// that only approximates the processor package is flagged on the snapshot
+    /// instead, through <c>CpuTempEstimated</c>.
     /// </summary>
-    public int? Temp => null;
+    public int? Temp { get; init; }
 }
 
 /// <summary>One kind of work the adapter does: 3D, Copy, Video decode.</summary>

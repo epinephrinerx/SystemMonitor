@@ -138,3 +138,67 @@ those leftovers first.
 ## Gaps           (every field left empty on this machine, and why)
 ## Open questions / risks
 ```
+
+## Amendment (Coding Owner, 2026-11-19, after the first report)
+
+The desktop here is KDE Plasma (kwin_wayland), not GNOME. Decisions on the
+writer's open questions, to apply now:
+
+1. `Gpu.DedicatedGb` means **in use**, for every vendor: amdgpu reads
+   `mem_info_vram_used`. Add `Gpu.DedicatedTotalGb` (`double`, init) for
+   capacity: NVIDIA `memory.total`, amdgpu `mem_info_vram_total`, 0 when
+   unknown. Intel stays 0/0.
+2. Process name: use `status` `Name`. Use the `/proc/<pid>/exe` basename
+   only when `Name` is exactly 15 characters long and the basename starts
+   with it (the kernel truncation case).
+3. Removable media: list real file systems mounted under `/run/media/<user>/`
+   and `/media/<user>/` (keep skipping the rest of `/run`). Their `Media` is
+   `Removable` when the disk's `removable` = 1 or its bus is USB.
+4. i915/xe fdinfo scan: at most once every 2 s (cache the engine figures
+   between scans, like nvidia-smi).
+5. Probe: print `N/A` for Intel dedicated memory, and `used / total` when a
+   total is known.
+
+## Amendment 2 (Coding Owner, after Reviewer2 round 1)
+
+All seven findings are accepted. Required behaviour:
+
+1. **Probe privacy.** Text and `--json` output mask disk serials to the last
+   4 characters (`…0650`). Processes are not read unless `--processes` is
+   given; without it print only "Processes: not read (use --processes)".
+2. **LVM / dm-crypt / md.** Resolve `/dev/mapper/<name>` to its `dm-N`
+   through `/sys/block/dm-*/dm/name` and use `dm-N`'s diskstats line for the
+   mount's I/O. Find the physical disk by walking `/sys/block/<dev>/slaves/`
+   recursively to the first non-virtual disk (the same for `md*`); when it
+   leads to several disks, use the first one in sort order for `Detail`
+   and say nothing about the others.
+3. **NVIDIA power gate.** Run `nvidia-smi` only when `power/runtime_status`
+   reads `active` or `unsupported` (no runtime PM means the card is always
+   on). Missing, unreadable or any other value → do not run it.
+4. **Several NVIDIA cards.** One `nvidia-smi` call per refresh for all
+   cards, with `pci.bus_id` as the first query field; match each row to its
+   card by PCI address (normalise case and domain width). No match → no
+   figures for that card.
+5. **`sd*` bus.** No guessing from the name. `Bus` comes only from the
+   resolved sysfs device path (`/usb` → USB, `ata` → SATA, `nvme` → NVMe,
+   `virtio`/`vd*` → Virtual, `mmc` → SD/MMC); otherwise `Unknown`.
+6. **Several sockets.** Map each `coretemp` chip to its package
+   (`Package id N` label, or the `coretemp.N` device name) and map core
+   temperatures by the pair (`physical_package_id`, `core_id`).
+7. **Btrfs subvolumes.** Keep the mountinfo root field. Dedupe by the pair
+   (source, root). The same source with a different root is a separate
+   entry (a subvolume); identical pairs keep the shortest mount point (a
+   bind mount).
+
+## Amendment 3 (Coding Owner, after Reviewer2 round 2)
+
+1. **Mixed NVIDIA states.** Pass only the eligible cards to `nvidia-smi`
+   with `--id=<pci.bus_id>[,<pci.bus_id>...]`; no eligible card → no call.
+2. **fdinfo with `includeProcesses = false`: kept by design.** The GPU
+   reader reads only the `drm-*` counters to compute engine usage and
+   exposes no per-process data. `includeProcesses` controls the process
+   list only. The probe line becomes "Process list: not read (use
+   --processes)".
+3. **Virtual leaves.** The slave walk never returns a `dm-*`, `md*`,
+   `loop*` or `zram*` device as the physical disk; if only virtual leaves
+   exist, the physical disk is unknown (empty).

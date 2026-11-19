@@ -12,7 +12,7 @@ public sealed class ProcessEntry
     /// <summary>Memory only this process owns (commit), shared pages left out.</summary>
     public long PrivateBytes { get; init; }
 
-    /// <summary>False when Windows would not say; the sizes are then zero.</summary>
+    /// <summary>False when the operating system would not say; the sizes are then zero.</summary>
     public bool Readable { get; init; } = true;
 }
 

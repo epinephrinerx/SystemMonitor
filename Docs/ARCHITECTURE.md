@@ -116,6 +116,8 @@ SystemMonitor4.0/
 | โปรเจกต์ | ProjectReference | หมายเหตุ |
 |---|---|---|
 | `SysMonitor.Core` | ไม่มี | โมเดลกลาง (`Model/`, `Sensors/IoRate.cs`): ไม่มี `ProjectReference`, ไม่มี package, ไม่เรียก OS API; `InternalsVisibleTo` ให้ `SysMonitor.Linux`, `SysMonitor.Linux.Tests` |
+| `SysMonitor.Linux` | `SysMonitor.Core` | ตัวอ่านค่า Linux (R-027): `/proc`, `/sys`, `iw`, `nvidia-smi` ผ่าน `ICommandRunner`; ไม่มี package; ทุก reader รับ root (ค่าเริ่มต้น `/`) เพื่อเทสต์ด้วย tree จำลอง; `InternalsVisibleTo` ให้ `SysMonitor.Linux.Tests` |
+| `SysMonitor.Linux.Probe` | `SysMonitor.Linux` | console probe (R-027): เก็บสอง sample ห่างกัน 1 วินาที แล้วพิมพ์รายงานอ่านง่าย หรือ JSON (`--json`); ไม่มี package และไม่เปิดหน้าต่าง |
 
 Branch `linux-native` is Linux-only (R-027); the Windows projects live on `main`.
 

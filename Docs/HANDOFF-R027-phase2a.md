@@ -43,7 +43,7 @@ the simplest behaviour and list it in your report.
 | Segoe MDL2 glyphs | `PathIcon`s with small inline geometry for each codepoint in the spec's table (close, pause, play, chevrons, full screen, widget, home, settings, manual, about, kill, delete, lock, restart, stop). Simple line icons are fine. |
 | Single instance (named mutex) | an exclusive lock on `$XDG_RUNTIME_DIR/sysmonitor.lock` (fallback: the config dir), waiting up to 5 s; `--allow-multiple` skips it |
 | Disk drive letters | mount points (`Disk.Letter` holds `/`, `/boot/efi`) |
-| Disk tools menu (§4b) | "Open" → `xdg-open <mount>`; "Disk usage" → `baobab <mount>` only if `baobab` is on `PATH`, else hidden; "Disks" → `gnome-disks` only if on `PATH`, else hidden |
+| Disk tools menu (§4b) | "Open" → `xdg-open <mount>`; "Disk usage" → first on `PATH` of `filelight <mount>`, `baobab <mount>`, else hidden; "Disks" → first on `PATH` of `partitionmanager`, `gnome-disks`, else hidden (this machine runs KDE Plasma on Wayland) |
 | Double-click a drive row | `xdg-open <mount>` |
 | Settings window: SMART / admin section | drop it (no elevation, R-027 out-of-scope) |
 | Autostart, updater, tray, restart | phase 3 — show the controls but wire them to no-op stubs behind one interface each (`IAutostart`, `IUpdater`, `ITray`, `IRestarter`) |
