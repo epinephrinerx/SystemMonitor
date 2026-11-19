@@ -18,8 +18,8 @@
 - Coding Owner : Claude Code
 - Coding Owner Model : Claude Opus 5.5
 - Coding Owner Effort : High
-- Writing Owner 1 : opencode
-- Writing Owner 1 Model : Gemini Flash-Lite (opencode id `google/gemini-3.5-flash-lite`)
+- Writing Owner 1 : agy
+- Writing Owner 1 Model : Gemini 4 Hydrogen (agy `--model gemini-4-hydrogen`; ผู้ใช้เปลี่ยนจาก opencode Gemini Flash-Lite 2026-11-19)
 - Writing Owner 1 Effort : Medium
 - Writing Owner 2 : opencode
 - Writing Owner 2 Model : DeepSeek V4.1 Flash (opencode id `opencode-go/deepseek-v4.1-flash`; ผู้ใช้ยืนยันใช้ชื่อนี้แทน "1017" 2026-11-16)

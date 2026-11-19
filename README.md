@@ -1,3 +1,5 @@
+> Branch linux-native: Linux-only rebuild in progress (R-027). The Windows 4.3.0 app is on main.
+
 # System Monitor
 
 A native Windows desktop widget that shows what the machine is doing — CPU,

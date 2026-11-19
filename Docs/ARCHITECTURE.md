@@ -115,15 +115,10 @@ SystemMonitor4.0/
 
 | โปรเจกต์ | ProjectReference | หมายเหตุ |
 |---|---|---|
-| `SysMonitor.Extensibility` | ไม่มี | ไม่พึ่ง WPF, ไม่พึ่ง package; `AssemblyVersion` ตรึงที่ `1.0.0.0` (`SysMonitor.Extensibility.csproj`) |
-| `SysMonitor.Wpf` | `SysMonitor.Extensibility` เท่านั้น | ไม่มี reference ไปยัง `SysMonitor.Ext.Smart`/`Ext.Sample` — โฮสต์ไม่รู้จัก assembly ของส่วนเสริมตอนคอมไพล์ โหลดจาก path ตอนรัน |
-| `SysMonitor.Ext.Smart` | `SysMonitor.Extensibility` | เข้าถึง native ผ่าน P/Invoke ของตัวเอง (`SmartCore`) ไม่ได้อ้าง WPF |
-| `SysMonitor.Ext.Sample` | `SysMonitor.Extensibility` | — |
-| `SysMonitor.PackTool` | `SysMonitor.Extensibility` + *compile* ไฟล์ `SysMonitor.Wpf\Extensions\ExtensionManifest.cs` เป็น linked source | ใช้ manifest ตัวเดียวกันตรวจซ้ำ แต่ไม่ reference assembly ของโฮสต์ |
-| `SysMonitor.Setup` | ไม่มี | payload (`SystemMonitor.exe`, `extensions\**`) ถูกฝังเป็น embedded resource |
-| `SysMonitor.Tests` | ทุกโปรเจกต์ (รวม PackTool ผ่าน alias `PackToolAsm` และ DummyExtension) | เป็นโปรเจกต์เดียวที่อ้างข้ามชั้นได้ |
+| `SysMonitor.Core` | ไม่มี | โมเดลกลาง (`Model/`, `Sensors/IoRate.cs`): ไม่มี `ProjectReference`, ไม่มี package, ไม่เรียก OS API; `InternalsVisibleTo` ให้ `SysMonitor.Linux`, `SysMonitor.Linux.Tests` |
 
-- `SysMonitor.Wpf` เปิด `InternalsVisibleTo("SysMonitor.Tests")` (`SysMonitor.Wpf/AssemblyInfo.cs`) เพื่อให้เทสต์เข้าใช้ชนิด `internal` ของชั้น sensor และส่วนเสริม
+Branch `linux-native` is Linux-only (R-027); the Windows projects live on `main`.
+
 - **ไม่มี `PackageReference` ในโปรเจกต์ผลิตภัณฑ์ทั้งหมด** (`SysMonitor.Wpf.csproj` ระบุไว้ตรง ๆ ว่า "No package references") ข้อยกเว้นคือ `SysMonitor.Tests` ที่ใช้ `Microsoft.NET.Test.Sdk`, `MSTest.TestAdapter`, `MSTest.TestFramework`
 - ไม่มี circular dependency; ทิศทางเดียวคือ extension → contract ← host
 - ความเข้ากันได้ของสัญญา: manifest `contract` ต้อง major เท่ากับ `ContractInfo.Version` และ minor ≤ ของโฮสต์; `min_host` ต้อง ≤ รุ่นโฮสต์ (`ExtensionLoader.LoadSingleFolder`)

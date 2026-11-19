@@ -6,10 +6,6 @@ dist/
 # .NET / WPF port
 bin/
 obj/
-dist-wpf/
-build-ext/
-SysMonitor.Setup/payload/
-SysMonitor.Wpf/first-party-extensions.json
 
 # editor backups
 *.bak

@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>SysMonitor.Core</AssemblyName>
+    <RootNamespace>SysMonitor</RootNamespace>
+  </PropertyGroup>
+
+  <!-- No project references and no package references: this is the plain model
+       the Linux build works on, and it uses no WPF and no Windows API. -->
+
+</Project>

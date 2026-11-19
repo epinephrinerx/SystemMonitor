@@ -1,6 +1,6 @@
 # Requirements — SystemMonitor4.0
 
-บันทึกสิ่งที่ตกลงกันไว้ · อัปเดตล่าสุด 2026-10-31
+บันทึกสิ่งที่ตกลงกันไว้ · อัปเดตล่าสุด 2026-11-19
 **intake ปิดแล้ว (2026-09-30)** — ทุกข้อได้รับการรับรอง; งานถัดไป: handoff ให้ Coding Owner ประเมินและแบ่งเฟส
 บริบทของโปรเจกต์อยู่ที่ `AGENTS.md` / `CLAUDE.md` (root) — ไฟล์นี้ไม่เล่าซ้ำ
 
@@ -13,6 +13,65 @@
 | ✔️ เสร็จแล้ว | คุณตรวจรับแล้ว ผ่านเกณฑ์ครบทุกข้อ |
 | ⚠️ ขัดแย้ง | ขัดกับข้ออื่น ต้องตัดสินก่อน |
 | ⛔ ยกเลิก | ถูกแทนที่ด้วยข้ออื่น หรือไม่เอาแล้ว |
+
+---
+
+## R-027 · System Monitor สำหรับ Linux สร้างใหม่บนสาย 4.3.0
+
+| | |
+|---|---|
+| สถานะ | 🕐 รอยืนยัน — มีคำถามที่ต้องตัดสินก่อน (ดู "ต้องตัดสินก่อน") |
+| วันที่ | 2026-11-19 |
+| แตะส่วนไหน | โปรเจกต์ใหม่ฝั่ง Linux (ชื่อจะตั้งตอนวางเฟส) · `Docs/ARCHITECTURE.md` · `Docs/TESTING.md` · `CHANGELOG.md` · ไม่แตะ `SysMonitor.Wpf`, `SysMonitor.Setup`, ส่วนเสริม Windows |
+| เกี่ยวกับ | branch `linux-legacy` (`97f21bf`, build Linux รุ่นแรกบนสาย 3.1.0 — commit นั้นเรียกตัวเองว่า "R-013" ซึ่งชนกับ [[R-013]] ของไฟล์นี้; ไม่ใช่ข้อเดียวกัน) · branch `Mac` (Mac Edition 1.0.0) |
+
+**คุณระบุ (2026-11-19):**
+> ตัวนี้ไม่สามารถใช้งานได้อย่างที่ต้องการครับ
+> ไม่สามารถทำงานได้ และไม่ใกล้เคียงกับ Windows/Mac Verion
+> เก็บเป็น linux-legacy แล้ว build ใหม่จาก 4.3.0 ครับ
+
+**สิ่งที่พบใน build เดิม (`linux-legacy`, ตรวจบนเครื่อง Linux ของคุณ 2026-11-19 แบบ passive):**
+- แตกจาก v3.1.0 ตามหลัง `main` 96 commits; UI ใช้ Avalonia 12.1.5 (NuGet) ซึ่งขัดกับ `ARCHITECTURE.md` "ไม่มี `PackageReference` ในโปรเจกต์ผลิตภัณฑ์"
+- ตัวอ่านค่า `/proc` `/sys` ทำงาน: CPU รวม/ราย core, อุณหภูมิ CPU, RAM, ดิสก์ (NVMe/SSD), เครือข่าย
+- ขาด: GPU ทั้งหมด (เครื่องมี Intel Iris Plus + GeForce MX250), อุณหภูมิราย core (`coretemp` มี), อุณหภูมิ NVMe (`hwmon` `nvme` มี), ความเร็วลิงก์ Wi-Fi (ได้ 0), I/O แยกตาม partition (สอง partition ได้ค่าเดียวกัน), รายการโปรเซส, Thai/English, autostart, ตัวเช็กอัปเดต
+
+**ผมเข้าใจว่า:**
+ทำ build Linux ใหม่โดยเริ่มจาก `main` (v4.3.0) ให้ผู้ใช้เห็นและใช้งานได้ใกล้เคียงรุ่น Windows 4.3.0 / Mac 1.0.0:
+- สามมุมมองเดียวกัน (Widget หมุนทีละค่า · Overall พร้อมแถบตั้งค่า · Full แยกแท็บต่ออุปกรณ์ ปุ่มแท็บแสดงตัวเลขหลัก) ดับเบิลคลิกสลับ, F11 เปิด Full, Esc ถอย
+- ข้อมูล: CPU (รวม/ราย core/อุณหภูมิ/รุ่น/core/thread/cache), RAM, ดิสก์ (พื้นที่, I/O แยกตามดิสก์จริง, อุณหภูมิ, ชนิด/บัส), GPU (load, หน่วยความจำ — ตามที่ไดรเวอร์เปิดให้ผู้ใช้ปกติอ่าน), เครือข่าย (ต่ออะแดปเตอร์, LAN/Wi-Fi)
+- รายการโปรเซสแบบเดียวกับรุ่น Windows/Mac (จัดกลุ่มตามชื่อ ค้นหาได้ ปิดโปรเซสหลังยืนยัน)
+- ธีมสว่าง/มืด, ไทย/อังกฤษ, ความโปร่งใส, จำตำแหน่ง/ขนาด, autostart (XDG autostart), เช็กอัปเดตเมื่อผู้ใช้สั่ง
+- นำตัวอ่าน `/proc` `/sys` ที่ทำงานแล้วจาก `linux-legacy` มาใช้ต่อและแก้ข้อที่ขาดด้านบน
+- แพ็กเกจแบบติดตั้งต่อผู้ใช้ ไม่ต้องใช้ root
+
+**ไม่รวม:**
+- ไม่แก้พฤติกรรมของรุ่น Windows (`SysMonitor.Wpf`, `SysMonitor.Setup`) — ถ้าต้องย้ายโค้ดร่วมไป `SysMonitor.Core` ต้องไม่เปลี่ยนผลของเทสต์ Windows
+- ไม่ทำระบบส่วนเสริม (extension) บน Linux ในข้อนี้ — แยกเป็นข้อใหม่ถ้าต้องการ
+- ไม่ทำ SMART เต็มรูปแบบ (ต้อง root); อุณหภูมิดิสก์อ่านจาก `hwmon` เท่านั้น
+- ไม่ยกระดับสิทธิ์ (ไม่มี sudo/pkexec) และไม่แสดงค่าที่ต้องใช้ root — แสดง N/A แทน ไม่เดา
+- ไม่ทำ .deb/.rpm/Flatpak/Snap ในข้อนี้
+- ไม่ publish/release
+
+**คุณตัดสินแล้ว (2026-11-19):**
+1. ชุดเครื่องมือ UI — คุณเลือก: "Avalonia (Recommended)" → ยกเว้นกฎ "ไม่มี package" ให้ Avalonia (MIT) เฉพาะโปรเจกต์ UI ฝั่ง Linux; ต้องบันทึกใน `ARCHITECTURE.md` §5 พร้อมเหตุผลและ license · โปรเจกต์ sensor/presentation ฝั่ง Linux ยังไม่มี package
+2. ผู้เขียนโค้ด — คุณเลือก: "Follow the roster" → Coding Owner (Claude Code) เขียนสเปก/แบ่งเฟส, Writing Owner (opencode) เขียนโค้ด, Test Author (agy) เขียนเทสต์, Inspector/Reviewer (Codex, Fable) ตรวจ ตาม `AI_WORKFLOW.md` §1
+3. แยกจาก Windows — คุณบอก: "แยกทุกอย่างออกจากระบบ windows เลยครับ ใน branch linux-native ไม่มีอะไรทีต้องทำบนวินโดวส์แล้ว" → branch Linux ไม่ต้องรักษา build/เทสต์ของ Windows; คุณเลือก "ลบทั้งหมดตามรายการ (Recommended)": ลบ `SysMonitor.Wpf`, `SysMonitor.Setup`, `build-wpf.cmd`, `SysMonitor.Ext.Smart`, `SysMonitor.Ext.Sample`, `SysMonitor.Extensibility`, `SysMonitor.PackTool`, `SysMonitor.Tests`, `SysMonitor.Tests.DummyExtension` และตัด `Snapshot.Extensions` ออกจาก `SysMonitor.Core` ให้ Core ไม่พึ่งอะไร · โค้ด Windows 4.3.0 ยังอยู่ครบใน `main` ใช้อ้างอิงหน้าตา/พฤติกรรมผ่าน `git show main:...`
+4. ชื่อ branch — คุณเลือก "ใช้ linux-native (Recommended)" → เปลี่ยนชื่อ `linux-v4` เป็น `linux-native` และเขียนทับ `origin/linux-native` (โค้ดเก่า 97f21bf อยู่ใน `linux-legacy` แล้ว)
+
+**เฟสที่เสนอ (รอไฟเขียว):**
+1. **Sensors + probe** — ย้ายโมเดลร่วมไป `SysMonitor.Core` (เทสต์ Windows ต้องไม่เปลี่ยน), นำตัวอ่าน Linux จาก `linux-legacy` มา แล้วเติม: อุณหภูมิราย core, อุณหภูมิ NVMe, ความเร็วลิงก์ Wi-Fi, I/O ต่อดิสก์จริง, ข้อมูลรุ่น CPU/cache, GPU (sysfs/DRM), โปรเซส (`/proc/<pid>`) · มีคำสั่ง probe พิมพ์ snapshot ไม่ต้องเปิดหน้าต่าง
+2. **UI สามมุมมอง** — Widget / Overall + แถบตั้งค่า / Full แบบแท็บ ตามหน้าตา 4.3.0, ธีม, ไทย/อังกฤษ, config, ตำแหน่ง/ขนาด
+3. **โปรเซส + ระบบ** — รายการโปรเซสใน Full (จัดกลุ่ม ค้นหา ปิดหลังยืนยัน), XDG autostart, เช็กอัปเดต
+4. **แพ็กเกจ + เอกสาร** — tar.gz ติดตั้ง/ถอนต่อผู้ใช้, README พร้อมตารางเทียบกับ Windows, `ARCHITECTURE.md`, `TESTING.md`, `CHANGELOG.md`
+
+**ตรวจรับเมื่อ:** (ร่าง — จะละเอียดขึ้นเมื่อตัดสินข้อข้างบนแล้ว)
+- [ ] เปิดบน Ubuntu ของคุณ (Wayland) ได้ทั้งสามมุมมอง ลาก/ปรับขนาด/อยู่บนสุด/จำตำแหน่งได้
+- [ ] ทุกค่าที่รุ่น Windows แสดง มีบน Linux หรือแสดง N/A พร้อมเหตุผล — ตารางเทียบอยู่ใน README ฝั่ง Linux
+- [ ] GPU ทั้งสองตัวของเครื่องนี้ปรากฏ; อุณหภูมิราย core และ NVMe มีค่า
+- [ ] สอง partition บนดิสก์เดียวกันไม่แสดง I/O ซ้ำเป็นสองเท่า
+- [ ] รายการโปรเซสค้นหาและปิดโปรเซสได้หลังยืนยัน
+- [ ] เทสต์ Linux ผ่านบนเครื่องนี้ และเทสต์ Windows (`dotnet test SysMonitor.Tests`) ยังผ่านบน Windows
+- [ ] แพ็กเกจติดตั้ง/ถอนการติดตั้งต่อผู้ใช้ได้ ไม่ต้องใช้ root
 
 ---
 
