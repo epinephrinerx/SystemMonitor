@@ -29,6 +29,23 @@ public sealed class ShellModel
     private IReadOnlyList<UiRow> _manual = Array.Empty<UiRow>();
     private IReadOnlyList<UiRow> _about = Array.Empty<UiRow>();
     private IReadOnlyList<UiRow> _contextMenu = Array.Empty<UiRow>();
+    private FullModel _full = new();
+    private MemoryTabModel _memory = new();
+    private readonly FullSelection _fullSelection = new();
+    private readonly ServiceControl _serviceControl;
+    private readonly IProcessSignals _signals;
+    private readonly int _ownPid;
+    private readonly int _ownUid;
+
+    /// <summary>
+    /// The one kill flow, created in the constructor (Amendment 5). It is never
+    /// replaced: <see cref="KillFlow.Reopen"/> clears the closed flag when the
+    /// Full view opens again.
+    /// </summary>
+    private readonly KillFlow _kill;
+    private string _memoryQuery = string.Empty;
+    private string? _graphedGroup;
+    private string? _memoryStatus;
 
     public ShellModel(
         AppConfig? config = null,
@@ -37,16 +54,48 @@ public sealed class ShellModel
         IUpdater? updater = null,
         string? version = null,
         string? configPath = null,
-        Func<long>? clock = null)
+        Func<long>? clock = null,
+        ICommandRunner? commands = null,
+        IProcessSignals? killTargets = null,
+        int ownPid = 0,
+        int ownUid = -1)
     {
         Config = config ?? new AppConfig();
         Config.Normalise();
         _configPath = configPath;
         _clock = clock ?? (() => Environment.TickCount64);
+        _ownPid = ownPid > 0 ? ownPid : Environment.ProcessId;
+        _ownUid = ownUid;
+        ICommandRunner runner = commands ?? new ProcessCommandRunner();
+        _serviceControl = new ServiceControl(args =>
+        {
+            CommandResult? completed = runner.RunResult("systemctl", args, 15000);
+            if (completed is not { } result)
+            {
+                // No program, no exit code, no stderr. The status line still
+                // has to carry something; a number is at least not a
+                // half-translated sentence.
+                return "-1";
+            }
+            if (result.Ok)
+            {
+                return null;
+            }
+            string line = FirstLine(result.Error);
+            return line.Length > 0
+                ? line
+                : result.ExitCode.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        });
+        _signals = killTargets ?? new NoopKillTargets();
 
         Language = lang ?? new Lang();
         Language.Set(Config.Lang);
         Config.Lang = Language.Code;
+
+        // Eager, not lazy (Amendment 5): one flow for the life of the model,
+        // sharing the language object so a language switch still changes the
+        // sentences.
+        _kill = new KillFlow(_signals, lang: Language, ownPid: _ownPid, ownUid: _ownUid);
 
         _autostart = autostart ?? new NoopAutostart();
         _version = string.IsNullOrWhiteSpace(version) ? "4.3.0" : version!;
@@ -76,6 +125,8 @@ public sealed class ShellModel
 
     public event Action? TopmostChanged;
     public event Action? NudgeRequested;
+    public event Action? MemoryRefreshRequested;
+    public event Action? MemoryChanged;
     public event Action<string>? OpenRequested;
     public event Action? RestartRequested;
     public event Action? CloseRequested;
@@ -96,6 +147,8 @@ public sealed class ShellModel
 
     public IReadOnlyList<WidgetPage> WidgetPages => _widgetPages;
     public OverallModel Overall => _overall;
+    public FullModel Full => _full;
+    public MemoryTabModel Memory => _memory;
     public IReadOnlyList<UiRow> Sidebar => _sidebar;
     public IReadOnlyList<UiRow> Settings => _settings;
     public IReadOnlyList<UiRow> Manual => _manual;
@@ -108,6 +161,21 @@ public sealed class ShellModel
     public bool Paused => Rotation.Paused;
     public bool IsWidget => View.IsWidget;
     public string FullTitle => Language["full_data"];
+
+    /// <summary>True only while the Full view is showing the RAM tab.</summary>
+    public bool FullRamVisible =>
+        View.Mode == ViewMode.Full
+        && string.Equals(_full.SelectedKey, "ram", StringComparison.Ordinal);
+
+    /// <summary>The result of the last memory operation: empty, cancelled or failed.</summary>
+    public string MemoryStatus => _memoryStatus ?? string.Empty;
+
+    /// <summary>The live search text of the memory tab.</summary>
+    public string MemoryQuery => _memoryQuery;
+
+    /// <summary>The process group whose chart is showing, if any.</summary>
+    public string? GraphedProcess => _graphedGroup;
+
     public string PauseTooltip => Language[Rotation.Paused ? "resume_rotation" : "pause_rotation"];
     public bool AutostartEnabled => _autostart.IsEnabled;
 
@@ -204,6 +272,14 @@ public sealed class ShellModel
     {
         Config.LastView = View.Mode.ToKey();
         Save();
+        if (View.Mode == ViewMode.Full)
+        {
+            // The Full view opened: a previous CancelAll (window closed) may
+            // have sealed the one flow, so clear its closed flag. Amendment 5
+            // allows either a new flow or Reopen; the flow is eager, so it is
+            // this call.
+            _kill.Reopen();
+        }
         if (View.IsWidget)
         {
             Rotation.ResetTimer(_clock());
@@ -234,6 +310,153 @@ public sealed class ShellModel
         DataChanged?.Invoke();
         return true;
     }
+
+    // ------------------------------------------------------------- full view
+
+    /// <summary>
+    /// Show a Full tab and remember it in the config. The tab must be one the
+    /// current snapshot offers; a stale key is ignored rather than saved.
+    /// </summary>
+    public bool SelectFullTab(string key)
+    {
+        if (_full.Tabs.All(t => !string.Equals(t.Key, key, StringComparison.Ordinal)))
+        {
+            return false;
+        }
+
+        _fullSelection.Select(key);
+        Config.FullTab = key;
+        Save();
+        RebuildData();
+        StructureChanged?.Invoke();
+        return true;
+    }
+
+    /// <summary>Filter the memory tab as the person types; the tables update live.</summary>
+    public void SetMemoryQuery(string? query)
+    {
+        string value = query ?? string.Empty;
+        if (string.Equals(value, _memoryQuery, StringComparison.Ordinal))
+        {
+            return;
+        }
+        _memoryQuery = value;
+        RebuildMemory();
+        MemoryChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// Show or hide the chart of a process group. Picking the same group again
+    /// hides it, as the spec says.
+    /// </summary>
+    public void ToggleProcessGraph(string name)
+    {
+        string? next = string.Equals(_graphedGroup, name, StringComparison.OrdinalIgnoreCase)
+            ? null
+            : name;
+        _graphedGroup = next;
+        RebuildMemory();
+        RebuildFull();
+        MemoryChanged?.Invoke();
+        DataChanged?.Invoke();
+    }
+
+    /// <summary>The status line result: empty on success, else a ready-made sentence.</summary>
+    public void SetMemoryStatus(string? text)
+    {
+        _memoryStatus = string.IsNullOrEmpty(text) ? null : text;
+        MemoryChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// End one process. Called off the UI thread: SIGTERM then a wait of up to
+    /// 3 s. The target carries the PID, the start time and the name captured
+    /// from its row.
+    ///
+    /// When it survives, the result carries the <see cref="PendingKill"/> token
+    /// that owns the pinned handle (Amendment 4). The caller keeps that token
+    /// across the force question and hands the same token to
+    /// <see cref="ForceKill"/>, so nothing pins twice and a stale answer can
+    /// only reach its own token. One flow is kept for the life of the model, and
+    /// the language table is read through the same object, so switching
+    /// language still changes the sentences.
+    /// </summary>
+    public KillResult KillProcess(ProcessTarget target) => RecordKill(Kills.Terminate(target));
+
+    /// <summary>SIGKILL through the token the person confirmed.</summary>
+    public KillResult ForceKill(PendingKill pending) => RecordKill(Kills.Force(pending));
+
+    /// <summary>The person declined the force question: close that token's handle.</summary>
+    public void CancelKill(PendingKill pending) => Kills.Decline(pending);
+
+    /// <summary>The window is closing: close every handle a pending kill holds.</summary>
+    public void CancelKills() => Kills.CancelAll();
+
+    /// <summary>
+    /// The one kill flow, created in the constructor. Opening the Full view
+    /// again calls <see cref="KillFlow.Reopen"/> on this same instance, so the
+    /// model never holds a second flow. Internal so a test can prove it is one
+    /// instance from construction.
+    /// </summary>
+    internal KillFlow Kills => _kill;
+
+    /// <summary>Keep the status line and the refresh of the process list in one place.</summary>
+    private KillResult RecordKill(KillResult result)
+    {
+        _memoryStatus = result.State == KillState.Failed
+            ? Language.Get("mem_failed", result.Error ?? string.Empty)
+            : null;
+        MemoryRefreshRequested?.Invoke();
+        MemoryChanged?.Invoke();
+        return result;
+    }
+
+    /// <summary>Start, stop or restart a user unit. System units are refused here.</summary>
+    public ServiceResult RunService(string action, MemService service)
+    {
+        if (!service.UserUnit)
+        {
+            _memoryStatus = Language["mem_system_readonly"];
+            MemoryChanged?.Invoke();
+            return ServiceResult.Failed(Language["mem_system_readonly"]);
+        }
+
+        ServiceResult result = _serviceControl.Apply(action, service.Name);
+        _memoryStatus = result.Ok
+            ? null
+            : Language.Get("mem_systemctl_failed", result.Error ?? string.Empty);
+        if (result.Ok)
+        {
+            MemoryRefreshRequested?.Invoke();
+        }
+        MemoryChanged?.Invoke();
+        return result;
+    }
+
+    /// <summary>Change a user unit's startup: enable for Automatic, disable for Manual.</summary>
+    public ServiceResult SetServiceStartup(MemService service, bool automatic)
+    {
+        if (!service.UserUnit)
+        {
+            _memoryStatus = Language["mem_system_readonly"];
+            MemoryChanged?.Invoke();
+            return ServiceResult.Failed(Language["mem_system_readonly"]);
+        }
+
+        ServiceResult result = _serviceControl.SetStartup(automatic, service.Name);
+        _memoryStatus = result.Ok
+            ? null
+            : Language.Get("mem_systemctl_failed", result.Error ?? string.Empty);
+        if (result.Ok)
+        {
+            MemoryRefreshRequested?.Invoke();
+        }
+        MemoryChanged?.Invoke();
+        return result;
+    }
+
+    /// <summary>Read processes and services on the next sample, ignoring the cadence.</summary>
+    public void RequestMemoryRefresh() => MemoryRefreshRequested?.Invoke();
 
     // ----------------------------------------------------------- settings
 
@@ -481,6 +704,18 @@ public sealed class ShellModel
     /// <summary>Wake the sampler: a setting that changes what is read was toggled.</summary>
     public void Nudge() => NudgeRequested?.Invoke();
 
+    /// <summary>systemctl's first stderr line, which is the part that says why.</summary>
+    private static string FirstLine(string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return string.Empty;
+        }
+        int newline = text.IndexOf('\n');
+        string line = newline < 0 ? text : text[..newline];
+        return line.TrimEnd('\r').Trim();
+    }
+
     // ---------------------------------------------------------- updater
 
     /// <summary>One check. Errors become the panel's "check failed" line.</summary>
@@ -576,6 +811,43 @@ public sealed class ShellModel
         _widgetPages = WidgetBoard.Build(_snapshot, Config, Language, Palette, Alerts);
         Rotation.SetPages(_widgetPages);
         _overall = OverallBoard.Build(_snapshot, Config, Language, Palette, Alerts);
+        RebuildMemory();
+        RebuildFull();
+    }
+
+    /// <summary>
+    /// Build both memory tables, clearing a graphed group that is no longer
+    /// running (spec 5c: the selection clears when the group disappears).
+    /// </summary>
+    private void RebuildMemory()
+    {
+        _memory = MemoryTabBoard.Build(
+            _snapshot, Language, _memoryQuery, _ownPid, _ownUid, _graphedGroup);
+
+        // The graph clears when the group stops running, not when a search
+        // hides it. An empty process list means sampling is off, not gone.
+        if (_graphedGroup is not null
+            && _snapshot is { Processes.Count: > 0 }
+            && !_snapshot.Processes.Any(p =>
+                string.Equals(p.Name, _graphedGroup, StringComparison.OrdinalIgnoreCase)))
+        {
+            _graphedGroup = null;
+            _memory = MemoryTabBoard.Build(
+                _snapshot, Language, _memoryQuery, _ownPid, _ownUid, null);
+        }
+    }
+
+    private void RebuildFull()
+    {
+        _full = FullBoard.Build(
+            _snapshot,
+            Config,
+            Language,
+            Palette,
+            History,
+            _fullSelection,
+            Config.FullTab,
+            _memory);
     }
 
     private IReadOnlyList<UiRow> BuildSidebar()
@@ -747,4 +1019,18 @@ public sealed class ShellModel
 
     private static bool IsSeparated(string mode) =>
         string.Equals(mode, "separated", StringComparison.OrdinalIgnoreCase);
+}
+
+/// <summary>
+/// The kill target used when the window did not supply one: every attempt is
+/// reported as failed rather than reaching a process. The app always supplies
+/// the real one.
+/// </summary>
+internal sealed class NoopKillTargets : IProcessSignals
+{
+    public ProcessFacts? Read(int pid) => null;
+
+    public PinnedResult Pin(int pid) => PinnedResult.Failed("process access is not available");
+
+    public string? Signal(int pid, bool force) => "process access is not available";
 }

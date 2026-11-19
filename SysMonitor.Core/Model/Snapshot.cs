@@ -273,6 +273,14 @@ public sealed class Module
 public sealed class PhysicalDisk
 {
     public int Number { get; init; }
+
+    /// <summary>
+    /// The kernel's name for the whole disk (<c>nvme0n1</c>, <c>sda</c>). It is
+    /// stable across replugs, so the views use it to remember a disk; the
+    /// model text is not.
+    /// </summary>
+    public string Name { get; init; } = string.Empty;
+
     public string Model { get; set; } = string.Empty;
     public string Serial { get; set; } = string.Empty;
     public string Firmware { get; set; } = string.Empty;

@@ -6,6 +6,14 @@ public sealed class ProcessEntry
     public required int Pid { get; init; }
     public required string Name { get; init; }
 
+    /// <summary>
+    /// Linux: field 22 of <c>/proc/&lt;pid&gt;/stat</c>, clock ticks since boot,
+    /// or null when the file could not be read or held no start time. Together
+    /// with the PID and the name it identifies one process, so a reused PID is
+    /// never signalled by mistake. Null is "unknown", which is never a match.
+    /// </summary>
+    public ulong? StartTime { get; init; }
+
     /// <summary>RAM the process has resident right now.</summary>
     public long WorkingSet { get; init; }
 
@@ -14,6 +22,22 @@ public sealed class ProcessEntry
 
     /// <summary>False when the operating system would not say; the sizes are then zero.</summary>
     public bool Readable { get; init; } = true;
+
+    /// <summary>
+    /// The user that owns the process, when the system reports it. Null on an
+    /// entry that could not be read. Linux uses it to keep another user's
+    /// processes out of the kill list.
+    /// </summary>
+    public int? Uid { get; init; }
+
+    /// <summary>The parent PID, zero when unknown.</summary>
+    public int ParentPid { get; init; }
+
+    /// <summary>
+    /// A kernel thread: no command line of its own and the child of kthreadd.
+    /// There is no user-space process to end.
+    /// </summary>
+    public bool KernelThread { get; init; }
 }
 
 /// <summary>How a service starts: the three settings a person can choose.</summary>
@@ -48,6 +72,13 @@ public sealed class ServiceEntry
     /// the svchost case: the memory belongs to the whole group, not to this one.
     /// </summary>
     public int SharedWith { get; init; } = 1;
+
+    /// <summary>
+    /// True for a per-user unit (<c>systemctl --user</c>). On Linux the user
+    /// units are the only ones the app may change, so the list shows them
+    /// under their own heading first.
+    /// </summary>
+    public bool UserUnit { get; init; }
 }
 
 /// <summary>Processes of one name, summed. "chrome" thirty times is one line.</summary>
@@ -105,6 +136,7 @@ public static class MemoryBoard
             State = s.State,
             Pid = s.Pid,
             Start = s.Start,
+            UserUnit = s.UserUnit,
             WorkingSet = s.Pid > 0 && memory.TryGetValue(s.Pid, out long bytes) ? bytes : 0,
             SharedWith = s.Pid > 0 && sharing.TryGetValue(s.Pid, out int n) ? n : 1,
         }).ToList();

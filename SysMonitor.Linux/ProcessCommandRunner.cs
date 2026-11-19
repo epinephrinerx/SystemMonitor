@@ -10,16 +10,52 @@ public sealed class ProcessCommandRunner : ICommandRunner
 {
     public string? Run(string file, string args, int timeoutMs)
     {
+        var start = Start(file);
+        if (args.Length > 0)
+        {
+            start.Arguments = args;
+        }
+        return Execute(start, timeoutMs) is { Ok: true } result ? result.Output : null;
+    }
+
+    /// <summary>
+    /// The same run, with the arguments handed to the program one by one. A
+    /// unit name that contains a space or a quote cannot become two arguments
+    /// or a shell command.
+    /// </summary>
+    public string? Run(string file, IReadOnlyList<string> args, int timeoutMs) =>
+        Execute(Start(file, args), timeoutMs) is { Ok: true } result ? result.Output : null;
+
+    /// <summary>
+    /// The same run, keeping a non-zero exit and its stderr: a service action
+    /// has to say why systemd refused it. Only a program that never ran (or
+    /// overran the timeout) is null.
+    /// </summary>
+    public CommandResult? RunResult(string file, IReadOnlyList<string> args, int timeoutMs) =>
+        Execute(Start(file, args), timeoutMs);
+
+    private static ProcessStartInfo Start(string file) => new(file)
+    {
+        RedirectStandardOutput = true,
+        RedirectStandardError = true,
+        UseShellExecute = false,
+        CreateNoWindow = true,
+    };
+
+    private static ProcessStartInfo Start(string file, IReadOnlyList<string> args)
+    {
+        ProcessStartInfo start = Start(file);
+        foreach (string argument in args)
+        {
+            start.ArgumentList.Add(argument);
+        }
+        return start;
+    }
+
+    private static CommandResult? Execute(ProcessStartInfo start, int timeoutMs)
+    {
         try
         {
-            var start = new ProcessStartInfo(file, args)
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-
             using Process? process = Process.Start(start);
             if (process is null)
             {
@@ -48,7 +84,7 @@ public sealed class ProcessCommandRunner : ICommandRunner
             output.Wait(Math.Max(1, timeoutMs));
             error.Wait(1);
 
-            return process.ExitCode == 0 ? output.Result : null;
+            return new CommandResult(process.ExitCode, output.Result, error.Result);
         }
         catch (Exception)
         {

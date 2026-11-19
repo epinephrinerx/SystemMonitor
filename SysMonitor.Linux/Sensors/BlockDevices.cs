@@ -249,7 +249,7 @@ public static class BlockDevices
         string basePath = SysFs.Path(root, "sys", "class", "block", disk);
         if (!Directory.Exists(basePath))
         {
-            return new PhysicalDisk { Number = number };
+            return new PhysicalDisk { Number = number, Name = disk };
         }
 
         string device = SysFs.Path(basePath, "device");
@@ -272,6 +272,7 @@ public static class BlockDevices
         return new PhysicalDisk
         {
             Number = number,
+            Name = disk,
             Model = SysFs.ReadTrimmed(device, "model") ?? string.Empty,
             Serial = SysFs.ReadTrimmed(device, "serial") ?? string.Empty,
             Firmware = SysFs.ReadTrimmed(device, "firmware_rev")

@@ -45,7 +45,9 @@ public sealed class App : Application
         _diagnostics = new Diagnostics(enabled: config.Diagnostics);
         _shell = new ShellModel(
             config,
-            version: typeof(App).Assembly.GetName().Version?.ToString(3) ?? "4.3.0");
+            version: typeof(App).Assembly.GetName().Version?.ToString(3) ?? "4.3.0",
+            killTargets: new SysMonitor.Linux.Sensors.ProcessSignals(),
+            ownUid: SysMonitor.Linux.Sensors.Posix.Uid);
 
         RequestedThemeVariant = ThemeFor(config.Theme);
 

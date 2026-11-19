@@ -163,8 +163,8 @@ public sealed class DiskAlertTracker
 
 /// <summary>
 /// The 72-point graph history from spec section 5b, filled on every fresh
-/// snapshot whatever view is showing. Phase 2a has no charts, but the history
-/// has to start filling now so the Full view opens with one.
+/// snapshot whatever view is showing. The Full view's charts read these rings,
+/// so a chart opened later already has a past.
 /// </summary>
 public sealed class HistoryBoard
 {
@@ -172,6 +172,13 @@ public sealed class HistoryBoard
 
     private readonly Dictionary<string, History> _disks = new(StringComparer.Ordinal);
     private readonly Dictionary<string, History> _adapters = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, History> _diskIo = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, History> _adapterRate = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, History> _gpuUsage = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, History> _engines = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, History> _processes = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<History> _cores = new();
+    private long _lastMemoryStamp = long.MinValue;
 
     public History Cpu { get; } = new(Capacity);
     public History Ram { get; } = new(Capacity);
@@ -179,6 +186,10 @@ public sealed class HistoryBoard
 
     public IReadOnlyDictionary<string, History> Disks => _disks;
     public IReadOnlyDictionary<string, History> Adapters => _adapters;
+    public IReadOnlyDictionary<string, History> DiskIo => _diskIo;
+    public IReadOnlyDictionary<string, History> AdapterRates => _adapterRate;
+    public IReadOnlyList<History> Cores => _cores;
+    public IReadOnlyDictionary<string, History> ProcessGroups => _processes;
 
     public History Disk(string letter)
     {
@@ -200,6 +211,77 @@ public sealed class HistoryBoard
         return history;
     }
 
+    /// <summary>Throughput in MB/s, for the Full view's disk cards.</summary>
+    public History DiskThroughput(string mount)
+    {
+        if (!_diskIo.TryGetValue(mount, out History? history))
+        {
+            history = new History(Capacity);
+            _diskIo[mount] = history;
+        }
+        return history;
+    }
+
+    /// <summary>Throughput in MB/s, for the Full view's network cards.</summary>
+    public History AdapterThroughput(string id)
+    {
+        if (!_adapterRate.TryGetValue(id, out History? history))
+        {
+            history = new History(Capacity);
+            _adapterRate[id] = history;
+        }
+        return history;
+    }
+
+    /// <summary>One GPU's overall usage, by position in <c>Snapshot.Gpus</c>.</summary>
+    public History GpuUsage(int index)
+    {
+        string key = index.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (!_gpuUsage.TryGetValue(key, out History? history))
+        {
+            history = new History(Capacity);
+            _gpuUsage[key] = history;
+        }
+        return history;
+    }
+
+    /// <summary>One engine of one GPU, by position and engine name.</summary>
+    public History Engine(int gpuIndex, string name)
+    {
+        string key = gpuIndex.ToString(System.Globalization.CultureInfo.InvariantCulture) + "\u001f" + name;
+        if (!_engines.TryGetValue(key, out History? history))
+        {
+            history = new History(Capacity);
+            _engines[key] = history;
+        }
+        return history;
+    }
+
+    /// <summary>One core's usage, by position.</summary>
+    public History Core(int index)
+    {
+        while (_cores.Count <= index)
+        {
+            _cores.Add(new History(Capacity));
+        }
+        return _cores[index];
+    }
+
+    /// <summary>
+    /// One process group's working set in MB. Filled only while process
+    /// sampling is on, so a group that is picked for the graph already has a
+    /// past and the histories do not grow while the RAM tab is closed.
+    /// </summary>
+    public History ProcessGroup(string name)
+    {
+        if (!_processes.TryGetValue(name, out History? history))
+        {
+            history = new History(Capacity);
+            _processes[name] = history;
+        }
+        return history;
+    }
+
     /// <summary>Push one fresh snapshot into every series.</summary>
     public void Push(Snapshot snapshot)
     {
@@ -207,14 +289,54 @@ public sealed class HistoryBoard
         Ram.Add(snapshot.Ram.Usage);
         Gpu.Add(snapshot.Gpu.Present ? snapshot.Gpu.Usage : 0);
 
+        for (int i = 0; i < snapshot.Cores.Count; i++)
+        {
+            Core(i).Add(snapshot.Cores[i].Usage);
+        }
+
+        for (int i = 0; i < snapshot.Gpus.Count; i++)
+        {
+            Gpu gpu = snapshot.Gpus[i];
+            GpuUsage(i).Add(gpu.Usage);
+            foreach (GpuEngine engine in gpu.Engines)
+            {
+                Engine(i, engine.Name).Add(engine.Usage);
+            }
+        }
+
         foreach (Disk disk in snapshot.Disks)
         {
             Disk(disk.Letter).Add(disk.Usage);
+            DiskThroughput(disk.Letter).Add(disk.ReadMb + disk.WriteMb);
         }
 
         foreach (Adapter adapter in snapshot.Adapters)
         {
             Adapter(adapter.Id).Add(adapter.Usage);
+            AdapterThroughput(adapter.Id).Add(adapter.DownMb + adapter.UpMb);
+        }
+
+        // An empty process list means sampling is off; the old series stay as
+        // they are rather than falling to zero. A republished list carries the
+        // same MemoryStamp, so it is not pushed a second time: the history
+        // follows reads, not redraws.
+        if (snapshot.Processes.Count > 0
+            && (snapshot.MemoryStamp <= 0 || snapshot.MemoryStamp != _lastMemoryStamp))
+        {
+            _lastMemoryStamp = snapshot.MemoryStamp;
+            var live = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (ProcessGroup group in MemoryBoard.Group(snapshot.Processes))
+            {
+                live.Add(group.Name);
+                ProcessGroup(group.Name).Add(group.WorkingSet / 1048576.0);
+            }
+            foreach (string name in _processes.Keys.ToList())
+            {
+                if (!live.Contains(name))
+                {
+                    _processes.Remove(name);
+                }
+            }
         }
     }
 }

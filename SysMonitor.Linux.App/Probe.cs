@@ -1,6 +1,7 @@
 using System.Text;
 using SysMonitor.Linux.Presentation;
 using SysMonitor.Linux.Sampling;
+using SysMonitor.Linux.Sensors;
 using SysMonitor.Model;
 
 namespace SysMonitor.Linux.App;
@@ -9,6 +10,8 @@ namespace SysMonitor.Linux.App;
 /// <c>--probe-ui</c>: take two real samples, build the same view models the
 /// window draws, print them as text and exit. It is the acceptance check that
 /// every displayed number comes from the sampler, and it runs without a display.
+/// The second sample reads processes and services so the memory tab can be
+/// printed too; both are read-only.
 /// </summary>
 internal static class Probe
 {
@@ -21,7 +24,8 @@ internal static class Probe
             var sampler = new LinuxSampler();
             first = sampler.Sample(includeProcesses: false);
             Thread.Sleep(700);
-            snapshot = sampler.Sample(includeProcesses: false);
+            snapshot = sampler.Sample(
+                includeProcesses: true, includeServices: true, keepMemory: false);
         }
         catch (Exception exception)
         {
@@ -30,7 +34,10 @@ internal static class Probe
         }
 
         // Defaults, not the user's file: the report must be reproducible.
-        var shell = new ShellModel(new AppConfig());
+        var shell = new ShellModel(
+            new AppConfig(),
+            ownUid: Posix.Uid,
+            killTargets: new ProcessSignals());
         shell.SetSnapshot(snapshot);
 
         var text = new StringBuilder();
@@ -41,7 +48,8 @@ internal static class Probe
             $"cores={snapshot.Cores.Count}  ram={snapshot.Ram.TotalGb:F1} GB  " +
             $"disks={snapshot.Disks.Count}  adapters={snapshot.Adapters.Count}  " +
             $"gpus={snapshot.Gpus.Count}  cpu={snapshot.CpuTotal}%  " +
-            $"cpu_temp={(snapshot.CpuTemp is { } t ? t + "°C" : "n/a")}");
+            $"cpu_temp={(snapshot.CpuTemp is { } t ? t + "°C" : "n/a")}  " +
+            $"processes={snapshot.Processes.Count}  services={snapshot.Services.Count}");
         text.AppendLine();
 
         text.AppendLine($"Widget pages ({shell.WidgetPages.Count})");
@@ -105,12 +113,17 @@ internal static class Probe
             text.AppendLine($"Overall message: \"{shell.Overall.Message}\"");
         }
 
+        DescribeFull(text, shell);
+        DescribeMemory(text, shell, snapshot);
+
         text.AppendLine($"Legend: \"{shell.Overall.Legend}\"");
         text.AppendLine(
             $"Histories: cpu={shell.History.Cpu.Count}/{shell.History.Cpu.Capacity} " +
             $"ram={shell.History.Ram.Count}/{shell.History.Ram.Capacity} " +
             $"gpu={shell.History.Gpu.Count}/{shell.History.Gpu.Capacity} " +
-            $"disks={shell.History.Disks.Count} adapters={shell.History.Adapters.Count}");
+            $"disks={shell.History.Disks.Count} adapters={shell.History.Adapters.Count} " +
+            $"cores={shell.History.Cores.Count} " +
+            $"process_groups={shell.History.ProcessGroups.Count}");
         text.AppendLine($"Theme: {shell.Config.Theme}  lang: {shell.Language.Code}  " +
                         $"opacity: {ShellModel.Readout(shell.Config.Opacity)}  " +
                         $"font: {ShellModel.Readout(shell.Config.FontScale)}");
@@ -119,6 +132,89 @@ internal static class Probe
         Console.Out.Flush();
         return snapshot.Ready ? 0 : 2;
     }
+
+    /// <summary>Every Full tab: rail text, facts and every card's numbers.</summary>
+    private static void DescribeFull(StringBuilder text, ShellModel shell)
+    {
+        FullModel full = shell.Full;
+        text.AppendLine($"Full tabs ({full.Tabs.Count})  selected={full.SelectedKey ?? "(none)"}");
+        foreach (FullTab tab in full.Tabs)
+        {
+            text.AppendLine(
+                $"  [{tab.Key}] title=\"{tab.Title}\"" +
+                (tab.IsDisk ? "  (disk)" : string.Empty));
+            text.AppendLine($"     rail detail  \"{tab.Detail}\"");
+            text.AppendLine($"     rail summary \"{tab.Summary}\"");
+            text.AppendLine($"     hardware     \"{tab.Hardware}\"");
+            foreach (FullFact fact in tab.Facts)
+            {
+                text.AppendLine($"     fact  {fact.Title} = \"{fact.Value}\"");
+            }
+            foreach (FullCard card in tab.BigCards)
+            {
+                text.AppendLine("     BIG   " + Describe(card));
+            }
+            foreach (FullCard card in tab.SmallCards)
+            {
+                text.AppendLine("     small " + Describe(card));
+            }
+            text.AppendLine();
+        }
+    }
+
+    /// <summary>The top process groups and the first services of each scope.</summary>
+    private static void DescribeMemory(StringBuilder text, ShellModel shell, Snapshot snapshot)
+    {
+        MemoryTabModel memory = shell.Memory;
+        text.AppendLine($"Memory: process groups shown={memory.Groups.Count}");
+        foreach (MemProcessGroup group in memory.Groups.Take(10))
+        {
+            text.AppendLine(
+                $"  {group.Name}  size={group.SizeText}  count={group.Count}  " +
+                $"killable={(group.CanKill ? "yes" : "no (protected)")}  " +
+                $"graphed={(group.Graphed ? "yes" : "no")}");
+            foreach (MemProcess member in group.Members.Take(3))
+            {
+                text.AppendLine(
+                    $"     pid={member.Pid}  size={member.SizeText}  private={member.PrivateText(shell.Language)}  " +
+                    $"protected={(member.Protected ? "yes" : "no")}");
+            }
+        }
+        if (memory.GroupNote.Length > 0)
+        {
+            text.AppendLine("  note: " + memory.GroupNote);
+        }
+
+        int userTotal = snapshot.Services.Count(s => s.UserUnit);
+        int systemTotal = snapshot.Services.Count - userTotal;
+        text.AppendLine(
+            $"Services: user={userTotal} (shown {memory.UserServices.Count})  " +
+            $"system={systemTotal} (shown {memory.SystemServices.Count})");
+        foreach (MemService service in memory.UserServices.Take(5))
+        {
+            text.AppendLine("  USER   " + Describe(service, shell));
+        }
+        foreach (MemService service in memory.SystemServices.Take(5))
+        {
+            text.AppendLine("  SYSTEM " + Describe(service, shell));
+        }
+        if (memory.ServiceNote.Length > 0)
+        {
+            text.AppendLine("  note: " + memory.ServiceNote);
+        }
+        text.AppendLine();
+    }
+
+    private static string Describe(MemService service, ShellModel shell) =>
+        $"{service.Name}  \"{service.Display}\"  " +
+        $"state={service.StateText(shell.Language)}  startup={service.StartupText(shell.Language)}  " +
+        $"pid={service.Pid}  size={service.SizeText}  shared={service.SharedWith}  " +
+        $"scope={(service.UserUnit ? "user" : "system")}";
+
+    private static string Describe(FullCard card) =>
+        $"key={card.Key}  title=\"{card.Title}\"  value=\"{card.Value}\"  " +
+        $"detail=\"{card.Detail}\"  unit=\"{card.Unit}\"  ceiling=\"{card.Ceiling}\"  " +
+        $"accent={card.Accent.ToHex()}  max={card.Maximum}  points={card.History.Count}";
 
     /// <summary>One meter row, with every field the view renders.</summary>
     private static string Describe(MeterRow row)

@@ -87,11 +87,8 @@ public sealed class GpuReader
             driver = UeventValue(uevent, "DRIVER");
         }
 
-        string displayName = _pci.Describe(ids.Vendor, ids.Device);
-        if (displayName.Length == 0)
-        {
-            displayName = ids.Vendor != 0 ? $"{ids.Vendor:X4}:{ids.Device:X4}" : name;
-        }
+        string fallback = ids.Vendor != 0 ? $"{ids.Vendor:X4}:{ids.Device:X4}" : name;
+        string displayName = ShortName(_pci, ids.Vendor, ids.Device, fallback);
 
         return new CardScan(
             dir,
@@ -416,6 +413,53 @@ public sealed class GpuReader
         }
 
         return parts[0].PadLeft(8, '0') + ":" + parts[1] + ":" + parts[2];
+    }
+
+    /// <summary>
+    /// A short, readable card name: the vendor everybody knows ("Intel",
+    /// "NVIDIA", "AMD", or the pci.ids vendor otherwise) plus the marketing
+    /// name. pci.ids writes that name in the last bracket of the device entry
+    /// ("GP108BM [GeForce MX250]"), which is the part worth showing.
+    /// </summary>
+    public static string ShortName(PciDatabase pci, int vendor, int device, string fallback)
+    {
+        string vendorName = vendor switch
+        {
+            0x8086 => "Intel",
+            0x10DE => "NVIDIA",
+            0x1002 => "AMD",
+            _ => pci.VendorName(vendor),
+        };
+        vendorName = vendorName.Trim();
+
+        string deviceName = pci.DeviceName(vendor, device);
+        string text = BracketText(deviceName);
+        if (text.Length == 0)
+        {
+            text = deviceName.Trim();
+        }
+        if (text.Length == 0)
+        {
+            text = fallback.Trim();
+        }
+
+        if (vendorName.Length == 0)
+        {
+            return text;
+        }
+        return text.Length == 0 ? vendorName : vendorName + " " + text;
+    }
+
+    /// <summary>The text inside the last <c>[...]</c>, or empty.</summary>
+    private static string BracketText(string name)
+    {
+        int close = name.LastIndexOf(']');
+        if (close < 0)
+        {
+            return string.Empty;
+        }
+        int open = name.LastIndexOf('[', close);
+        return open < 0 ? string.Empty : name[(open + 1)..close].Trim();
     }
 
     private static bool IsDriver(CardScan card, string driver) =>

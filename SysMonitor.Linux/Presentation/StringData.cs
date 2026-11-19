@@ -208,4 +208,20 @@ internal static class StringData
         ("ext_approve_body", "คุณต้องการอนุมัติให้ส่วนเสริมนี้ทำงานใน System Monitor หรือไม่?\n\nรหัส: {1}\nSHA-256 ของ Manifest: {3}...\nชื่อ: {0}\nเวอร์ชัน: {2}\nไฟล์:\n{4}\n\nคำเตือน: ส่วนเสริมจะทำงานด้วยสิทธิ์เดียวกับคุณภายในโปรแกรม อย่าอนุมัติส่วนเสริมที่คุณไม่มั่นใจในที่มา", "Do you want to approve this extension to run in System Monitor?\n\nID: {1}\nManifest SHA-256: {3}...\nName: {0}\nVersion: {2}\nFiles:\n{4}\n\nWarning: The extension will run with your user rights inside the app. You should only approve extensions from a source you trust."),
         ("ext_approve_native_warning", "ข้อควรระวัง: ส่วนเสริมนี้มีการโหลดเนทีฟโค้ด (.dll)", "Caution: This extension loads native code (.dll)."),
     };
+
+    /// <summary>
+    /// Keys added for the Linux memory tab, kept apart from the 197-key verbatim
+    /// spec table so that table stays a faithful copy. Lang reads both arrays.
+    /// </summary>
+    internal static readonly (string Key, string Thai, string English)[] LinuxExtras =
+    {
+        ("mem_force_kill", "โปรเซส {0} (PID {1}) ไม่ยอมจบ ต้องการบังคับให้จบหรือไม่?\nข้อมูลที่ยังไม่บันทึกในโปรแกรมนั้นจะหายไป", "Process {0} (PID {1}) did not exit. Force it to end?\nUnsaved data in that program will be lost."),
+        ("mem_system_readonly", "เซอร์วิสของระบบอ่านได้อย่างเดียว การเปลี่ยนต้องใช้สิทธิ์ผู้ดูแลระบบ ซึ่งโปรแกรมนี้ไม่ขอ", "System services are read-only; changing them needs administrator rights, which this app never asks for."),
+        ("mem_user_services", "เซอร์วิสของผู้ใช้", "User services"),
+        ("mem_system_services", "เซอร์วิสของระบบ", "System services"),
+        ("yes", "ใช่", "Yes"),
+        ("no", "ไม่ใช่", "No"),
+        ("mem_pid_changed", "PID {0} เปลี่ยนเป็น \"{1}\" แล้ว", "PID {0} is now \"{1}\""),
+        ("mem_systemctl_failed", "systemctl ไม่สำเร็จ: {0}", "systemctl failed: {0}"),
+    };
 }

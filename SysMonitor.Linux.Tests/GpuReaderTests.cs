@@ -25,7 +25,8 @@ public sealed class GpuReaderTests
         Assert.AreEqual(1, gpus.Count);
         Gpu gpu = gpus[0];
         Assert.IsTrue(gpu.Present);
-        Assert.AreEqual("NVIDIA Corporation GP108BM [GeForce MX250]", gpu.Name);
+        // Phase 2b Amendment item 2: short vendor + bracketed product name.
+        Assert.AreEqual("NVIDIA GeForce MX250", gpu.Name);
         Assert.AreEqual("nvidia", gpu.Driver);
         Assert.AreEqual(0, gpu.Usage);
         Assert.AreEqual(0.0, gpu.DedicatedGb);

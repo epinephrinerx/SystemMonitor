@@ -60,6 +60,8 @@ internal sealed class ShellWindow : Window
     private ViewMode _lastMode;
     private bool _applyingRoute;
     private double _appliedFontScale;
+    private volatile bool _memoryVisible;
+    private int _forceMemory;
 
     // Pointer state. Every resize frame is computed from _startRect, never from
     // the previous frame (spec section 1).
@@ -157,6 +159,11 @@ internal sealed class ShellWindow : Window
         shell.RouteChanged += OnRouteChanged;
         shell.TopmostChanged += () => Topmost = shell.Config.AlwaysOnTop;
         shell.NudgeRequested += () => _wake.Set();
+        shell.MemoryRefreshRequested += () =>
+        {
+            Interlocked.Exchange(ref _forceMemory, 1);
+            _wake.Set();
+        };
         shell.OpenRequested += OpenPanel;
         shell.RestartRequested += () => _restarter.Restart();
         shell.CloseRequested += Close;
@@ -181,6 +188,7 @@ internal sealed class ShellWindow : Window
         };
 
         ApplyMode(_lastMode);
+        UpdateMemoryVisibility();
         UpdateBrushes();
         UpdateWidgetCorner();
         _widget.Render();
@@ -257,6 +265,8 @@ internal sealed class ShellWindow : Window
 
     private void OnClosed(object? sender, EventArgs e)
     {
+        // No pidfd may outlive the window: close whatever a pending kill holds.
+        _shell.CancelKills();
         _shell.DataChanged -= OnDataChanged;
         _shell.StructureChanged -= OnStructureChanged;
         _shell.AppearanceChanged -= OnAppearanceChanged;
@@ -268,11 +278,27 @@ internal sealed class ShellWindow : Window
     private void SampleLoop()
     {
         var sampler = new LinuxSampler();
+        long lastProcess = 0;
+        long lastService = 0;
         while (!_stop.IsCancellationRequested)
         {
             try
             {
-                Volatile.Write(ref _latest, sampler.Sample(includeProcesses: false));
+                long now = Environment.TickCount64;
+                bool forced = Interlocked.Exchange(ref _forceMemory, 0) != 0;
+                MemoryCadence.Plan plan = MemoryCadence.Next(
+                    now, lastProcess, lastService, _memoryVisible, forced);
+                Snapshot snapshot = sampler.Sample(
+                    plan.Processes, plan.Services, keepMemory: _memoryVisible);
+                if (plan.Processes)
+                {
+                    lastProcess = now;
+                }
+                if (plan.Services)
+                {
+                    lastService = now;
+                }
+                Volatile.Write(ref _latest, snapshot);
             }
             catch (Exception exception)
             {
@@ -281,6 +307,22 @@ internal sealed class ShellWindow : Window
 
             int interval = Math.Max(250, _shell.Config.MetricsIntervalMs);
             _wake.WaitOne(interval);
+        }
+    }
+
+    /// <summary>
+    /// Read processes and services only while the RAM tab shows. Coming back
+    /// to it forces one read instead of waiting out the cadence.
+    /// </summary>
+    private void UpdateMemoryVisibility()
+    {
+        bool visible = _shell.FullRamVisible;
+        bool gained = visible && !_memoryVisible;
+        _memoryVisible = visible;
+        if (visible && (gained || _shell.Snapshot?.Processes.Count is null or 0))
+        {
+            Interlocked.Exchange(ref _forceMemory, 1);
+            _wake.Set();
         }
     }
 
@@ -301,6 +343,8 @@ internal sealed class ShellWindow : Window
     {
         _widget.Render();
         _overall.RenderCards();
+        _full.RenderData();
+        UpdateMemoryVisibility();
         UpdateWidgetCorner();
     }
 
@@ -315,6 +359,7 @@ internal sealed class ShellWindow : Window
         _overall.RenderSidebar();
         _overall.RenderCards();
         UpdateWidgetCorner();
+        UpdateMemoryVisibility();
         _appliedFontScale = _shell.Config.FontScale;
         RequestedThemeVariant = App.ThemeFor(_shell.Config.Theme);
         UpdateBrushes();
@@ -447,6 +492,7 @@ internal sealed class ShellWindow : Window
             _overall.RenderSidebar();
             _overall.RenderCards();
             UpdateWidgetCorner();
+            UpdateMemoryVisibility();
             _appliedFontScale = _shell.Config.FontScale;
 
             RectD current = CurrentRect();

@@ -18,10 +18,18 @@ public sealed class LinuxSampler
     private readonly DiskReader _disks;
     private readonly NetworkReader _network;
     private readonly GpuReader _gpus;
+    private readonly ServiceReader _services;
     private readonly CpuInfo _cpuInfo;
 
     private ProcStatReading? _previousCpu;
     private bool _ready;
+
+    /// <summary>The last service read; attached to every fresh process list.</summary>
+    private IReadOnlyList<ServiceEntry> _cachedServices = Array.Empty<ServiceEntry>();
+
+    /// <summary>The last process read, republished between the 3 s reads.</summary>
+    private IReadOnlyList<ProcessEntry> _cachedProcesses = Array.Empty<ProcessEntry>();
+    private long _cachedMemoryStamp;
 
     public LinuxSampler(
         string root = "/",
@@ -37,11 +45,20 @@ public sealed class LinuxSampler
         _disks = new DiskReader(_root);
         _network = new NetworkReader(_root, commands, pci);
         _gpus = new GpuReader(_root, commands, pci);
+        _services = new ServiceReader(commands);
     }
 
     public string Root => _root;
 
-    public Snapshot Sample(bool includeProcesses)
+    /// <summary>
+    /// One sample. Processes are read only when asked; services are read when
+    /// asked and otherwise the last read is re-attached to the fresh process
+    /// list, so the two tables can keep their 3 s and 10 s cadences. With
+    /// <paramref name="keepMemory"/> the last process list is republished when
+    /// this sample does not read a new one, so the RAM tab does not empty
+    /// between reads.
+    /// </summary>
+    public Snapshot Sample(bool includeProcesses, bool includeServices = false, bool keepMemory = false)
     {
         long stamp = _clock();
         bool wasReady = _ready;
@@ -53,20 +70,47 @@ public sealed class LinuxSampler
         IReadOnlyList<Adapter> adapters = ReadAdapters(stamp);
         IReadOnlyList<Gpu> gpus = ReadGpus(stamp);
 
+        if (includeServices)
+        {
+            try
+            {
+                _cachedServices = _services.Read();
+            }
+            catch (Exception)
+            {
+                _cachedServices = Array.Empty<ServiceEntry>();
+            }
+        }
+
         IReadOnlyList<ProcessEntry> processes = Array.Empty<ProcessEntry>();
+        IReadOnlyList<ServiceEntry> services = Array.Empty<ServiceEntry>();
         long memoryStamp = 0;
         if (includeProcesses)
         {
             try
             {
                 processes = ProcessReader.Read(_root);
-                memoryStamp = _clock();
+                _cachedProcesses = processes;
+                _cachedMemoryStamp = _clock();
+                memoryStamp = _cachedMemoryStamp;
+                services = _cachedServices.Count > 0
+                    ? MemoryBoard.Attach(_cachedServices, processes)
+                    : Array.Empty<ServiceEntry>();
             }
             catch (Exception)
             {
                 processes = Array.Empty<ProcessEntry>();
+                services = Array.Empty<ServiceEntry>();
                 memoryStamp = 0;
             }
+        }
+        else if (keepMemory)
+        {
+            processes = _cachedProcesses;
+            memoryStamp = _cachedMemoryStamp;
+            services = _cachedServices.Count > 0 && processes.Count > 0
+                ? MemoryBoard.Attach(_cachedServices, processes)
+                : Array.Empty<ServiceEntry>();
         }
 
         var cores = new List<Core>(cpu.Cores.Count);
@@ -90,7 +134,7 @@ public sealed class LinuxSampler
             Gpus = gpus,
             Modules = Array.Empty<Module>(),
             Processes = processes,
-            Services = Array.Empty<ServiceEntry>(),
+            Services = services,
             CpuTotal = cpu.Total,
             CpuInfo = _cpuInfo,
             Gpu = gpus.Count > 0 ? gpus[0] : new Gpu(),

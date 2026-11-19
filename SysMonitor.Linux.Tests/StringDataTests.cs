@@ -19,8 +19,63 @@ public sealed class StringDataTests
             Assert.IsFalse(string.IsNullOrWhiteSpace(english), $"Key '{key}' is missing English text");
         }
 
-        // 199 original spec keys minus manual_10_h and manual_10_t
+        // 199 original spec keys minus manual_10_h and manual_10_t in verbatim Rows table
         Assert.AreEqual(197, StringData.Rows.Length);
+
+        // LinuxExtras table holds keys added specifically for Linux (e.g. memory tab and process/service actions)
+        Assert.AreEqual(8, StringData.LinuxExtras.Length);
+        foreach ((string key, string thai, string english) in StringData.LinuxExtras)
+        {
+            Assert.IsFalse(string.IsNullOrWhiteSpace(key), "LinuxExtras key must not be empty");
+            Assert.IsTrue(keys.Add(key), $"Duplicate or colliding key in LinuxExtras: {key}");
+            Assert.IsFalse(string.IsNullOrWhiteSpace(thai), $"LinuxExtras '{key}' is missing Thai text");
+            Assert.IsFalse(string.IsNullOrWhiteSpace(english), $"LinuxExtras '{key}' is missing English text");
+        }
+    }
+
+    [TestMethod]
+    public void StringData_LinuxExtras_KeysExistInBothLanguages_AndResolveViaLang()
+    {
+        var langTh = new Lang("th");
+        var langEn = new Lang("en");
+
+        string[] extraKeys =
+        {
+            "mem_force_kill",
+            "mem_system_readonly",
+            "mem_user_services",
+            "mem_system_services",
+            "yes",
+            "no",
+            "mem_pid_changed",
+            "mem_systemctl_failed",
+        };
+
+        foreach (string key in extraKeys)
+        {
+            Assert.IsTrue(langTh.Has(key), $"Thai Lang must have '{key}'");
+            Assert.IsTrue(langEn.Has(key), $"English Lang must have '{key}'");
+
+            string th = langTh[key];
+            string en = langEn[key];
+            Assert.AreNotEqual(key, th, $"Key '{key}' should not fall back to key name in Thai");
+            Assert.AreNotEqual(key, en, $"Key '{key}' should not fall back to key name in English");
+            Assert.IsFalse(string.IsNullOrWhiteSpace(th));
+            Assert.IsFalse(string.IsNullOrWhiteSpace(en));
+        }
+
+        // Formatted strings with arguments
+        string pidChangedEn = langEn.Get("mem_pid_changed", 1234, "bash");
+        Assert.AreEqual("PID 1234 is now \"bash\"", pidChangedEn);
+
+        string pidChangedTh = langTh.Get("mem_pid_changed", 1234, "bash");
+        Assert.AreEqual("PID 1234 เปลี่ยนเป็น \"bash\" แล้ว", pidChangedTh);
+
+        string failedEn = langEn.Get("mem_systemctl_failed", "Access denied");
+        Assert.AreEqual("systemctl failed: Access denied", failedEn);
+
+        string failedTh = langTh.Get("mem_systemctl_failed", "Access denied");
+        Assert.AreEqual("systemctl ไม่สำเร็จ: Access denied", failedTh);
     }
 
     [TestMethod]

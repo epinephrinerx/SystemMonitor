@@ -56,6 +56,11 @@ public sealed class Lang
             _thai[key] = thai;
             _english[key] = english;
         }
+        foreach ((string key, string thai, string english) in StringData.LinuxExtras)
+        {
+            _thai[key] = thai;
+            _english[key] = english;
+        }
         Code = IsKnown(code) ? code! : "th";
     }
 
