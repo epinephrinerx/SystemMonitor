@@ -1,6 +1,6 @@
 # Requirements — SystemMonitor4.0
 
-บันทึกสิ่งที่ตกลงกันไว้ · อัปเดตล่าสุด 2026-10-31 (branch `Mac`: R-020–R-025)
+บันทึกสิ่งที่ตกลงกันไว้ · อัปเดตล่าสุด 2026-11-20 (branch `Mac`: R-020–R-025, R-032)
 **intake ปิดแล้ว (2026-09-30)** — ทุกข้อได้รับการรับรอง; งานถัดไป: handoff ให้ Coding Owner ประเมินและแบ่งเฟส
 บริบทของโปรเจกต์อยู่ที่ `AGENTS.md` / `CLAUDE.md` (root) — ไฟล์นี้ไม่เล่าซ้ำ
 
@@ -17,6 +17,43 @@
 ---
 
 > **เลข R-019 ไม่ใช้บน branch นี้** — ถูกใช้แล้วบน branch `agent/*` (SMART / DiskInfoCore) จึงเริ่ม Mac Edition ที่ R-020 เพื่อไม่ให้รหัสชนกันเมื่อรวม branch
+
+## R-032 · Mac — หน้าต่างหลักแบบ Resources: sidebar, Apps, Processes และหน้าโมดูลแบบ Usage/Sensors/Properties
+
+| | |
+|---|---|
+| สถานะ | 🕐 รอยืนยัน — ขอบเขตเดียวกับ R-030 (Linux, branch `linux-native`) และ R-031 (Windows, `main`); ทำหลังรุ่น Linux ผ่านการทดสอบด้วยมือ |
+| รุ่นเป้าหมาย | **4.4.0** — คุณกำหนด (2026-11-20): ปรับหน้าตาและเพิ่มหน้าใหม่ ไม่ได้เปลี่ยน engine; config เดิมย้ายค่าให้อัตโนมัติ จึงเป็นรุ่นย่อย ไม่ใช่ 5.0 |
+| วันที่ | 2026-11-20 |
+| แตะส่วนไหน | `SysMonitor.Mac` (หน้าต่างหลัก, ตัวอ่านข้อมูลรายโปรเซส/ฮาร์ดแวร์) · เอกสาร |
+| เกี่ยวกับ | R-030 (แผนเต็ม `Docs/PLAN-R030-main-window.md` บน `linux-native`) · R-031 · R-029 (Battery) |
+
+**คุณระบุ (2026-11-20):** sidebar แบบแอป Resources ที่แสดงกราฟของทุกโมดูลพร้อมชื่ออุปกรณ์; เมนู Overall, Settings (ขยายลงมา), Apps (แอปที่รันพร้อม Memory/CPU/GPU, ปิด/restart, ดู sessions, grid เรียงได้), Processes (PID, User, Memory/CPU/GPU, ปิด/restart, grid เรียงได้); ตัวเลือกเฉพาะโมดูลย้ายไปอยู่ในหน้าโมดูล; หน้า Memory มี Swap และ Properties ของ RAM; และหลังส่ง screenshot หน้าโมดูลของ Resources:
+> ให้แสดงผลในลักษณะนี้ทั้งบน windows linux และ mac ครับ
+
+**คุณเลือก (2026-11-20):** แทน Overall + Full (Widget คงเดิม) · Restart เฉพาะที่ปลอดภัย · sessions = instance และ process ใต้แอป
+
+**ผมเข้าใจว่า (ฝั่ง Mac):**
+- หน้าโมดูล: หัวเรื่องชื่ออุปกรณ์ → แถบตัวเลือก → Usage (กราฟหลายตัว "ค่าปัจจุบัน · สูงสุด") → Sensors (อุณหภูมิ) → Properties (อ่านไม่ได้ = N/A ไม่เดาค่า)
+- แหล่งข้อมูล: `sysctl`, `host_statistics`, `vm.swapusage` (Swap), IOKit (`IOBlockStorageDriver` statistics, `AppleSmartBattery`, `IOPCIDevice`), IOReport (GPU), `system_profiler SPMemoryDataType` ครั้งเดียวตอนเริ่ม (RAM properties); ไม่แสดงหมายเลขซีเรียล
+- Apps: แอปที่มีหน้าต่าง (`NSRunningApplication`, activation policy regular) จัดกลุ่มตาม bundle id พร้อม process ลูก; Restart แอป = ปิดแล้วเปิดด้วย bundle id; Restart process ได้เฉพาะ launchd user agent (`launchctl kickstart -k gui/<uid>/<label>`)
+- GPU ต่อ process บน Apple Silicon อาจไม่มีข้อมูล → แสดง "—"
+
+ช่องข้อมูลที่ต้องมี (คอลัมน์แหล่งข้อมูลเขียนตาม Linux — Mac ใช้แหล่งข้างบน):
+
+| Module | Usage charts to add | Properties to add |
+|---|---|---|
+| CPU | Each logical-CPU card shows its current clock (`cpufreq/scaling_cur_freq`). A temperature chart with its peak. | Max frequency (`cpuinfo_max_freq`) · logical cores · physical cores · sockets · uptime · virtualisation **type** (VT-x / AMD-V, not just Enabled) · architecture |
+| Memory | Swap (§2) | RAM properties card (§2). On Linux today the module list is empty, so the card is new. |
+| GPU (each) | Separate charts for usage, video encoder/decoder, and video-memory usage (`used / total · %`). A temperature chart with its peak, or "N/A". | Manufacturer · PCI slot · driver (exists) · GPU clock · video-memory clock · power usage · max power cap · link (`current / max`, e.g. "PCIe 1.0 ×4 / PCIe 3.0 ×4") |
+| Disk (each physical drive) | Drive activity % (busy time, `/sys/block/X/stat` io_ticks) · read speed and write speed as **separate** charts with their peaks · total read and total written since boot. The per-volume cards stay below. | Type (NVMe / SSD / HDD) · device (`nvme0n1`) · capacity · writable · removable · link (e.g. "USB 2.0 (480 Mb/s)", "PCIe 3.0 ×4") |
+| Network (each) | Download and upload as separate charts with their peaks · total received and total sent since boot | Interface · type · driver (exists) · MAC **hidden** (privacy rule) · IPv4/IPv6 · link speed (wired) or SSID, signal and frequency (Wi-Fi) |
+| Battery | Charge chart `100 % (Full)` · power-usage chart with its peak | Health · design capacity · charge cycles · technology · manufacturer · model · device. This matches R-028 phase B, which moves here. |
+
+
+**ข้อจำกัด:** build/ทดสอบต้องทำบนเครื่อง Mac
+
+---
 
 ## R-020 · Mac Edition — สร้าง SystemMonitor เวอร์ชัน macOS แบบ native
 
