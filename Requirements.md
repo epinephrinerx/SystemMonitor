@@ -34,6 +34,8 @@
 - CPU/RAM ต่อ process: `GetProcessTimes` / `GetProcessMemoryInfo` (มีใช้อยู่แล้วในหน้า RAM เดิม); GPU ต่อ process: PDH counter `GPU Engine` และ `GPU Process Memory` (ค่า `pid_N`) — ไม่ต้องใช้ admin
 - Restart แอป: ปิดทุก instance แล้วเปิด exe เดิม (หรือ AUMID สำหรับแอป Store); Restart process ได้เฉพาะ Windows service (ผ่าน SCM ที่มีอยู่แล้ว) — process ทั่วไปมีแต่ปุ่มปิด
 - Services ย้ายเป็นแท็บที่สองในหน้า Processes เหมือนฝั่ง Linux
+- ตัวเลือกเฉพาะโมดูล (แยกราย core, แยกรายไดรฟ์ ฯลฯ) ย้ายไปอยู่ในหน้าของโมดูลนั้น; การแสดง/ซ่อนโมดูลอยู่ใน Settings (เหมือน R-030)
+- หน้า Memory: กราฟ Swap คือ page file (`GlobalMemoryStatusEx` ค่า commit/page file) และการ์ด Properties ของ RAM จาก WMI `Win32_PhysicalMemory`/`Win32_PhysicalMemoryArray` (ช่องที่ใช้, ชนิด, ความเร็ว, ผู้ผลิต, ขนาดรายโมดูล) — ไม่แสดงหมายเลขซีเรียล/part number
 
 **ข้อจำกัด:** build/ทดสอบต้องทำบนเครื่อง Windows
 
