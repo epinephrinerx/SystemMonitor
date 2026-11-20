@@ -224,4 +224,40 @@ internal static class StringData
         ("mem_pid_changed", "PID {0} เปลี่ยนเป็น \"{1}\" แล้ว", "PID {0} is now \"{1}\""),
         ("mem_systemctl_failed", "systemctl ไม่สำเร็จ: {0}", "systemctl failed: {0}"),
     };
+
+    /// <summary>
+    /// Keys for the battery section (R-028), kept in a third table for the same
+    /// reason <see cref="LinuxExtras"/> is separate: the table above is pinned at
+    /// eight keys by a test, and the 197-key spec table stays a verbatim copy.
+    /// Lang reads all three.
+    /// </summary>
+    internal static readonly (string Key, string Thai, string English)[] BatteryKeys =
+    {
+        ("battery", "แบตเตอรี่", "Battery"),
+        ("battery_health", "สุขภาพแบตเตอรี่", "Battery health"),
+        ("battery_cycles", "รอบการชาร์จ", "Charge cycles"),
+        ("battery_power", "กำลังไฟ", "Power"),
+        ("battery_time_left", "เวลาที่เหลือ", "Time left"),
+        ("battery_time_to_full", "เวลาจนเต็ม", "Time to full"),
+        ("battery_charging", "กำลังชาร์จ", "Charging"),
+        ("battery_discharging", "กำลังคายประจุ", "Discharging"),
+        ("battery_full", "เต็ม", "Full"),
+        ("battery_not_charging", "ไม่ชาร์จ", "Not charging"),
+        ("battery_on_ac", "ต่ออะแดปเตอร์", "On AC power"),
+        ("battery_on_battery", "ใช้แบตเตอรี่", "On battery"),
+        ("battery_devices", "แบตของอุปกรณ์", "Device batteries"),
+        ("show_battery", "แสดงแบตเตอรี่", "Show battery"),
+        ("unknown", "ไม่ทราบ", "Unknown"),
+    };
+
+    /// <summary>
+    /// Keys for the .deb update path (R-027 release). A fourth table for the
+    /// same reason as the other two: the spec table and the pinned key counts
+    /// in <c>StringDataTests</c> stay untouched. Lang reads all four.
+    /// </summary>
+    internal static readonly (string Key, string Thai, string English)[] ReleaseKeys =
+    {
+        ("update_deb_opened", "เปิดตัวติดตั้งแพ็กเกจแล้ว ยืนยันในตัวจัดการแพ็กเกจ", "Opened the package installer; confirm there"),
+        ("update_deb_saved", "บันทึกแพ็กเกจไว้ที่ {0} เปิดไฟล์นี้เพื่อติดตั้งเอง", "Saved the package to {0}; open it to install"),
+    };
 }

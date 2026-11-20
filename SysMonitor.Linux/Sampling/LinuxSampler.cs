@@ -1,3 +1,4 @@
+using SysMonitor.Linux.Presentation;
 using SysMonitor.Linux.Sensors;
 using SysMonitor.Model;
 
@@ -20,6 +21,8 @@ public sealed class LinuxSampler
     private readonly GpuReader _gpus;
     private readonly ServiceReader _services;
     private readonly CpuInfo _cpuInfo;
+    private readonly BatteryReader _battery;
+    private readonly UPowerReader _upower;
 
     private ProcStatReading? _previousCpu;
     private bool _ready;
@@ -34,7 +37,8 @@ public sealed class LinuxSampler
     public LinuxSampler(
         string root = "/",
         ICommandRunner? runner = null,
-        Func<long>? clock = null)
+        Func<long>? clock = null,
+        Diagnostics? diagnostics = null)
     {
         _root = string.IsNullOrEmpty(root) ? "/" : root;
         _clock = clock ?? (() => Environment.TickCount64);
@@ -46,6 +50,8 @@ public sealed class LinuxSampler
         _network = new NetworkReader(_root, commands, pci);
         _gpus = new GpuReader(_root, commands, pci);
         _services = new ServiceReader(commands);
+        _battery = new BatteryReader(_root);
+        _upower = new UPowerReader(commands, diagnostics);
     }
 
     public string Root => _root;
@@ -69,6 +75,8 @@ public sealed class LinuxSampler
         IReadOnlyList<Disk> disks = ReadDisks(stamp);
         IReadOnlyList<Adapter> adapters = ReadAdapters(stamp);
         IReadOnlyList<Gpu> gpus = ReadGpus(stamp);
+        PowerSupplyReading power = ReadPowerSupply();
+        IReadOnlyList<PeripheralBattery> peripherals = ReadPeripherals(stamp, power);
 
         if (includeServices)
         {
@@ -135,6 +143,9 @@ public sealed class LinuxSampler
             Modules = Array.Empty<Module>(),
             Processes = processes,
             Services = services,
+            Batteries = power.Batteries,
+            PowerSources = power.PowerSources,
+            Peripherals = peripherals,
             CpuTotal = cpu.Total,
             CpuInfo = _cpuInfo,
             Gpu = gpus.Count > 0 ? gpus[0] : new Gpu(),
@@ -250,6 +261,35 @@ public sealed class LinuxSampler
         catch (Exception)
         {
             return Array.Empty<Gpu>();
+        }
+    }
+
+    /// <summary>
+    /// Batteries and adapters are a handful of tiny sysfs reads, so they are
+    /// always sampled; there is no setting that makes this pass expensive.
+    /// </summary>
+    private PowerSupplyReading ReadPowerSupply()
+    {
+        try
+        {
+            return _battery.Read();
+        }
+        catch (Exception)
+        {
+            return PowerSupplyReading.Empty;
+        }
+    }
+
+    /// <summary>Peripherals come from UPower at most every 30 s, cached in between.</summary>
+    private IReadOnlyList<PeripheralBattery> ReadPeripherals(long stamp, PowerSupplyReading power)
+    {
+        try
+        {
+            return _upower.Read(stamp, power);
+        }
+        catch (Exception)
+        {
+            return Array.Empty<PeripheralBattery>();
         }
     }
 }

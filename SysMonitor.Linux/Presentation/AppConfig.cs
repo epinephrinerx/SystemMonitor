@@ -36,6 +36,7 @@ public sealed class AppConfig
     public bool ShowDisk { get; set; } = true;
     public bool ShowNetwork { get; set; } = true;
     public bool ShowGpu { get; set; } = true;
+    public bool ShowBattery { get; set; } = true;
     public bool IncludeWireless { get; set; } = true;
     public string NetworkMode { get; set; } = "separated";
     public string CpuMode { get; set; } = "separated";
@@ -299,6 +300,7 @@ public sealed class AppConfig
         ShowDisk = Bool(root, "show_disk") ?? ShowDisk;
         ShowNetwork = Bool(root, "show_network") ?? ShowNetwork;
         ShowGpu = Bool(root, "show_gpu") ?? ShowGpu;
+        ShowBattery = Bool(root, "show_battery") ?? ShowBattery;
         IncludeWireless = Bool(root, "include_wireless") ?? IncludeWireless;
         NetworkMode = String(root, "network_mode") ?? NetworkMode;
         CpuMode = String(root, "cpu_mode") ?? CpuMode;
@@ -358,6 +360,7 @@ public sealed class AppConfig
         writer.WriteBoolean("show_disk", ShowDisk);
         writer.WriteBoolean("show_network", ShowNetwork);
         writer.WriteBoolean("show_gpu", ShowGpu);
+        writer.WriteBoolean("show_battery", ShowBattery);
         writer.WriteBoolean("include_wireless", IncludeWireless);
         writer.WriteString("network_mode", NetworkMode);
         writer.WriteString("cpu_mode", CpuMode);

@@ -14,6 +14,9 @@ public sealed class Snapshot
     private readonly IReadOnlyList<Module> _modules = Array.Empty<Module>();
     private readonly IReadOnlyList<ProcessEntry> _processes = Array.Empty<ProcessEntry>();
     private readonly IReadOnlyList<ServiceEntry> _services = Array.Empty<ServiceEntry>();
+    private readonly IReadOnlyList<Battery> _batteries = Array.Empty<Battery>();
+    private readonly IReadOnlyList<PowerSource> _powerSources = Array.Empty<PowerSource>();
+    private readonly IReadOnlyList<PeripheralBattery> _peripherals = Array.Empty<PeripheralBattery>();
 
     public IReadOnlyList<Core> Cores
     {
@@ -60,6 +63,34 @@ public sealed class Snapshot
         get => _services;
         init => _services = Seal(value);
     }
+
+    /// <summary>The machine's own batteries. Empty on a machine without one.</summary>
+    public IReadOnlyList<Battery> Batteries
+    {
+        get => _batteries;
+        init => _batteries = Seal(value);
+    }
+
+    /// <summary>Every adapter that can feed the machine. Empty when none is reported.</summary>
+    public IReadOnlyList<PowerSource> PowerSources
+    {
+        get => _powerSources;
+        init => _powerSources = Seal(value);
+    }
+
+    /// <summary>Batteries in peripherals: mice, keyboards, headsets and so on.</summary>
+    public IReadOnlyList<PeripheralBattery> Peripherals
+    {
+        get => _peripherals;
+        init => _peripherals = Seal(value);
+    }
+
+    /// <summary>
+    /// True while any power source says it is supplying the machine. Derived
+    /// from <see cref="PowerSources"/> rather than stored, so the two can never
+    /// disagree.
+    /// </summary>
+    public bool OnAcPower => _powerSources.Any(source => source.Online);
 
     /// <summary>
     /// When the process list was read (Environment.TickCount64). Changes only

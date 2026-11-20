@@ -14,6 +14,7 @@ namespace SysMonitor.Linux.Probe;
 /// Processes are a privacy-sensitive read, so they are only sampled when
 /// <c>--processes</c> is given, and the disk serial numbers that come out of
 /// sysfs are cut to their last four characters in both output formats.
+/// Peripheral battery ids are left out of both formats as well.
 /// </summary>
 internal static class Program
 {
@@ -36,7 +37,11 @@ internal static class Program
             var options = new JsonSerializerOptions
             {
                 WriteIndented = true,
-                Converters = { new JsonStringEnumConverter() },
+                Converters =
+                {
+                    new JsonStringEnumConverter(),
+                    new PeripheralBatteryJsonConverter(),
+                },
             };
             Console.WriteLine(JsonSerializer.Serialize(snapshot, options));
         }
@@ -63,6 +68,7 @@ internal static class Program
         PrintDisks(snapshot);
         PrintAdapters(snapshot);
         PrintGpus(snapshot);
+        PrintBatteries(snapshot);
         PrintProcesses(snapshot, includeProcesses);
     }
 
@@ -172,6 +178,62 @@ internal static class Program
             Console.WriteLine($"    Dedicated   : {Dedicated(gpu)}");
             Console.WriteLine($"    Temp        : {Celsius(gpu.Temp)}");
         }
+        Console.WriteLine();
+    }
+
+    /// <summary>
+    /// Batteries, adapters and peripheral batteries. Every value is printed as
+    /// read: a field the driver did not publish says "unknown" instead of a
+    /// zero. Peripheral ids are deliberately absent -- the model carries an
+    /// opaque hash, and this output is meant to be pasted into a report.
+    /// </summary>
+    private static void PrintBatteries(Snapshot snapshot)
+    {
+        Console.WriteLine("Battery");
+        if (snapshot.Batteries.Count == 0)
+        {
+            Console.WriteLine("  N/A");
+        }
+
+        foreach (Battery battery in snapshot.Batteries)
+        {
+            Console.WriteLine($"  {battery.Id}{Title(battery.Model)}");
+            Console.WriteLine($"    Manufacturer : {Known(battery.Manufacturer)}");
+            Console.WriteLine($"    Technology   : {Known(battery.Technology)}");
+            Console.WriteLine($"    Charge       : {(battery.Percent is int percent ? Number(percent) + " %" : "unknown")} ({State(battery.State)})");
+            Console.WriteLine($"    Power        : {Watts(battery.PowerW)}");
+            Console.WriteLine($"    Energy now   : {WattHours(battery.EnergyNowWh)}");
+            Console.WriteLine($"    Energy full  : {WattHours(battery.EnergyFullWh)}");
+            Console.WriteLine($"    Design       : {WattHours(battery.EnergyDesignWh)}");
+            Console.WriteLine($"    Health       : {Health(battery.HealthPercent)}");
+            Console.WriteLine($"    Cycles       : {Count(battery.CycleCount)}");
+            Console.WriteLine($"    Voltage      : {Voltage(battery.VoltageV)}");
+            Console.WriteLine($"    Time left    : {Duration(battery.TimeToEmpty)}");
+            Console.WriteLine($"    Time to full : {Duration(battery.TimeToFull)}");
+        }
+
+        Console.WriteLine("  Power sources");
+        if (snapshot.PowerSources.Count == 0)
+        {
+            Console.WriteLine("    N/A");
+        }
+        foreach (PowerSource source in snapshot.PowerSources)
+        {
+            Console.WriteLine($"    {source.Id,-28} : {source.Kind} ({(source.Online ? "online" : "offline")})");
+        }
+
+        Console.WriteLine("  Devices");
+        if (snapshot.Peripherals.Count == 0)
+        {
+            Console.WriteLine("    N/A");
+        }
+        foreach (PeripheralBattery device in snapshot.Peripherals)
+        {
+            string percent = device.Percent is int value ? Number(value) + " %" : "unknown";
+            Console.WriteLine($"    {device.Kind,-12} : {Known(device.Model)}  {percent}  {State(device.State)}");
+        }
+
+        Console.WriteLine($"  On AC power  : {(snapshot.OnAcPower ? "yes" : "no")}");
         Console.WriteLine();
     }
 
@@ -344,6 +406,9 @@ internal static class Program
             Modules = snapshot.Modules,
             Processes = snapshot.Processes,
             Services = snapshot.Services,
+            Batteries = snapshot.Batteries,
+            PowerSources = snapshot.PowerSources,
+            Peripherals = snapshot.Peripherals,
             MemoryStamp = snapshot.MemoryStamp,
             CpuTotal = snapshot.CpuTotal,
             CpuInfo = snapshot.CpuInfo,
@@ -367,6 +432,50 @@ internal static class Program
     }
 
     private static string Text(string value) => value.Length > 0 ? value : "N/A";
+
+    /// <summary>
+    /// A missing value in the battery section says "unknown", not "N/A": the
+    /// driver not saying is the fact, not a failure.
+    /// </summary>
+    private static string Known(string? value) => string.IsNullOrEmpty(value) ? "unknown" : value;
+
+    private static string Title(string? model) =>
+        string.IsNullOrEmpty(model) ? string.Empty : " · " + model;
+
+    private static string State(BatteryState state) => state switch
+    {
+        BatteryState.Charging => "charging",
+        BatteryState.Discharging => "discharging",
+        BatteryState.Full => "full",
+        BatteryState.NotCharging => "not charging",
+        _ => "unknown",
+    };
+
+    private static string Watts(double? value) => value is double watts ? $"{watts:F2} W" : "unknown";
+
+    private static string WattHours(double? value) => value is double wh ? $"{wh:F2} Wh" : "unknown";
+
+    private static string Health(double? value) => value is double percent ? $"{percent:F1} %" : "unknown";
+
+    private static string Count(int? value) => value is int count ? Number(count) : "unknown";
+
+    private static string Voltage(double? value) => value is double volts ? $"{volts:F2} V" : "unknown";
+
+    private static string Duration(TimeSpan? value)
+    {
+        if (value is not TimeSpan span)
+        {
+            return "unknown";
+        }
+
+        int hours = (int)span.TotalHours;
+        int minutes = span.Minutes;
+        if (hours > 0)
+        {
+            return minutes > 0 ? $"{hours}h {minutes:00}m" : hours + "h";
+        }
+        return minutes > 0 ? minutes + "m" : "<1m";
+    }
 
     private static string Number(int value) => value.ToString();
 
