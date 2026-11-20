@@ -16,6 +16,29 @@
 
 ---
 
+## R-031 · หน้าต่างหลักแบบใหม่บน Windows: sidebar แบบ Resources พร้อมหน้า Apps และ Processes
+
+| | |
+|---|---|
+| สถานะ | 🕐 รอยืนยัน — ขอบเขตเดียวกับ R-030 ฝั่ง Linux; คุณสั่งให้ส่ง requirement มาที่รุ่น Windows ด้วย (2026-11-20) · ลำดับ: ทำหลัง R-030 บน Linux ผ่านการทดสอบด้วยมือ |
+| วันที่ | 2026-11-20 |
+| แตะส่วนไหน | `SysMonitor.Wpf` (หน้าต่างหลักแทน Overall + Full, หน้า Apps/Processes) · ตัวอ่านข้อมูลรายโปรเซส · เอกสาร |
+| เกี่ยวกับ | R-030 บน branch `linux-native` (แผนเต็ม: `Docs/PLAN-R030-main-window.md` บน branch นั้น) · [[R-029]] (Battery เป็นโมดูลหนึ่งใน sidebar) |
+
+**คุณระบุ (2026-11-20):** sidebar แบบแอป Resources ที่แสดงกราฟของทุกโมดูลพร้อมชื่ออุปกรณ์; เมนู Overall (หน้าเดิมในเฟรมขวา), Settings (ขยายลงมา), Apps (แอปที่รันพร้อม Memory/CPU/GPU, ปิด/restart, ดู sessions, grid เรียงได้), Processes (PID, User, Memory/CPU/GPU, ปิด/restart, grid เรียงได้)
+
+**คุณเลือก (2026-11-20):** แทน Overall + Full (Widget คงเดิม) · Restart เฉพาะที่ปลอดภัย · sessions = instance และ process ใต้แอป
+
+**ผมเข้าใจว่า (ฝั่ง Windows):**
+- Apps: แบบ Task Manager — process ที่มีหน้าต่างระดับบน (top-level window) จัดกลุ่มตามโปรแกรม (exe / AppUserModelID) พร้อม process ลูก; instance = แต่ละ process หลักของโปรแกรม
+- CPU/RAM ต่อ process: `GetProcessTimes` / `GetProcessMemoryInfo` (มีใช้อยู่แล้วในหน้า RAM เดิม); GPU ต่อ process: PDH counter `GPU Engine` และ `GPU Process Memory` (ค่า `pid_N`) — ไม่ต้องใช้ admin
+- Restart แอป: ปิดทุก instance แล้วเปิด exe เดิม (หรือ AUMID สำหรับแอป Store); Restart process ได้เฉพาะ Windows service (ผ่าน SCM ที่มีอยู่แล้ว) — process ทั่วไปมีแต่ปุ่มปิด
+- Services ย้ายเป็นแท็บที่สองในหน้า Processes เหมือนฝั่ง Linux
+
+**ข้อจำกัด:** build/ทดสอบต้องทำบนเครื่อง Windows
+
+---
+
 ## R-029 · แสดงข้อมูลแบตเตอรี่บน Windows (รวมแบตอุปกรณ์ Bluetooth)
 
 | | |
