@@ -70,8 +70,20 @@ dotnet test  SysMonitor.Tests
 
 ## History
 
-The project began as two Electron prototypes, became a Python/Tk widget
-(2.x, standard library only), and was ported to C#/WPF from 3.0 —
-`SysMonitor.Wpf/README.md` keeps the port's engineering notes and
-`CHANGELOG.md` the release history. The Python source left the repository
-in 4.0, as the original requirement always said it would.
+- **1.x — browser extension, then Electron.** The first System Monitor was
+  written in HTML and JavaScript as a Firefox/Chrome extension. It was then
+  wrapped in Electron so it could run on its own, outside the browser. Two
+  prototypes came out of that line, `Gemini/1.0.4` and `Claude/1.0.5`; the
+  second is the first plus drive details (type, interface, read/write
+  speed). Their source is not in this repository.
+- **2.x — Python/Tk.** A rewrite as a native Windows widget with only the
+  Python standard library (`tkinter`, `ctypes`), carrying the union of both
+  prototypes' features (commits `7b8d91d`, 2.0.0, and `41c246a`, 2.0.1).
+- **3.x–4.x — C#/WPF.** Ported to C#/WPF on 2026-09-20 (3.0.0).
+  `SysMonitor.Wpf/README.md` keeps the port's engineering notes. The Python
+  source left the repository in 4.0, as the original requirement always said
+  it would.
+- **Other editions.** The Mac Edition (1.0.0) lives on branch `Mac`; the
+  native Linux edition is rebuilt from 4.3.0 on branch `linux-native`.
+
+`CHANGELOG.md` keeps the release history.
