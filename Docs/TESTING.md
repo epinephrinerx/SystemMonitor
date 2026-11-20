@@ -1,46 +1,52 @@
 # Testing
 
-เอกสารนี้เป็นแหล่งข้อมูลหลักสำหรับวิธีตรวจสอบ `[PROJECT_NAME]` แทนคำสั่งตัวอย่างทั้งหมดด้วยคำสั่งจริงก่อนใช้งาน
+เอกสารนี้เป็นแหล่งข้อมูลหลักสำหรับวิธีตรวจสอบ **System Monitor (Linux, `linux-native`)** แทนคำสั่งตัวอย่างทั้งหมดด้วยคำสั่งจริงที่รันใน repository นี้
+
+ขอบเขต: branch นี้มีเฉพาะโปรเจกต์ Linux (R-027) คำสั่งของ Windows (WPF, ตัวติดตั้ง, ส่วนเสริม) อยู่บน `main` และไม่ถูกรันที่นี่
 
 ## 1. Quick start
 
 ```sh
-[INSTALL_COMMAND]
-[FAST_TEST_COMMAND]
-[LINT_COMMAND]
-[TYPECHECK_COMMAND]
-[BUILD_COMMAND]
+export DOTNET_ROOT=~/.dotnet PATH=~/.dotnet:$PATH
+
+dotnet build SysMonitor.Linux.App -c Release      # ต้องได้ 0 warnings, 0 errors
+dotnet test  SysMonitor.Linux.Tests               # ต้องเขียวทั้งหมด
+./build-linux.sh                                  # archive + sha256 ใน dist/
 ```
 
 ข้อกำหนดเบื้องต้น:
 
-- Runtime: `[VERSION]`
-- Package manager: `[VERSION]`
-- Services ที่ต้องใช้: `[DATABASE/CACHE/NONE]`
-- ตัวแปร environment: ดู `.env.example`; ห้ามใช้ production credentials
+- Runtime: .NET SDK 10.0 (ทดสอบด้วย 10.0.404); ถ้าไม่มี `dotnet` บน PATH ให้ตั้ง `DOTNET_ROOT=~/.dotnet`
+- Package manager: NuGet ผ่าน dotnet CLI — การ build ปกติใช้ cache ในเครื่อง การ build self-contained ครั้งแรกต้องดึง runtime pack `linux-x64`/`linux-arm64` จาก nuget.org ครั้งเดียว
+- Services ที่ต้องใช้: ไม่มี (ไม่ใช้ฐานข้อมูล ไม่มี network ในเทสต์)
+- ตัวแปร environment: ไม่มี และห้ามใช้ production credentials
 
 ## 2. Test levels
 
 | Level | Purpose | Location | Command |
 |---|---|---|---|
-| Unit | business logic แบบ isolated | `[PATH]` | `[COMMAND]` |
-| Integration | database, filesystem หรือ adapter contracts | `[PATH]` | `[COMMAND]` |
-| Contract/API | request/response และ compatibility | `[PATH]` | `[COMMAND]` |
-| End-to-end | critical user journeys | `[PATH]` | `[COMMAND]` |
-| Smoke | ตรวจระบบหลัง build/deploy | `[PATH]` | `[COMMAND]` |
+| Unit | ตรรกะของ reader และ presentation แบบ isolated | `SysMonitor.Linux.Tests` | `dotnet test SysMonitor.Linux.Tests` |
+| Integration (fixture tree) | อ่าน `/proc` `/sys` จาก tree จำลอง + fake `ICommandRunner` | `SysMonitor.Linux.Tests` | เหมือนข้างบน |
+| Contract | archive layout, checksum, `install.sh` contract, Exec escaping | `SysMonitor.Linux.Tests` (`UpdaterTests`, `AutostartTests`, `InstallScriptTests`) | `dotnet test SysMonitor.Linux.Tests --filter UpdaterTests` |
+| End-to-end | snapshot จริงของเครื่องที่รัน | `SysMonitor.Linux.Probe` | `dotnet run --project SysMonitor.Linux.Probe -- --json` |
+| Smoke (UI model) | สอง sample จริง → view model เดียวกับที่หน้าต่างใช้ | `SysMonitor.Linux.App --probe-ui` | `dotnet run --project SysMonitor.Linux.App -- --probe-ui` |
+| Smoke (update) | ยิง GitHub จริงหนึ่งครั้ง (GET เท่านั้น ไม่ดาวน์โหลด) | `SysMonitor.Linux.App --probe-update` | `dotnet run --project SysMonitor.Linux.App -- --probe-update` |
+| Packaging | publish, stage, archive, checksum | `build-linux.sh` | `./build-linux.sh` |
+| Installer scripts | ติดตั้ง/อัปเดต/ถอน ใน sandbox | `packaging/linux` | ดู §5 |
+
+`--probe-ui` และ `--probe-update` พิมพ์ข้อความแล้วจบ ไม่เปิดหน้าต่าง และไม่เขียน config, autostart หรือไฟล์ใด ๆ
 
 ## 3. เลือกชุดตรวจสอบตามการเปลี่ยนแปลง
 
 | Change | Required checks |
 |---|---|
-| Docs/comments only | formatting/link check ถ้ามี |
-| Local logic | targeted unit tests + lint/type-check ที่เกี่ยวข้อง |
-| Public API | unit + integration/contract + compatibility checks |
-| Database/schema | migration test + integration + rollback/forward-fix validation |
-| Authentication/security | negative tests + authorization boundary tests + relevant integration tests |
-| UI behavior | component tests + critical E2E + visual/accessibility check ตามความเสี่ยง |
-| Dependency/config/build | build + smoke + affected test suites |
-| Shared/core code | affected tests แล้วตามด้วย full suite |
+| Docs/comments only | ตรวจ link และตัวอย่างคำสั่งให้ตรงกับสคริปต์ |
+| Sensor reader (`SysMonitor.Linux/Sensors`) | `dotnet test SysMonitor.Linux.Tests` + `SysMonitor.Linux.Probe` บนเครื่องจริง |
+| Presentation (`SysMonitor.Linux/Presentation`) | unit tests ที่เกี่ยวข้อง + `--probe-ui` |
+| Updater / autostart / tray | `UpdaterTests`, `AutostartTests`, `TrayHostTests`, `TrayTextTests`, `RestartTests` + `--probe-update` |
+| Avalonia app (`SysMonitor.Linux.App`) | build 0 warnings + full suite + `--probe-ui` |
+| Packaging / install scripts | `./build-linux.sh` + transcript ของ §5 (sandbox เท่านั้น) |
+| Dependency/config/build | `dotnet build -c Release` + full suite + `./build-linux.sh` |
 
 ## 4. Test design rules
 
@@ -53,19 +59,63 @@
 - Mock เฉพาะ system boundary; อย่า mock logic ที่กำลังทดสอบ
 - Test name อธิบายเงื่อนไขและผลลัพธ์ที่คาดหวัง
 
+แนวปฏิบัติของโปรเจกต์นี้: reader ทุกตัวรับ `root` เพื่ออ่าน tree จำลอง, เครื่องมือภายนอก (`iw`, `nvidia-smi`, `systemctl`, `busctl`) เข้าถึงผ่าน `ICommandRunner` เท่านั้น, HTTP ใช้ `HttpMessageHandler` ปลอม และเวลาใช้ clock ที่ฉีดเข้าไป
+
 ## 5. Test data and isolation
 
-- ใช้ synthetic data; ห้ามใช้ข้อมูลลูกค้าจริง
-- แต่ละ test ต้องสร้างและล้างข้อมูลของตนเอง
-- Local test database: `[STRATEGY]`
-- Fixture factories: `[PATH]`
-- Reset command: `[COMMAND]`
+- ใช้ synthetic data; ห้ามใช้ข้อมูลผู้ใช้จริง
+- แต่ละ test ต้องสร้างและล้างข้อมูลของตนเอง (fixture tree ใน `Path.GetTempPath()`)
+- Local test database: ไม่มี
+- Fixture factories: `SysMonitor.Linux.Tests/TestHelper.cs`
+- Reset command: `dotnet clean SysMonitor.Linux.Tests`
 - Tests ที่ destructive ต้องทำงานเฉพาะใน disposable environment และมี guard ป้องกัน production
+
+### Installer-script tests (sandbox only)
+
+**ห้ามรัน `install.sh`/`uninstall.sh` กับ `$HOME` จริงเด็ดขาด** และห้ามรัน `app/sysmonitor` ใช้ `HOME` ชั่วคราวเสมอ:
+
+```sh
+S=$(mktemp -d)                                    # หรือโฟลเดอร์ใต้ scratchpad
+mkdir -p "$S/home" "$S/dist"
+tar -xzf dist/SystemMonitor-4.3.0-linux-x64.tar.gz -C "$S/dist"   # archive แบน: install.sh อยู่ที่ root
+
+run() { env HOME="$S/home" XDG_DATA_HOME="$S/home/.local/share" \
+             XDG_CONFIG_HOME="$S/home/.config" \
+             XDG_STATE_HOME="$S/home/.local/state" "$@"; }
+
+run dash "$S/dist/install.sh"
+find "$S/home" | sort                             # ตรวจ tree ที่ติดตั้ง
+sed -n '/^Exec=/p' "$S/home/.local/share/applications/systemmonitor.desktop"
+
+# update: ไม่ให้สคริปต์เปิดแอป
+sh -c true & dead=$!; wait "$dead"
+run env SYSMONITOR_NO_LAUNCH=1 dash "$S/dist/install.sh" --update --wait-pid "$dead"
+
+run dash "$S/dist/install.sh" --update --wait-pid 12ab   # ต้อง exit 1 (ไม่ใช่ตัวเลข)
+run dash "$S/dist/uninstall.sh"                          # settings ต้องยังอยู่
+run dash "$S/dist/uninstall.sh" --purge                  # settings และ log ถูกลบ
+rm -rf "$S"
+```
+
+- รันสคริปต์ด้วย `dash` เสมอ (ไม่ใช่แค่ `sh`) เพราะ `/bin/sh` ของผู้ใช้แต่ละคนไม่เหมือนกัน
+- ทดสอบการปฏิเสธสิทธิ์ root ได้ด้วย `id` ปลอมใน `PATH` (`printf '#!/bin/sh\necho 0\n' > "$S/fakebin/id"`)
+- ตรวจ escaping ของ `Exec` โดยเทียบกับ `DesktopEntry.Quote` ใน `SysMonitor.Linux` (สองขั้น: Exec quoting แล้ว string-value escaping)
+- **ขอบเขตเส้นทางแบบ physical** (Amendment 2): ต้องได้ exit 1 พร้อมข้อความสำหรับ
+  - `XDG_DATA_HOME="$S/home/.local/../../outside"` (component `..`)
+  - `XDG_DATA_HOME` ที่เป็น symlink ไปโฟลเดอร์นอก `HOME` (ต้องไม่มีอะไรถูกเขียนนอก `HOME`)
+  - `XDG_DATA_HOME="$S/home"` (ไม่ใช่ path ใต้ `HOME`)
+  - `XDG_DATA_HOME="relative/path"` (ไม่ absolute)
+  - `app.new`/`app.old` ที่เป็น symlink หรือไฟล์ธรรมดา, และ `app/` ที่เป็น symlink
+  - `uninstall.sh --purge` ขณะ `XDG_STATE_HOME` อยู่นอก `HOME` → ต้องไม่ลบอะไรเลย (app และ settings ยังอยู่)
+- **กู้การติดตั้งที่ถูกตัดกลางทาง** (Amendment 2): ติดตั้งให้สำเร็จ, `mv app app.old`,
+  สร้าง `app.new` ค้างไว้, แล้วรัน `install.sh` ซ้ำ → ต้องพิมพ์
+  `restored the previous version from …` และจบด้วย `app/` ที่สมบูรณ์โดยไม่มี `app.new`/`app.old`
+- `shellcheck` เป็นทางเลือก: ถ้าติดตั้งไว้ ให้รัน `shellcheck build-linux.sh packaging/linux/*.sh`; ถ้าไม่มี ให้รายงานว่าไม่มี
 
 ## 6. Coverage policy
 
 - Coverage เป็นสัญญาณ ไม่ใช่เป้าหมายเพียงอย่างเดียว
-- Minimum project threshold: `[PERCENT_OR_N/A]`
+- Minimum project threshold: N/A (ไม่ได้ตั้ง threshold)
 - โค้ดใหม่/เปลี่ยนต้องครอบคลุม decision paths ที่มีความเสี่ยง
 - ห้ามเพิ่ม meaningless assertions เพื่อให้ตัวเลขผ่าน
 - รายงานส่วนที่ไม่ทดสอบพร้อมเหตุผลและ risk mitigation
@@ -74,14 +124,13 @@
 
 Pull request ต้องผ่าน:
 
-1. Format/lint
-2. Type-check หรือ static analysis
-3. Unit tests
-4. Required integration/contract tests
-5. Build/package validation
-6. Security/license checks ตามที่โครงการกำหนด
+1. `dotnet build SysMonitor.Linux.App -c Release` — 0 warnings, 0 errors
+2. `dotnet test SysMonitor.Linux.Tests` — เขียวทั้งหมด
+3. `./build-linux.sh` — archive ถูกสร้าง, `find dist/stage -type l` ว่าง, `sha256sum -c` ผ่าน
+4. Installer scripts ใน sandbox (เมื่อแตะ `packaging/linux` หรือ `build-linux.sh`)
+5. Security/license checks ตามที่โครงการกำหนด — ไม่มี CI ที่ตั้งไว้บน branch นี้
 
-CI configuration: `[PATH_OR_URL]`
+CI configuration: ไม่มี (ตรวจด้วยมือตาม §1 และ §5)
 
 Flaky test ห้าม rerun จนเขียวแล้วละเลย ให้เก็บหลักฐาน เปิด issue และ quarantine เฉพาะเมื่อมีเจ้าของกับวันติดตามชัดเจน
 
@@ -89,7 +138,7 @@ Flaky test ห้าม rerun จนเขียวแล้วละเลย �
 
 ใช้ manual testing เมื่อ automation ไม่คุ้มค่าหรือครอบคลุมไม่ได้ และบันทึก:
 
-- Environment/build ที่ทดสอบ
+- Environment/build ที่ทดสอบ (`uname -m`, `cat /etc/os-release`, ค่า `<Version>`)
 - Preconditions และ test data
 - Steps
 - Expected/actual result
@@ -97,9 +146,11 @@ Flaky test ห้าม rerun จนเขียวแล้วละเลย �
 
 Critical smoke checklist:
 
-- `[USER_JOURNEY_1]`
-- `[USER_JOURNEY_2]`
-- Error handling และ recovery ที่สำคัญ
+- `dotnet run --project SysMonitor.Linux.Probe -- --json` คืน snapshot ที่มี CPU/RAM/disk/network
+- `--probe-ui` พิมพ์ view model ของทั้งสามมุมมอง พร้อม autostart `IsEnabled`, tray tooltip และชื่อ asset ของ update
+- `--probe-update` คืนผลที่อ่านได้ (ยังไม่มี Linux release จึงคาดว่า `check_failed` พร้อมเหตุผล "no linux asset")
+- ติดตั้งใน sandbox แล้วเปิดเมนู `.desktop` และไอคอนได้ (ตรวจด้วยตา ไม่ต้องรันแอป)
+- ถอนแล้วไม่มีไฟล์ของโปรแกรมเหลือ และ settings อยู่ครบ (หรือหายเมื่อ `--purge`)
 
 ## 9. Failure handling
 
@@ -115,20 +166,18 @@ Critical smoke checklist:
 
 ## 10. Performance and security testing
 
-- Performance command/scenario: `[COMMAND_OR_PLAN]`
-- Baseline และ regression threshold: `[TARGET]`
-- Security scanning: `[COMMAND/CI_JOB]`
-- Dependency audit: `[COMMAND]`
-- ห้ามยิง load test หรือ security test ไป production โดยไม่ได้รับอนุญาต
+- Performance command/scenario: วัด RSS/CPU ของแอปขณะใช้งานปกติเท่านั้น (ห้ามสร้าง load เพื่อทดสอบ)
+- Baseline และ regression threshold: ไม่ได้กำหนด
+- Security scanning: ไม่มีเครื่องมือใน CI; ตรวจด้วยการอ่านโค้ดและเทสต์ของ `TarExtractor` (path traversal, link), `install.sh`/`uninstall.sh` guard และ Exec escaping
+- Dependency audit: `dotnet list SysMonitor.Linux.App package --vulnerable` (ต้องมี network)
+- ห้ามยิง load test หรือ security test ไป production โดยไมได้รับอนุญาต
 
 ## 11. Release verification
 
 ก่อน release:
 
-- CI gates ผ่านจาก commit ที่จะ release
-- migration และ compatibility ได้รับการตรวจ
-- artifacts สามารถ build แบบทำซ้ำได้
-- smoke tests ผ่านใน staging หรือ environment ที่กำหนด
-- rollback/forward-fix plan พร้อม
-- monitoring และ alert ที่เกี่ยวข้องพร้อมใช้งาน
-
+- `dotnet build -c Release` 0 warnings และ `dotnet test SysMonitor.Linux.Tests` ผ่านจาก commit ที่จะ release
+- `./build-linux.sh` สร้าง archive ที่มี `install.sh` ที่ root, ไม่มี link, และ `sha256sum -c` ผ่าน
+- ติดตั้ง/อัปเดต/ถอนใน sandbox ผ่านตาม §5 (ไม่แตะ `$HOME` จริง)
+- `--probe-ui` และ `--probe-update` ให้ผลตามที่คาด
+- rollback/forward-fix plan พร้อม: archive รุ่นก่อนหน้ายังติดตั้งทับได้ด้วย `install.sh` ตัวเดียวกัน

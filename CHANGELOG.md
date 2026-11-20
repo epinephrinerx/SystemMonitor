@@ -1,5 +1,59 @@
 # Change log
 
+## Linux 4.3.0 — 2026-11-20 — Native Linux edition (R-027)
+
+The same program, rebuilt for Linux from the 4.3.0 line. It is a separate
+branch (`linux-native`); the Windows releases below are unchanged and stay on
+`main`.
+
+**Three views.** The widget tile that rotates one reading at a time, the overall
+window with its settings sidebar, and the full window with a tab per device and
+a framed graph per reading, with the tab buttons carrying each device's headline
+figure. Double-click cycles the views, F11 opens the full one, Escape steps back.
+Light and dark themes, Thai and English, opacity, font scale and window geometry
+carry over from the Windows edition.
+
+**What it reads.** CPU load per core from `/proc/stat`, model, cache and base
+clock from `/proc/cpuinfo` and sysfs, temperatures from hwmon and the thermal
+zones; RAM from `/proc/meminfo`; disk space, real per-disk I/O, bus and media
+type from `/proc/self/mountinfo`, `/proc/diskstats` and `/sys/block`, with
+temperatures from `nvme` and `drivetemp`; GPUs from `/sys/class/drm`, the
+kernel's DRM engine counters in `/proc/<pid>/fdinfo` and `nvidia-smi`; networks
+from `/proc/net/dev` with `iw` for Wi-Fi detail; processes from `/proc/<pid>`;
+services from `systemctl --user`. Nothing needs root and the program never asks
+for it: memory modules, SMART-backed disk temperatures and an Intel GPU
+temperature are shown as `n/a` instead.
+
+**Processes and services.** The RAM tab lists processes grouped by name with a
+search box, and closing one asks first and re-reads the process before sending a
+signal. The services tab lists user units and can start, stop, restart, enable or
+disable them; system units stay read-only.
+
+**Tray, close and restart.** Closing can hide the window to a StatusNotifier
+tray icon, whose menu shows it again or quits. Without a StatusNotifier host the
+window minimises instead, so it can never be lost. Restart starts a fresh copy
+after the old one has released the single-instance lock. Autostart is an XDG
+entry that the program writes and removes itself.
+
+**Updates.** The side panel checks GitHub for a newer release, downloads the
+archive over HTTPS from an allow-listed host, verifies its SHA-256, unpacks it
+without following links, and hands it to the archive's own installer, which
+waits for the running copy to exit, installs in place and starts it again. A
+failed check reports that it failed, never "up to date".
+
+**Install without root.** The release is a tar.gz with `install.sh` and
+`uninstall.sh`. The installer copies the program into
+`~/.local/share/SystemMonitor/app`, creates `~/.local/bin/sysmonitor`, the menu
+entry and the icon, replacing the program directory by two renames; if that swap
+is interrupted, the next install or update puts the previous version back.
+Settings live in `~/.config/SystemMonitor` and the
+log in `~/.local/state/SystemMonitor`; neither is touched by an install, an
+update or a plain uninstall. `--purge` removes them.
+
+`build-linux.sh` produces the archive and its checksum, and refuses to build an
+archive that holds a link. The Windows-only features — extensions, SMART,
+machine-wide install, elevation — are not part of this edition.
+
 ## v4.3.0 — 2026-11-16 — Machine-wide install
 
 **Install for everyone, running as administrator.** The setup can now install

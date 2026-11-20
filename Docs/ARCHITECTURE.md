@@ -1,284 +1,303 @@
 # Architecture
 
-เอกสารนี้อธิบายโครงสร้างและขอบเขตของ **System Monitor** (`SystemMonitor4.0`) ให้อัปเดตเมื่อมีการเปลี่ยน service boundary, data flow, storage หรือ dependency direction
+This document describes the structure and boundaries of **System Monitor** on
+the `linux-native` branch. Update it when a service boundary, the data flow, the
+storage or the dependency direction changes.
 
-> ขอบเขตของเอกสาร: อธิบายสถานะหลัง **R-021** (สัญญา + ตัวโหลด + โฮสต์ส่วนเสริม + SMART เป็นส่วนเสริมแรก + แพ็กเกจ/ตัวติดตั้ง) และ **R-022** (ติดตั้งแบบทั้งเครื่อง / Program Files / Scheduled Task — ดู `Docs/adr/0002-machine-wide-install.md`) ซึ่ง **ลงมือและทดสอบด้วยโฟลเดอร์จำลองแล้ว แต่ยังไม่ได้ตรวจบนเครื่องจริง**
+> Scope: this document covers the **Linux edition** (R-027) only. The Windows
+> 4.3.0 edition — WPF host, extension host and contract, SMART extension,
+> machine-wide install, ADR 0001 and ADR 0002 — lives on `main`. Nothing from it
+> is built, tested or shipped on this branch.
 
 ## 1. System overview
 
-System Monitor เป็น Windows desktop widget แบบ native (C#/.NET 8 WPF) ที่แสดงสถานะ CPU/RAM/Disk/GPU/Network จากตัวนับของ Windows และ ACPI thermal zone ตั้งแต่ R-021 ตัวโฮสต์ถูกแยกเป็น "core" ที่คงที่ บวก "ส่วนเสริม" ที่โหลดเป็น .NET assembly ตอนรันจากโฟลเดอร์ `extensions` ใต้โฟลเดอร์ exe โดยไม่ต้อง build โฮสต์ใหม่ โมดูล SMART ถูกย้ายออกมาเป็นส่วนเสริม first-party ตัวแรก (`SysMonitor.Ext.Smart`) และเป็นผู้ให้อุณหภูมิดิสก์ผ่านสัญญา `IDiskTemperatureSource` ตัวติดตั้งมีสองโหมด: per-user (ไม่ต้องใช้สิทธิ์ผู้ดูแลระบบ และแอปไม่ยกระดับสิทธิ์เองตอนเปิด) และแบบทั้งเครื่อง (R-022: ลง Program Files และแอปเปิดซ้ำตัวเองแบบยกระดับตอนเริ่ม)
+System Monitor is a native Linux desktop widget (C#/.NET 10, Avalonia) that
+shows CPU, RAM, disk, GPU and network figures. It is one process with no
+privileged helper, no daemon and no service: it reads what the kernel already
+publishes for the logged-in user (`/proc`, `/sys`, hwmon, DRM fdinfo) and asks a
+few command-line tools for the rest (`iw`, `nvidia-smi`, `systemctl --user`).
+
+The program is installed per user into `~/.local/share/SystemMonitor/app`, and
+updated by replacing that directory in place while the metadata that points at
+it (menu entry, command, autostart entry) stays unchanged.
 
 ### Goals
 
-- คงพฤติกรรมเดิมของ widget (หน้าตา ค่า config ภาษา ปุ่ม) ไว้ทั้งชุด — การแยก core เป็นการจัดโครงสร้างใหม่ ไม่ใช่การเปลี่ยนพฤติกรรม (`Requirements.md` R-021)
-- ใช้สัญญา (contract) เดียวที่บันทึกไว้ที่เดียว และให้ส่วนเสริมที่เขียนตามสัญญาเสียบได้ (`SysMonitor.Extensibility`)
-- โหลด/ถอดส่วนเสริมได้โดยไม่ต้อง build โฮสต์ใหม่ และส่วนเสริมที่เสียต้องถูกข้ามพร้อมข้อความ ไม่ทำให้โฮสต์ crash
-- ตรวจ SHA-256 ของทุกไฟล์ก่อนรันโค้ดส่วนเสริม และแยกความเชื่อถือเป็น first-party / อนุมัติโดยผู้ใช้ / ไม่เชื่อถือ
+- The three views and the readings of the Windows 4.3.0 edition, on Linux.
+- No root, no elevation, no package manager, no distribution package.
+- Values that need privileges are shown as `n/a`; nothing is guessed and no
+  prompt appears.
+- All logic that can be tested lives in `SysMonitor.Linux`, away from Avalonia.
 
 ### Non-goals
 
-จาก `Requirements.md` R-021 หัวข้อ "ไม่รวม":
+From `Requirements.md` R-027:
 
-- ไม่ทำตลาด/ดาวน์โหลดส่วนเสริมจากอินเทอร์เน็ต และไม่ทำตัวอัปเดตส่วนเสริมอัตโนมัติ
-- ไม่เพิ่ม package ของบุคคลที่สามในผลิตภัณฑ์ (ใช้เฉพาะสิ่งที่มากับ .NET)
-- ไม่แก้ GUI MFC ของ CrystalDiskInfo และไม่ทำบน Linux
-- ไม่ยกระดับสิทธิ์อัตโนมัติ (ส่วนเสริมไม่ได้สิทธิ์เพิ่มเอง)
-- ไม่ตรวจจับ/กำจัดมัลแวร์ (หน้าที่ของ Windows Defender/แอนตี้ไวรัส)
-- ชั้นที่ 3 ของโมเดลความเชื่อถือ (ติดตั้งใต้ `Program Files`) ทำใน R-022 เป็นทางเลือกของตัวติดตั้ง: แอปที่ติดตั้งแบบนั้นเปิดแบบยกระดับทุกครั้ง ส่วนติดตั้งแบบ per-user ยังเป็นค่าเดิม
+- No extension system on Linux (R-027 excludes it).
+- No full SMART scanning; disk temperature comes from hwmon only.
+- No `.deb`, `.rpm`, Flatpak or Snap package in this requirement.
+- No behaviour change to the Windows edition.
 
 ## 2. Context diagram
 
 ```text
-                          ┌───────────────┐
-                          │    ผู้ใช้      │
-                          └───────┬───────┘
-        หน้าต่าง WPF / tray / checkbox / ปุ่ม "อนุมัติ..." / UAC prompt
-                                  │
-┌─────────────────────────────────▼──────────────────────────────────────┐
-│ TB1 · โปรเซสปกติ (ไม่ elevated) — SystemMonitor.exe                     │
-│                                                                       │
-│   MainWindow ◄── Snapshot (Volatile) ── Sampler (background task)      │
-│        │                                     │ kernel32 / IOCTL / WMI   │
-│        │                                     └─────────► Windows APIs   │
-│        └──► ExtensionHost ──► ExtensionLoader ──► ExtensionLoadContext │
-│                  │                  │                                  │
-│                  │                  └── อ่าน <โฟลเดอร์ exe>\extensions\<id>\
-│                  └── CollectViews / GetDiskTemperatures                │
-│                                                                       │
-│   AppConfig ── %APPDATA%\SystemMonitor\config.wpf.json                 │
-│   Diag ────── %APPDATA%\SysMonitor\sysmonitor-wpf.log                  │
-│   Updater ─── GitHub Releases (HTTPS)                                  │
-└────────────┬─────────────────────────────────────┬────────────────────┘
-             │ runas (โปรเซสเดียว จบแล้วปิด)          │ อ่านไฟล์ส่วนเสริม
-             ▼                                     ▼
-┌──────────────────────────────────┐   ┌──────────────────────────────────┐
-│ TB1' · โปรเซส elevated (ชั่วคราว) │   │ <โฟลเดอร์ exe>\extensions\<id>\  │
-│  --approve-extension <id> <sha>  │   │  extension.json + ไฟล์ที่ระบุ     │
-│  --elevated-op …                 │   └──────────────────────────────────┘
-└──────────────┬───────────────────┘
-               ▼
-  %ProgramData%\SystemMonitor\approved-extensions.json
-  (ACL: เขียนได้เฉพาะ Administrators/SYSTEM)
+                        ┌───────────────┐
+                        │     user      │
+                        └───────┬───────┘
+   window / tray / menu entry    │    autostart entry (XDG)
+                                ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│ one unprivileged process: sysmonitor                                 │
+│                                                                      │
+│  ShellWindow ◄── Snapshot (Volatile) ── LinuxSampler (background)    │
+│      │                                        │  /proc  /sys  hwmon   │
+│      │                                        │  DRM fdinfo           │
+│      │                                        └──► iw, nvidia-smi,    │
+│      │                                             systemctl --user   │
+│      ├──► ShellModel ──► Widget/Overall/Full board models ──► rows    │
+│      ├──► FileAutostart ──► $XDG_CONFIG_HOME/autostart/…desktop       │
+│      ├──► TrayIconHost ──► StatusNotifierWatcher (busctl)             │
+│      └──► GitHubUpdater ──► api.github.com / release assets (HTTPS)   │
+│                                                                      │
+│  AppConfig ─ $XDG_CONFIG_HOME/SystemMonitor/config.json               │
+│  Diagnostics ─ $XDG_STATE_HOME/SystemMonitor/sysmonitor.log           │
+│  SingleInstanceLock ─ $XDG_RUNTIME_DIR/sysmonitor.lock                │
+└──────────────────────────────────────────────────────────────────────┘
+             │ on update: /bin/sh install.sh --update --wait-pid <pid>
+             ▼
+   $XDG_DATA_HOME/SystemMonitor/app  (replaced in place)
 ```
 
 **Trust boundaries**
 
-| ขอบเขต | ความหมาย | การบังคับใช้ |
+| Boundary | Meaning | Enforced by |
 |---|---|---|
-| TB1 โปรเซสปกติ vs TB1' โปรเซส elevated | แอปไม่มีทางยกระดับตัวเองตอนเปิด มีเพียงโปรเซสลูกที่ผู้ใช้ยินยอมผ่าน UAC และทำงานงานเดียวแล้วจบ | `SysMonitor.Wpf/App.xaml.cs:App.OnStartup` แยกสองสวิตช์ (`ExtensionApproval.Switch`, `MemoryTools.ElevatedSwitch`) ออกก่อนโหลด config |
-| first-party | SHA-256 ของ `extension.json` อยู่ใน allowlist ที่ฝังใน `SystemMonitor.exe` | `SysMonitor.Wpf/Extensions/FirstPartyAllowlist.cs:FirstPartyAllowlist.FromAssembly` |
-| approved | SHA-256 ตรงกับรายการใน `%ProgramData%\SystemMonitor\approved-extensions.json` ที่ ACL อนุญาตให้เฉพาะ admin เขียน | `SysMonitor.Wpf/Extensions/ApprovalStore.cs:ApprovalStore.IsApproved`, `AclPolicy.IsAdminOnlyWritable` |
-| untrusted | ไม่อยู่ในสองกลุ่มข้างต้น | โฮสต์ปกติ → `NotApproved`; โฮสต์ elevated → `NotTrustedWhenElevated` |
+| kernel interfaces → app | `/proc` and `/sys` are read-only inputs; a missing or unreadable file empties that section and leaves the rest of the sample intact | per-source `catch` in `LinuxSampler` and the individual readers |
+| external tools → app | `iw`, `nvidia-smi` and `systemctl` output is parsed, never executed as shell; each call has a timeout | `ProcessCommandRunner` (`ArgumentList`, timeout, no shell) |
+| GitHub → app | HTTPS only, host allow-list, manual redirects, SHA-256 before extraction | `GitHubUpdater` |
+| archive → disk | the updater refuses links, absolute paths and `..`, then requires a regular `install.sh` at the archive root | `TarExtractor`, `IsInstallerFile` |
+| update script → installed tree | `install.sh` copies inside `$XDG_DATA_HOME/SystemMonitor`, never into `$HOME` directly; every path is resolved physically (`cd -P`) and re-checked immediately before each rename or removal | `install.sh` / `uninstall.sh` boundary helpers |
 
 ## 3. Repository map
 
 ```text
-SystemMonitor4.0/
-├── SysMonitor.Wpf/              # โฮสต์ WPF (AssemblyName SystemMonitor, net8.0-windows)
-│   ├── Extensions/              # ExtensionHost, ExtensionLoader, manifest, trust, approval
-│   ├── Sensors/                 # Sampler และตัวอ่านค่า (CPU/RAM/Disk/GPU/Network/Thermal)
-│   ├── Model/                   # Snapshot และ record ของข้อมูล
-│   ├── Native/                  # Win32/IOCTL/registry interop
-│   ├── ViewModels/              # WidgetViewModel (+ ส่วนขยายของส่วนเสริม)
-│   ├── Controls/                # วิดเจ็ตที่วาดเอง (chart ฯลฯ)
-│   ├── Converters/
-│   ├── app.manifest             # per-monitor-v2 DPI
-│   └── first-party-extensions.json   # สร้างโดย PackTool (gitignored)
-├── SysMonitor.Extensibility/    # สัญญาส่วนเสริม (ไม่มี dependency)
-├── SysMonitor.Ext.Smart/        # ส่วนเสริม first-party: SMART + disk temperature
-├── SysMonitor.Ext.Sample/       # ส่วนเสริมตัวอย่าง id "sample" (ไม่อยู่ใน allowlist)
-├── SysMonitor.PackTool/         # แพ็กส่วนเสริม + SHA-256 + เติม allowlist
-├── SysMonitor.Setup/            # ตัวติดตั้ง (per-user และแบบทั้งเครื่อง) + payload/ ที่ฝังเป็น resource
-├── SysMonitor.Tests/            # MSTest (+ Extensions/ สำหรับเทสต์ส่วนเสริม)
-├── SysMonitor.Tests.DummyExtension/
-├── Docs/                        # AI_WORKFLOW.md, ARCHITECTURE.md, EXTENSION_CONTRACT.md, TESTING.md, adr/, Requirements-upstream.md และเอกสารรีวิว/handoff (Requirements.md อยู่ที่ root)
-├── build-wpf.cmd                # build 5 ขั้น → dist-wpf\
-├── Requirements.md
-├── build-ext/                   # staging ของ PackTool (gitignored)
-└── dist-wpf/                    # ผล build (gitignored)
+SystemMonitor/
+├── SysMonitor.Core/            # shared models: Snapshot, Ram, Disk, IoRate (no OS calls, no packages)
+├── SysMonitor.Linux/           # sensor readers + all presentation logic (no packages)
+│   ├── Sensors/                # ProcStat, MemInfo, DiskReader, NetDev, GpuReader, Hwmon, …
+│   ├── Sampling/               # LinuxSampler: one Snapshot per tick
+│   └── Presentation/           # ShellModel, boards, config, lang, updater, autostart, tray, restart
+├── SysMonitor.Linux.App/       # Avalonia application (the only project with a package)
+├── SysMonitor.Linux.Probe/     # console probe: one snapshot as text or JSON
+├── SysMonitor.Linux.Tests/     # MSTest suite, fake roots and fake command runners
+├── packaging/linux/            # install.sh, uninstall.sh, systemmonitor.desktop template
+├── Assets/systemmonitor.png    # 256×256 icon, the largest frame of SysMonitor.ico
+├── build-linux.sh              # publish + stage + archive + sha256
+├── Docs/                       # workflow, architecture, testing, ADRs, handoffs
+└── dist/                       # build output (gitignored)
 ```
 
 ## 4. Components and ownership
 
 | Component | Responsibility | Public interface |
 |---|---|---|
-| `SysMonitor.Wpf` (`SystemMonitor.exe`) | โฮสต์: ลูปอ่านค่า, snapshot, หน้าต่าง 3 โหมด, sidebar, tray, config, i18n, diag, updater, ตัวโหลดและโฮสต์ส่วนเสริม | `SysMonitor.Wpf/Sensors/Sampler.cs:Sampler` (`Start`, `Current`, `Nudge`, `RefreshDrives`, `RefreshMemory`), `SysMonitor.Wpf/MainWindow.xaml.cs:MainWindow`, `SysMonitor.Wpf/AppConfig.cs:AppConfig`, `SysMonitor.Wpf/Extensions/ExtensionHost.cs:ExtensionHost` (`StartAsync`, `Entries`, `SetEnabled`, `Reload`, `CollectViews`, `GetDiskTemperatures`, `SetDemand`), `SysMonitor.Wpf/Extensions/ExtensionLoader.cs:ExtensionLoader` (`LoadAll`, `LoadFolder`, `Inspect`), `SysMonitor.Wpf/Extensions/ApprovalStore.cs:ApprovalStore`, `SysMonitor.Wpf/Extensions/AclPolicy.cs:AclPolicy`, `SysMonitor.Wpf/Extensions/ExtensionApproval.cs:ExtensionApproval`, `SysMonitor.Wpf/Diag.cs:Diag`, `SysMonitor.Wpf/Updater.cs:Updater` |
-| `SysMonitor.Extensibility` | สัญญาที่โฮสต์และส่วนเสริมใช้ร่วมกัน (type identity เดียว) | `IExtension`, `IExtensionContext`, `IViewProvider`, `IDiskTemperatureSource`, `IDemandAware`, `ExtensionView` + records, `ExtensionDemand`, `Severity`, `ContractInfo.Version` (= 1.1) |
-| `SysMonitor.Ext.Smart` | ส่วนเสริม first-party: สแกน SMART ผ่าน `DiskInfoCore.dll` และให้อุณหภูมิดิสก์; สร้างหน้า Widget/Overview/Tab ของ SMART | `SmartExtension` (`IExtension`, `IViewProvider`, `IDemandAware`, `IDiskTemperatureSource`, `IDisposable`), `SmartStrings`, `SmartViewBuilder`; native: `DiskInfoCore.dll` (C ABI v1, `di_abi_version`/`di_open`/`di_scan`/`di_disk_count`/`di_disk_info`/`di_close`) |
-| `SysMonitor.Ext.Sample` | ตัวอย่างส่วนเสริมที่ต้องผ่านขั้นอนุมัติ (id `sample`) | `SampleExtension` |
-| `SysMonitor.PackTool` | แพ็กโฟลเดอร์ส่วนเสริมจาก `extension.template.json`: คัดลอกเฉพาะไฟล์ที่ระบุ, คำนวณ SHA-256, สร้าง `extension.json`, เติม allowlist | CLI `--template --out --version [--file name=path] [--allowlist file]`; `ExtensionPacker.Pack`, `ExtensionPacker.UpdateAllowlist` |
-| `SysMonitor.Setup` (`SystemMonitor-Setup.exe`) | ติดตั้ง/ถอนสองโหมด: per-user (`%LOCALAPPDATA%`, HKCU, Run key) และ admin (`Program Files`, HKLM, Scheduled Task, `install-mode.json`); ขอ UAC ครั้งเดียวด้วยการเปิดตัวเองซ้ำ | `InstallLayout`/`InstallScope`, `Installer.Install/Uninstall/MigrateFromPerUser/OwnedPaths`, `IInstallHost`/`WindowsInstallHost`, `ScheduledTasks`, `SetupArguments`, `PrivateDirectory`, `Elevation`, `Legacy`, `Shortcuts` |
-| `SysMonitor.Tests` | ชุดทดสอบ MSTest (โฮสต์, ส่วนเสริม, ตัวติดตั้ง, config, palette ฯลฯ) | `dotnet test SysMonitor.Tests` |
-| `SysMonitor.Tests.DummyExtension` | ส่วนเสริมจำลองสำหรับเทสต์ตัวโหลด/โฮสต์ | assembly ที่ implement `IExtension` |
+| `SysMonitor.Core` | models shared by sampler and UI | `Snapshot`, `Ram`, `Disk`, `IoRate` |
+| `SysMonitor.Linux` (sensors) | read `/proc`, `/sys`, hwmon, DRM fdinfo and the three external tools into one `Snapshot` | `LinuxSampler.Sample(bool processes, bool services, bool keepMemory)`, plus one pure reader per source (`ProcStat`, `MemInfo`, `DiskStats`, `MountInfo`, `BlockDevices`, `NetDev`, `Hwmon`, `ThermalReader`, `DrmFdinfo`, `GpuReader`, `ProcessReader`, `ServiceReader`) |
+| `SysMonitor.Linux` (presentation) | turn a snapshot into row models, hold settings, own the integrations | `ShellModel`, `WidgetBoard`, `OverallBoard`, `FullBoard`, `UiRows`, `AppConfig`, `Lang`, `Palette`, `ChartMath`, `Format`, `ViewState`, `WindowGeometry`, `UpdateAutoCheck`, `GitHubUpdater`, `TarExtractor`, `FileAutostart`, `DesktopEntry`, `TrayText`, `TrayHost`, `Restart`, `SingleInstanceLock`, `KillFlow`, `ServiceControl`, `Diagnostics` |
+| `SysMonitor.Linux.App` | Avalonia windows, controls, event wiring, sampling loop, tray | `Program`, `App`, `ShellWindow`, `WidgetView`, `OverallView`, `FullView`, `PanelWindow`, `ChartControl`, `DialView`, `TrayIconHost`, `Probe` |
+| `SysMonitor.Linux.Probe` | developer console view of one snapshot | `dotnet run --project SysMonitor.Linux.Probe -- [--json]` |
+| `SysMonitor.Linux.Tests` | the suite | `dotnet test SysMonitor.Linux.Tests` |
+| `packaging/linux` + `build-linux.sh` | per-user install, update and uninstall | `install.sh`, `uninstall.sh`, `build-linux.sh` |
 
 ## 5. Dependency rules
 
-| โปรเจกต์ | ProjectReference | หมายเหตุ |
+| Project | ProjectReference | Notes |
 |---|---|---|
-| `SysMonitor.Core` | ไม่มี | โมเดลกลาง (`Model/`, `Sensors/IoRate.cs`): ไม่มี `ProjectReference`, ไม่มี package, ไม่เรียก OS API; `InternalsVisibleTo` ให้ `SysMonitor.Linux`, `SysMonitor.Linux.Tests` |
-| `SysMonitor.Linux` | `SysMonitor.Core` | ตัวอ่านค่า Linux (R-027): `/proc`, `/sys`, `iw`, `nvidia-smi` ผ่าน `ICommandRunner`; ไม่มี package; ทุก reader รับ root (ค่าเริ่มต้น `/`) เพื่อเทสต์ด้วย tree จำลอง; `InternalsVisibleTo` ให้ `SysMonitor.Linux.Tests` |
-| `SysMonitor.Linux.Probe` | `SysMonitor.Linux` | console probe (R-027): เก็บสอง sample ห่างกัน 1 วินาที แล้วพิมพ์รายงานอ่านง่าย หรือ JSON (`--json`); ไม่มี package และไม่เปิดหน้าต่าง |
-| `SysMonitor.Linux.App` | `SysMonitor.Linux` | แอป Avalonia (R-027 เฟส 2a) — **โปรเจกต์ผลิตภัณฑ์เดียวที่ใช้ package**: `Avalonia`, `Avalonia.Desktop`, `Avalonia.Themes.Fluent` 12.1.5 (MIT licence) เพราะ Linux ไม่มีสแตก UI ที่มากับ .NET แบบ WPF; เป็น UI ล้วน (หน้าต่าง/คอนโทรล/การต่อ event) ตรรกะและข้อมูลทั้งหมดอยู่ที่ `SysMonitor.Linux/Presentation` และไม่เรียก OS API ของ Windows |
+| `SysMonitor.Core` | none | shared models only; no package, no OS API; `InternalsVisibleTo` `SysMonitor.Linux` and `SysMonitor.Linux.Tests` |
+| `SysMonitor.Linux` | `SysMonitor.Core` | readers instead of OS APIs; every reader takes a root (default `/`) so tests use a fixture tree; `ICommandRunner` is the only way to run a tool; `InternalsVisibleTo` `SysMonitor.Linux.Tests` |
+| `SysMonitor.Linux.Probe` | `SysMonitor.Linux` | console only, no window, no package |
+| `SysMonitor.Linux.App` | `SysMonitor.Linux` | Avalonia only here; UI and event wiring, no sensor parsing |
+| `SysMonitor.Linux.Tests` | `SysMonitor.Core`, `SysMonitor.Linux` | test packages only |
 
-Branch `linux-native` is Linux-only (R-027); the Windows projects live on `main`.
-
-- **ไม่มี `PackageReference` ในโปรเจกต์ผลิตภัณฑ์ทั้งหมด** (`SysMonitor.Wpf.csproj` ระบุไว้ตรง ๆ ว่า "No package references") ข้อยกเว้นคือ `SysMonitor.Tests` ที่ใช้ `Microsoft.NET.Test.Sdk`, `MSTest.TestAdapter`, `MSTest.TestFramework` และ `SysMonitor.Linux.App` ที่ใช้ Avalonia 12.1.5 (MIT) ตาม R-027 ข้อตัดสิน 1 — เฉพาะโปรเจกต์ UI ของ Linux; `SysMonitor.Core`, `SysMonitor.Linux`, `SysMonitor.Linux.Probe` ยังไม่มี package
-- ไม่มี circular dependency; ทิศทางเดียวคือ extension → contract ← host
-- ความเข้ากันได้ของสัญญา: manifest `contract` ต้อง major เท่ากับ `ContractInfo.Version` และ minor ≤ ของโฮสต์; `min_host` ต้อง ≤ รุ่นโฮสต์ (`ExtensionLoader.LoadSingleFolder`)
+- **No `PackageReference` in a product project, with one exception**: `SysMonitor.Linux.App` uses `Avalonia`, `Avalonia.Desktop` and `Avalonia.Themes.Fluent` 12.1.5 (MIT). Linux has no UI stack in .NET comparable to WPF, and R-027 decision 1 allowed exactly this: the UI project of the Linux edition, and nothing else. `SysMonitor.Core`, `SysMonitor.Linux` and `SysMonitor.Linux.Probe` have no packages.
+- The direction is `App → Linux → Core`; nothing points back. Avalonia types never appear in `SysMonitor.Linux`, which is why every board, updater and tray rule can be tested without a display.
+- External tools are reached only through `ICommandRunner`, so a test never runs `systemctl`, `iw` or `nvidia-smi`.
 
 ## 6. Runtime data flow
 
-### (a) Sampling loop → snapshot → UI
+### (a) Sampling → snapshot → presentation models → views
 
-1. `App.OnStartup` โหลด `AppConfig`, เริ่ม `Diag`, สร้าง `ExtensionHost` (background) และ `Sampler` แล้วเปิดหน้าต่าง (`SysMonitor.Wpf/App.xaml.cs`)
-2. `Sampler.RunAsync` เรียก `Collect()` ตามจังหวะ `AppConfig.Intervals.Metrics` (eco 5 s / balanced 2.5 s / fast 1 s) ส่วนงานหนักมีความถี่ของตัวเอง: พื้นที่ว่างตาม `Intervals.Space`, อุณหภูมิตาม `Intervals.Temps`, รายการไดรฟ์ทุก 60 s, process ทุก 3 s, service ทุก 10 s
-3. `Collect()` ประกอบ `Snapshot` ก้อนใหม่ (cores, RAM, disks, adapters, GPU, modules, `Extensions = ExtensionHost.CollectViews(config.Lang)`) แล้ว `Volatile.Write` ทับ reference เดิม
-4. UI ใช้ `DispatcherTimer` ทุก 400 ms อ่าน `Sampler.Current` แล้ววาด (`MainWindow.OnTick`); heartbeat ทุก 10 นาทีเขียน `Diag.Heartbeat`
+1. `App.OnFrameworkInitializationCompleted` loads `AppConfig`, creates `Diagnostics`, `ShellModel` (with `FileAutostart`, `GitHubUpdater`, `ProcessSignals`) and `ShellWindow`.
+2. `ShellWindow.SampleLoop` runs on a background thread. Every `MetricsIntervalMs` (eco 5000, balanced 2500, fast 1000) it calls `LinuxSampler.Sample(...)`; the first sample is not `Ready` because a usage percentage needs two readings.
+3. Processes and services are read on their own cadence (`MemoryCadence`: processes every 3 s, services every 10 s) and only while the RAM tab is visible; `keepMemory` republishes the last list between reads so the tab does not empty.
+4. The sampler publishes the new `Snapshot` with `Volatile.Write`. While the window is hidden to the tray, it also posts the sample to the UI thread so history and the tray tooltip keep moving.
+5. A 400 ms `DispatcherTimer` reads the snapshot and calls `ShellModel.SetSnapshot`. The shell then builds rows through `WidgetBoard`, `OverallBoard` and `FullBoard`, which are pure functions of the snapshot, the configuration and the language. History (`ChartMath`) and dial geometry are computed the same way.
+6. Views render those row models; they do not read hardware and they do not format numbers themselves.
 
-Failure behaviour (ตรวจในโค้ด):
+Failure behaviour (verified in code):
 
-- probe ใดโยน exception → `Sampler.Guard` เขียน `Diag.ReportException("Probe <key>")` (จำกัด 1 ครั้ง/นาที/context) แล้วพัก probe นั้น 5 นาที และคืนค่าล่าสุดที่ดีอยู่แล้ว ไม่ publish ค่า 0
-- probe ที่ช้ากว่าบัดเจ็ต (250 ms ปกติ, 2–3 s สำหรับ WMI/enumeration) → พัก 5 นาทีและเขียน log บรรทัด `Slow probe ...`
-- `Collect()` ทั้งก้อนโยน exception → `Diag.ReportException("Sampler")` และลูปไปต่อ (tick นั้นไม่ publish snapshot ใหม่)
-- ส่วนเสริมโยน exception ตอนเก็บ view → ข้ามส่วนเสริมนั้นในรอบนั้นและ log ครั้งเดียวต่อชนิด exception (`ExtensionHost.SafeLogOnce`)
+- one reader throws → that section is empty for the tick, the rest of the snapshot is still published; the sampler catches anything that escapes as `sample failed` in the log
+- a command-line tool is missing, times out or returns non-zero → that value is `null`; the row shows `n/a` and the app keeps running
+- an unreadable `/proc/<pid>` entry is skipped, not fatal
 
-### (b) Extension discovery / load / enable / disable
+### (b) Autostart, tray, close and restart
 
-1. `ExtensionHost.StartAsync` ทำงานบน `Task.Run` ไม่บล็อก UI เธรด
-2. `ExtensionLoader.LoadAll` ไล่โฟลเดอร์ย่อยใต้ `<โฟลเดอร์ exe>\extensions` เรียงตามชื่อ (ordinal, ไม่สนตัวพิมพ์) แล้วเรียก `LoadSingleFolder`
-3. ลำดับตรวจของ `LoadSingleFolder`: โฟลเดอร์/โฟลเดอร์ย่อยห้ามเป็น reparse point → อ่านและ SHA-256 ของ `extension.json` → ชื่อโฟลเดอร์ต้องเท่ากับ `id` → `contract` เข้ากัน → `min_host` → path ของทุกไฟล์ปลอดภัยและไม่มีไฟล์นอก manifest → ไฟล์ครบ → ความเชื่อถือ (elevated/normal) → ถ้าปิดใช้งานใน config ให้ `Disabled` เว้นแต่ `KeepLoaded` → อ่านทุกไฟล์และตรวจ SHA-256 ก่อนโหลดอะไร (ไฟล์ native ถือ `FileShare.Read` ไว้จนโหลดเสร็จ) → entry assembly ต้องอยู่ในรายการและไม่ใช่ native → กัน id ซ้ำในรอบเดียวกัน → preload native ด้วย `LoadLibraryEx` → โหลด managed เข้า `ExtensionLoadContext` (collectible, แชร์ `SysMonitor.Extensibility` กับโฮสต์) → `Initialize(context)`
-4. ผลลัพธ์ถูกแปลงเป็น `ExtensionEntry` (สถานะ + ข้อความ) ให้ sidebar; checkbox เปิด/ปิดเรียก `ExtensionHost.SetEnabled` แล้วผู้เรียกบันทึก `AppConfig.Save()` และ `Sampler.Nudge()`
-5. ปิด = slot ถูกปลดระวาง (`RetireAndDispose`) แล้ว `Dispose()`; เปิด = โหลดใหม่ผ่าน `ExtensionLoader.LoadFolder`
+1. The autostart switch writes `$XDG_CONFIG_HOME/autostart/systemmonitor.desktop` atomically (temp file + rename). `Exec` is escaped in two stages: Exec quoting (`"`, `` ` ``, `$`, `\` escaped; `%` doubled) and string-value escaping (every `\` doubled). `IsEnabled` requires file present, not `Hidden=true`, and exactly one argument equal to the running executable after both stages are reversed.
+2. Closing to the tray first asks `TrayHost.IsAvailable` (`busctl --user status org.kde.StatusNotifierWatcher`, exit 0). With a host the window hides and a `TrayIcon` with Show/Exit stays behind; without one the window minimises and `ShowInTaskbar` is switched on, so it can never be lost. The fallback is logged once per run.
+3. Quit stops the timers and the sampler, saves placement and configuration, and disposes the tray.
+4. Restart saves placement and configuration, starts `Environment.ProcessPath` with the same arguments through `ProcessStartInfo.ArgumentList`, then shuts down. `SingleInstanceLock.Acquire` waits up to 5 s so the new copy can take the lock; `--allow-multiple` bypasses the lock.
+5. `ShutdownRequested` saves the placement when the session ends.
 
-Failure behaviour:
+### (c) Update
 
-- `ExtensionLoader` ไม่โยน exception ออกมา (ยกเว้น argument เป็น null) ทุกความล้มเหลวกลายเป็น `ExtensionStatus` (`ManifestInvalid`, `ContractMismatch`, `HostTooOld`, `FileMissing`, `HashMismatch`, `UnsafePath`, `NotApproved`, `NotTrustedWhenElevated`, `DuplicateId`, `EntryNotFound`, `LoadFailed`, `Disabled`) พร้อมข้อความ ซึ่ง UI แสดงผ่าน `ExtensionStatusText.KeyFor`
-- ส่วนเสริมที่เปิดอยู่ปิดได้เสมอ; ส่วนเสริมที่ปิดอยู่จะเปิดได้เฉพาะเมื่อสถานะเป็น `Loaded`/`Disabled` (`ExtensionStatusText.CanToggle`)
-- การปิดส่วนเสริมระหว่างที่มีผู้เรียกค้าง: รอไม่เกิน 5 วินาทีแล้ว `Dispose` ต่อพร้อมเขียน log
-- ส่วนเสริม first-party ที่ `provides` มี `disk-temperature` ถูกโหลดค้างแม้ผู้ใช้ปิดสวิตช์ (สวิตช์คุมแค่การแสดงหน้าจอ) — `ExtensionHost.IsKeptLoadedManifest`
-- ถ้าไม่มีโฟลเดอร์ `extensions` เลย `LoadAll` คืนลิสต์ว่าง โฮสต์เริ่มได้ตามปกติ
-
-### (c) Approval flow (UAC)
-
-1. ผู้ใช้กด "อนุมัติ..." ใน sidebar ซึ่งแสดงเฉพาะเมื่อสถานะเป็น `NotApproved` และโฮสต์ไม่ elevated (`ExtensionStatusText.CanApprove`)
-2. โฮสต์เปิด `SystemMonitor.exe --approve-extension <id> <manifest-sha256>` ด้วย `Verb = "runas"` (`ExtensionApproval.CreateStartInfo`) แล้วรอ exit code
-3. โปรเซสลูกตรวจ argument (id ตาม regex, sha 64 hex) → ต้อง elevated → `ExtensionLoader.Inspect` ตรวจโครงสร้างและ hash ทุกไฟล์โดยไม่โหลดโค้ด → sha ที่คำนวณใหม่ต้องตรงกับ argument → ถ้าเป็น first-party จบเป็นอนุมัติโดยไม่เขียน store → แสดงกล่องยืนยัน (มีคำเตือนถ้าแพ็กมีไฟล์ native) → เขียน `ApprovalStore.Approve` (lock file, ACL admin-only, เขียน temp แล้ว `File.Move` ทับ)
-4. exit code: `0` อนุมัติสำเร็จ, `1` argument ผิด, `2` ผู้ใช้ปฏิเสธ, `3` ตรวจแพ็กเกจไม่ผ่าน, `4` เขียน store ไม่สำเร็จ, `5` ไม่ได้ elevated
-5. `0` → หน้าต่างหลักเรียก `ExtensionHost.Reload(id)` แล้ว `Sampler.Nudge()`
-
-Failure behaviour:
-
-- ผู้ใช้กด "No" ที่ UAC → `Win32Exception` 1223 ถูกกลืนอย่างตั้งใจ ไม่มีอะไรเกิดขึ้น (`AdminRestart.IsDeclined`)
-- store ถูกผู้อื่น lock เกิน 10 วินาที → `ApprovalResult.Failed("Approval store is busy")` → exit 4
-- store/โฟลเดอร์/ancestor เป็น reparse point หรือ ACL ไม่ผ่าน → ปฏิเสธก่อนเขียน (fail closed) → exit 4
-- อ่าน store เดิมไม่ผ่าน ACL/parse ไม่ได้ → เริ่มจากรายการว่างและเขียน log (ไม่กลืนเงียบ)
-
-### (d) Disk temperature flow
-
-1. `Sampler.RefreshTemperatures` (จังหวะ `Intervals.Temps`) เรียก `ExtensionHost.GetDiskTemperatures()` หนึ่งครั้งต่อรอบ
-2. ต่อไดรฟ์: อ่านอุณหภูมิจาก storage stack ก่อน (`Win32.DriveTemperature` → property 52 = `StorageDeviceTemperatureProperty`)
-3. `DiskTemperature.Merge` เลือกค่า: ค่าจาก storage ถ้า "เป็นไปได้" (`> 0 and < 150`) มิฉะนั้นใช้ค่าจากส่วนเสริม (แหล่ง `Smart`) มิฉะนั้น `null` + `TempSource.None`
-4. ถ้ามีไดรฟ์ที่ยังไม่ได้ค่าที่เป็นไปได้ → `wantSmart = true` → `ExtensionHost.SetDemand(true)` ส่งต่อไปยัง `IDemandAware.SetDemand` (เฉพาะส่วนเสริมที่ implement)
-5. ส่วนเสริม SMART สแกนเฉพาะเมื่อโฮสต์ elevated (สร้าง scan thread ใน `Initialize`) ทุก 2 นาที และคืนเฉพาะอุณหภูมิที่ `> 0 and < 150`
-
-Failure behaviour:
-
-- ไม่มีส่วนเสริม/enable ไม่ได้ → `extTemps` ว่าง ไดรฟ์ที่ storage ตอบไม่ได้แสดง `n/a` ไม่มีการประมาณค่า (`DiskTemperature` ไม่มี fallback เป็นตัวเลข)
-- ไม่มี `DiskInfoCore.dll` หรือ ABI major ไม่ตรง → `SmartCore.IsAvailable` = false → สถานะ `Unavailable` และไม่มีอุณหภูมิ
-- โฮสต์ไม่ elevated → ส่วนเสริมสร้างสถานะ `NeedAdmin` ทันทีและไม่สแกน (`SmartExtension.Initialize`)
-- ค่าที่ส่วนเสริมส่งมาเกินขอบเขต (drive 0..255, °C 1..149, ≤ 64 รายการ/ส่วนเสริม) ถูกทิ้ง; ถ้าหลายส่วนเสริมตอบไดรฟ์เดียวกัน ตัวแรกตามลำดับ id ชนะ (`ExtensionHost.GetDiskTemperatures`)
-- storage stack ตอบ 0 °C → ถือว่า "เซ็นเซอร์บอกว่าไม่มีค่า" ไม่ใช่ดิสก์เย็น 0 องศา (`DiskTemperature.Plausible`)
+1. The start-up check (`UpdateAutoCheck`) runs only while the setting is on, retries once after 60 s, and stays silent until the side panel is opened.
+2. `GitHubUpdater.CheckAsync` makes one HTTPS `GET` to the releases API with the allow-listed hosts, follows at most five redirects by hand (each hop must stay https and allow-listed), and looks for `SystemMonitor-<ver>-linux-<arch>.tar.gz` plus its `.sha256` asset. A missing asset or missing checksum is `check_failed`, never `up_to_date`.
+3. `DownloadAsync` downloads into `$XDG_CACHE_HOME/SystemMonitor/update`, reports progress, deletes a partial file on failure, verifies the SHA-256, and clears a pending update on any error.
+4. `TarExtractor` refuses absolute paths, `..`, links, devices and FIFOs, and extracts into a freshly emptied `…/update/<ver>/`. `install.sh` must be a regular file inside that directory.
+5. The updater then starts `/bin/sh install.sh --update --wait-pid <own pid>` detached through `ArgumentList`, saves the configuration and exits. `install.sh` waits up to 30 s for the pid, restores the previous version if an interrupted run left `app.old` behind, installs with two renames, and starts the new copy; a pid that does not exit leaves everything untouched and exits 1.
 
 ## 7. Data and storage
 
-| Entity/file | ที่อยู่จริง | Owner | หมายเหตุ |
+| Entity/file | Real path | Owner | Notes |
 |---|---|---|---|
-| `config.wpf.json` | `%APPDATA%\SystemMonitor\config.wpf.json` (`AppConfig.Path`) | โฮสต์ (`AppConfig`) | JSON snake_case; เขียนผ่าน `path + ".tmp"` แล้ว `File.Move(overwrite)`; ไฟล์หาย/เสีย = ใช้ค่า default ไม่ทำให้เริ่มไม่ได้ |
-| config รุ่นก่อน 4.0 | `%APPDATA%\SysMonitor\config.wpf.json` (`AppConfig.LegacyPath`) | โฮสต์ | คัดลอกครั้งเดียวเมื่อยังไม่มีไฟล์ใหม่; key เก่า `mini_w/mini_h`, `exp_w/exp_h/exp_sized` ถูกอ่านแล้วเขียนใหม่ภายใต้ชื่อใหม่ |
-| `approved-extensions.json` + `.lock` | `%ProgramData%\SystemMonitor\` (`ApprovalStore.DefaultPath`) | โปรเซส elevated (`ApprovalStore`) | array ของ `{id, name, manifest_sha256, approved_at}`; ต้องผ่าน ACL/owner check และไม่มี reparse point ใน path |
-| `first-party-extensions.json` | embedded resource ใน `SystemMonitor.exe` (`LogicalName="first-party-extensions.json"`) | build (`PackTool`) | ไฟล์ต้นทาง `SysMonitor.Wpf\first-party-extensions.json` ถูก gitignore และสร้างใหม่ทุกครั้งที่รัน `build-wpf.cmd`; ปัจจุบันมี 1 hash |
-| `extensions\<id>\extension.json` + ไฟล์ใน `files[]` | `<โฟลเดอร์ exe>\extensions\<id>\` (`App.OnStartup` ประกอบ path เอง) | `SysMonitor.Setup` เขียน, `ExtensionLoader` อ่าน | ไฟล์นอก manifest ทำให้ `UnsafePath`; `extension.json` ถูกเขียนเป็นไฟล์สุดท้ายตอนติดตั้ง |
-| `sysmonitor-wpf.log` | `%APPDATA%\SysMonitor\sysmonitor-wpf.log` (`Diag.Path`) | `Diag` | ตัดครึ่งเมื่อเกิน 256 KiB; timestamp invariant culture |
-| โฟลเดอร์ติดตั้ง | per-user: `%LOCALAPPDATA%\Programs\SystemMonitor\` · admin: `%ProgramFiles%\SystemMonitor\` (`InstallLayout`, path มาจาก known folder ของ Windows) | `SysMonitor.Setup` | ถอนไม่ไล่ลบทั้งโฟลเดอร์ ใช้รายการไฟล์ที่ตัวเองเป็นเจ้าของ; แบบ admin มี `install-mode.json` ที่แอปอ่านเพื่อรู้ว่าต้องยกระดับ (เชื่อเฉพาะเมื่ออยู่ใน Program Files) |
-| ไฟล์ติดตั้งชั่วคราวของ Updater | แอปปกติ: `%TEMP%\SystemMonitor-Setup-<version>.exe` · แอปที่ยกระดับ: `%ProgramData%\SysMonitor-update-<guid>\` (ACL เฉพาะ Administrators/SYSTEM) | `Updater.DownloadAsync` | ตั้งชื่อเอง ไม่ใช้ชื่อจาก response; ลบเมื่อดาวน์โหลดล้มเหลว; ไม่ตรวจแฮช/ลายเซ็น |
+| `config.json` | `$XDG_CONFIG_HOME/SystemMonitor/config.json`, default `~/.config/SystemMonitor/config.json` (`AppConfig.ConfigDirectory`) | `AppConfig` | JSON, snake_case; written through `path + ".tmp"` and rename; missing or corrupt = defaults, corrupt file kept as `config.json.bad` |
+| `sysmonitor.log` | `$XDG_STATE_HOME/SystemMonitor/sysmonitor.log`, default `~/.local/state/SystemMonitor/` (`Diagnostics.StateDirectory`) | `Diagnostics` | one line per event, trimmed when large, best effort, switched off by `diagnostics` |
+| `systemmonitor.desktop` (autostart) | `$XDG_CONFIG_HOME/autostart/` | `FileAutostart` | temp file + rename; disabling deletes only this file |
+| `sysmonitor.lock` | `$XDG_RUNTIME_DIR/sysmonitor.lock`, falling back to the config directory | `SingleInstanceLock` | held open with `FileShare.None`; a restart waits up to 5 s for the old copy |
+| update cache | `$XDG_CACHE_HOME/SystemMonitor/update/` | `GitHubUpdater` | archive, checksum, and `…/<ver>/` extraction; deleted on failure |
+| installed program | `$XDG_DATA_HOME/SystemMonitor/app/`, default `~/.local/share/SystemMonitor/app/` | `install.sh` | replaced by two renames: `app` → `app.old`, `app.new` → `app`, then remove `app.old`; an interrupted run is repaired by the next one |
+| installed uninstaller | `$XDG_DATA_HOME/SystemMonitor/uninstall.sh` | `install.sh` | copied outside `app/` (mode 755) so the swap never touches it; removed by itself, and the then-empty directory with it |
+| command | `~/.local/bin/sysmonitor` (symlink) | `install.sh` | created by the installer, not in the archive; removed only while it still points into `app/` |
+| menu entry | `$XDG_DATA_HOME/applications/systemmonitor.desktop` | `install.sh` | `Exec` shares the two-stage escaping rule |
+| icon | `$XDG_DATA_HOME/icons/hicolor/256x256/apps/systemmonitor.png` | `install.sh` | theme name `systemmonitor` |
 
-- Source of truth: ไฟล์ JSON ในโปรไฟล์ผู้ใช้; ไม่มีฐานข้อมูล ไม่มี schema migration และไม่มี backup/restore อัตโนมัติ
-- Identifier: extension ใช้ `id` จาก manifest (regex `^[a-z0-9][a-z0-9._-]{0,63}$`, ต้องเท่ากับชื่อโฟลเดอร์); ความเชื่อถือผูกกับ SHA-256 ของ `extension.json` ไม่ใช่ชื่อ
-- Transaction boundary: การเขียน config ใช้ temp + rename; การเขียน approval store ใช้ lock file + temp + rename
-- ข้อสังเกตที่ยังไม่แก้: `Installer.SettingsFiles` ระบุ `sysmonitor-wpf.log` อยู่ใต้ `%APPDATA%\SystemMonitor\` แต่ `Diag` เขียนจริงที่ `%APPDATA%\SysMonitor\` — รายการไฟล์ที่จะลบตอน "ลบ settings" จึงไม่ตรงกับ log จริง
+- Source of truth: one JSON file per user plus the XDG files above. No database,
+  no schema migration, no backup.
+- Transaction boundary: configuration and autostart use temp + rename. For the
+  program directory, the swap is two renames; if it is interrupted, running
+  `install.sh` again (or the next update) restores the previous version
+  (`app` → `app.old` → `app`, then remove `app.old`).
+- Settings and the autostart entry live outside the install directory, so an
+  update never touches them. The installed uninstaller does too: it sits beside
+  `app/`, not inside it.
+- Both scripts keep every path physically under `$HOME`. `install.sh` refuses a
+  relocated `XDG_DATA_HOME` or `XDG_CONFIG_HOME` and `uninstall.sh` refuses to
+  remove a path outside the home directory, so what is installed is always
+  removable by the same rules.
 
 ## 8. Interfaces
 
-### Extension contract
+### Command execution
 
-- ตำแหน่ง: `SysMonitor.Extensibility` (ไม่มี dependency, `AssemblyVersion` ตรึง `1.0.0.0`)
-- รูปแบบ: managed .NET interface, โหลด in-process ด้วย `AssemblyLoadContext` แบบ collectible ไม่มี HTTP/API ภายนอก
-- เวอร์ชันสัญญา: `ContractInfo.Version` = `1.1`; เพิ่มความสามารถแบบ optional interface (`IDemandAware`, `IDiskTemperatureSource`) โดยไม่เปลี่ยน major
-- compatibility policy: `contract` major ต้องเท่ากัน, minor ของ manifest ≤ โฮสต์, `min_host` ≤ รุ่นโฮสต์; ไม่ผ่าน = `ContractMismatch`/`HostTooOld`
-- contract ของ manifest (`SysMonitor.Wpf/Extensions/ExtensionManifest.cs:ExtensionManifest.Validate`): `id`, `name`, `version`, `contract`, `min_host`, `entry{assembly,type}`, `provides[]` (≤ 8, ไม่ซ้ำ, regex `^[a-z0-9][a-z0-9-]{0,31}$`), `place_after` (cpu|ram|disk|gpu|network), `files[]{path,sha256,native}`
-- ข้อจำกัดที่โฮสต์บังคับกับ view: `WidgetPages` ≤ 32, `OverviewRows` ≤ 64, `DetailTabs` ≤ 32, `Fact`/แท็บ ≤ 64, ข้อความ ≤ 512 ตัวอักษร, `Percent` ถูก clamp 0–100, อุณหภูมิในหน้า widget รับ −50..150 (`ExtensionHost.SanitizeView`)
+- `ICommandRunner.Run(string file, string arguments, int timeoutMs)` is the only
+  way the program reaches an external tool; `ProcessCommandRunner` uses
+  `ArgumentList`, no shell, and a timeout. Tests inject a fake.
+
+### Update contract with the release archive
+
+- Asset names: `SystemMonitor-<version>-linux-<arch>.tar.gz` and
+  `SystemMonitor-<version>-linux-<arch>.tar.gz.sha256` (`arch` from
+  `RuntimeInformation.OSArchitecture`: `x64`, `arm64`).
+- The checksum file holds the hex digest, optionally followed by a file name, as
+  `sha256sum` writes it.
+- The archive is flat, holds `install.sh` at the root, contains no links, and is
+  extracted by `System.Formats.Tar` + `GZipStream`.
+- `install.sh --update --wait-pid N` waits up to 30 s for `N`, installs, then
+  starts the new `sysmonitor` detached (`setsid`, else `nohup`).
+  `SYSMONITOR_NO_LAUNCH=1` suppresses only that launch.
+- The archive also carries `uninstall.sh`. `install.sh` copies it to
+  `$XDG_DATA_HOME/SystemMonitor/uninstall.sh`, outside the `app/` tree that an
+  update replaces, and `uninstall.sh` finds the install from the XDG paths
+  rather than from its own location.
 
 ### External dependencies
 
-| Dependency | Purpose | Timeout/retry | Failure impact |
+| Dependency | Purpose | Timeout / retry | Failure impact |
 |---|---|---|---|
-| `DiskInfoCore.dll` (C ABI v1, มาจากโปรเจกต์ DiskInfo) | อ่าน SMART ของดิสก์ที่ไม่ตอบผ่าน storage stack; ต้องมีสิทธิ์ admin | ไม่มี retry; probe `di_abi_version` ครั้งเดียวต่อโปรเซส | ส่วนเสริมรายงาน `Unavailable`/`NeedAdmin`, ดิสก์นั้นแสดง `n/a` |
-| Windows APIs (kernel32/IOCTL, WMI ผ่าน COM late binding, performance counters) | CPU, RAM, ดิสก์, GPU, network, thermal zone | probe ที่ช้าเกินบัดเจ็ตถูกพัก 5 นาที | ค่าเดิมคงอยู่ ไม่ publish ค่า 0; thermal zone พลาด 3 ครั้งแล้วหยุดถาม |
-| GitHub Releases REST (`api.github.com/repos/epinephrinerx/SystemMonitor/releases/latest`) | ตรวจรุ่นใหม่และดาวน์โหลดตัวติดตั้ง | `HttpClient.Timeout` 30 s; ดาวน์โหลดเฉพาะ host `github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com` | ตรวจไม่ได้ = รายงานว่า "ตรวจไม่ได้" ไม่ใช่ "ล่าสุดแล้ว"; ไม่มีการติดตั้งเอง |
-| .NET 8 Desktop Runtime | รันแอปแบบ framework-dependent | — | ตัวติดตั้งตรวจและแจ้งถ้าไม่มี ไม่ติดตั้งแทน |
+| `/proc`, `/sys`, `/sys/class/hwmon`, DRM fdinfo | every reading | none; one read per tick | section empty, rest of the snapshot intact |
+| `iw dev <if> link` | Wi-Fi SSID, bit rate, quality | 2 s per call | Wi-Fi rows show `n/a` |
+| `nvidia-smi` | NVIDIA load, memory, temperature | 3 s, asked only while the card is awake | NVIDIA rows fall back to DRM counters |
+| `systemctl --user` | service list and user-unit actions | read timeout in `ServiceReader` | services list empty, actions report the error |
+| `busctl --user status org.kde.StatusNotifierWatcher` | tray availability | through `ICommandRunner` | close minimises instead of hiding |
+| `api.github.com` and release asset hosts | update check and download | 30 s `HttpClient` timeout, one 60 s retry, five manual redirects | `check_failed` / `download_failed`, never `up_to_date` |
 
 ## 9. Cross-cutting concerns
 
-- **Configuration** — ไฟล์เดียว `config.wpf.json` โหลดครั้งเดียวตอนเริ่มและส่งเป็น object เดียวให้ `Sampler`, `MainWindow`, `ExtensionHost`; การบันทึกเป็นความรับผิดชอบของผู้เรียก (UI) ไม่ใช่ของโฮสต์ส่วนเสริม; ค่าที่เพิ่มมาทีหลังได้ default โดยไม่ทำให้ config เก่าใช้ไม่ได้
-- **ส่วนเสริมใน config** — `extensions` เป็น dictionary `{id: {enabled}}`; `show_smart` รุ่นเก่าย้ายเป็น `extensions.smart`; `FullTab` ค่า `smart`/`smartN` ย้ายเป็น `ext:smart:status`/`ext:smart:diskN`
-- **Logging (Diag)** — ไฟล์ข้อความบรรทัดเดียวต่อเหตุการณ์: start banner, heartbeat ทุก 10 นาที (rss + heap + GC), exception ที่ดักได้ (จำกัด 1 ครั้ง/นาที/context), ข้อความจากส่วนเสริมผ่าน `IExtensionContext.Log`; diagnostics ปิดได้ด้วย `AppConfig.Diagnostics`; ตัวช่วย elevated เขียน log แม้ผู้ใช้ปิด diagnostics
-- **Localization** — `Lang` ใน `SysMonitor.Wpf/I18n.cs` เก็บ dictionary `th`/`en` และ fallback ไป `en` แล้วคืน key ถ้าไม่พบ; ภาษาที่เลือกถูกส่งต่อให้ส่วนเสริมทุกครั้งผ่านพารามิเตอร์ `language` ของ `IViewProvider.GetDisplayName`/`GetView`; `IExtensionContext.Language` เป็นค่าภาษา ณ ตอนโหลดเท่านั้น
-- **Elevation** — แอปที่ติดตั้งแบบ per-user ไม่ยกระดับตอนเปิด; มีโปรเซส elevated ชั่วคราวสองแบบเท่านั้น: `--approve-extension <id> <sha256>` และ `--elevated-op kill|service …` (แท็บ memory) ทั้งคู่จบแล้วปิด · แอปที่ติดตั้งแบบทั้งเครื่อง (R-022) เปิดซ้ำตัวเองแบบยกระดับตอนเริ่มก่อนจับ lock single-instance (`ElevatedLaunch.TryRelaunch`; ข้ามได้ด้วย `--no-elevate`; ผู้ใช้ปฏิเสธ UAC = ทำงานต่อแบบไม่ยกระดับ) และตัวติดตั้งยกระดับตัวเองด้วย `runas` ครั้งเดียวเมื่องานเป็นแบบทั้งเครื่อง · โหมด elevated โหลดได้เฉพาะส่วนเสริม first-party
-- **DPI / theme / typography** — per-monitor-v2 DPI ประกาศใน `SysMonitor.Wpf/app.manifest`; ธีม light/dark มาจาก `AppConfig.Theme` + `Palette`; ขนาดตัวอักษรมาจาก `AppConfig.FontScale` ผ่าน `FontRamp`
-- **Single instance** — mutex ต่อ session (`Local\SystemMonitor.SingleInstance`); `--allow-multiple` ใช้สำหรับเทียบ build เท่านั้น
-- ไม่มี authentication, authorization แบบผู้ใช้, secrets, metrics/tracing, caching ชั้น network หรือ rate limiting ในระบบนี้
+- **Configuration** — one `config.json` loaded at start and passed as one object
+  to the shell, the sampler and the integrations; the caller saves, not the
+  reader; unknown keys are ignored and missing keys take defaults.
+- **Localisation** — `Lang` holds Thai and English; an unknown key falls back to
+  English and then to the key itself. Both languages are tested.
+- **Logging** — one line per event, no stack traces beyond the message, capped
+  and trimmed; diagnostics can be switched off, and a startup failure is written
+  even then.
+- **Theme** — light by default; `Palette` is a pure function so colours are
+  tested without a window.
+- **Single instance** — a lock file; a second launch exits silently.
+- **No elevation, no secrets, no telemetry** — the only network call is the
+  update check and download the user asks for.
 
 ## 10. Quality attributes
 
 | Attribute | Target | How verified |
 |---|---|---|
-| Test suite | เขียวทุกครั้งก่อนแพ็ก | `build-wpf.cmd` ขั้น `[1/5]` รัน `dotnet test SysMonitor.Tests` และหยุดทันทีถ้าไม่ผ่าน; ผลล่าสุด 2026-11-16 หลัง R-022 เฟส 3: 679 ผ่าน, 2 ข้าม (สร้าง file symlink ไม่ได้), 0 ล้ม (บันทึกใน `Requirements.md` R-022) |
-| เริ่มได้โดยไม่มีส่วนเสริม | โฮสต์ไม่ล้ม | `ExtensionLoader.LoadAll` คืนลิสต์ว่างเมื่อไม่มีโฟลเดอร์ และ `ExtensionHost` แสดงเฉพาะ entry ที่มี |
-| ส่วนเสริมเสียไม่ทำโฮสต์ crash | คืนสถานะแทน throw | `ExtensionLoader` กลืน exception เป็น `ExtensionStatus`; เทสต์ใน `SysMonitor.Tests/Extensions` |
-| ความถูกต้องของ hash/ความเชื่อถือ | ไม่โหลดเมื่อไม่ตรง/ไม่อนุมัติ | unit tests ของ loader/host/approval (`ExtensionLoaderTests`, `ExtensionHostTests`, `ApprovalStoreTests`, `ExtensionApprovalTests`) ด้วยโฟลเดอร์ชั่วคราว |
-| ACL ของ approval store | เขียนได้เฉพาะ Administrators/SYSTEM | unit tests ใช้ checker/securer ที่ฉีดเข้าไป; ACL ของ `%ProgramData%` บนเครื่องจริง **ยังไม่ยืนยัน** |
-| กัน reparse point/junction | ปฏิเสธ path ที่เป็นลิงก์ | เทสต์ junction ใน `ExtensionLoaderTests`/`ApprovalStoreTests`/`InstallerExtensionTests`; การสร้าง file symlink ทำไม่ได้บนเครื่องพัฒนา จึงมี 2 เทสต์ถูกข้าม |
-| Latency / availability / throughput | ไม่ได้กำหนดเป้าหมาย | — |
+| Test suite | green before packaging | `dotnet test SysMonitor.Linux.Tests`: 379 passed, 0 failed (2026-11-20) |
+| Build | no warnings | `dotnet build SysMonitor.Linux.App -c Release`: 0 warnings, 0 errors |
+| No root anywhere | install, update, uninstall and every reading | `install.sh`/`uninstall.sh` refuse `id -u` 0; readers use only user-readable paths |
+| Values are never invented | unreadable source → `n/a` | tests per reader with fixture trees; no fallback constants |
+| Update archive integrity | SHA-256 checked, links refused, `install.sh` at root | `UpdaterTests`, `TarExtractor` tests |
+| Interrupted install is repaired | the next run puts the previous version back | `install.sh` recovery step, sandbox transcript in `Docs/HANDOFF-R027-phase4.md` |
+| Latency / throughput | not specified | — |
 
 ## 11. Architecture decisions
 
-| ADR | Decision | Status |
-|---|---|---|
-| `Docs/adr/0001-extension-architecture.md` — Extension architecture | แยก core/ส่วนเสริมด้วยสัญญา managed .NET เดียว (`SysMonitor.Extensibility`), โหลดจากโฟลเดอร์ใต้ exe ด้วย collectible `AssemblyLoadContext`, ตรวจ SHA-256 ของ manifest และทุกไฟล์ก่อนรันโค้ด, ความเชื่อถือสามชั้น (first-party ที่ฝังใน exe / อนุมัติโดยผู้ใช้ใน `%ProgramData%` / ไม่เชื่อถือ), elevated โหลดเฉพาะ first-party, ติดตั้ง per-user และบันทึกช่องโหว่ที่เหลือ (exe เขียนทับได้) ว่าเป็นงานแยก R-022 | Accepted |
-| `Docs/adr/0002-machine-wide-install.md` — Machine-wide install | ติดตั้งแบบ admin เป็นทางเลือก: `Program Files`, HKLM, Scheduled Task ระดับสูงสุด, ยกระดับด้วยการเปิดตัวเองซ้ำ (ไม่ใช้ manifest), ไม่ลบ/รัน/จัดเตรียมไฟล์ในที่ที่ผู้ใช้เขียนได้ด้วยสิทธิ์ผู้ดูแล, per-user ไม่เปลี่ยน | Accepted (ยังไม่ได้ตรวจบนเครื่องจริง) |
+| Decision | Status |
+|---|---|
+| Linux edition built from the 4.3.0 line as a separate branch, Windows code left on `main` | Accepted (R-027 decision 3) |
+| Avalonia 12.1.5 (MIT) as the one package exception, in `SysMonitor.Linux.App` only | Accepted (R-027 decision 1) |
+| Sensors and presentation logic in `SysMonitor.Linux`, testable through fake roots and `ICommandRunner` | Accepted (R-027) |
+| Per-user tar.gz with shell scripts instead of a distribution package | Accepted (R-027) |
+| Archive layout and `install.sh --update --wait-pid` contract | Accepted (R-027 phase 3 handoff) |
 
-- สัญญาฉบับเต็ม (ฟิลด์, วิธีโหลด, ข้อผิดพลาด, สิทธิ์) อยู่ที่ `Docs/EXTENSION_CONTRACT.md`
+ADR 0001 (extension architecture) and ADR 0002 (machine-wide install) describe
+the Windows edition and remain on `main`; neither applies to this branch.
 
 ## 12. Known constraints and technical debt
 
-ข้อจำกัดที่ยอมรับแล้ว (บันทึกแล้วใน `Docs/adr/0001-extension-architecture.md`):
+1. **Install and uninstall share one physical boundary: `$HOME`.** Both scripts
+   reject a `HOME` or `XDG_*` value with a `.` or `..` component or a newline,
+   resolve each target through its nearest existing ancestor with `cd -P`, and
+   require the result under the physical home directory. A symlinked
+   `XDG_DATA_HOME`, `XDG_CONFIG_HOME` or `~/.local/bin` that leads outside the
+   home directory is refused, not followed. The same check runs again
+   immediately before every `rm -rf` and every `mv`, which also refuses a target
+   that has become a symlink; `app.new` and `app.old` must be real directories.
+   Nothing can therefore be installed that the uninstaller would decline to
+   remove. `XDG_STATE_HOME` is checked only with `--purge`, in a preflight
+   before the first removal: an escaping value exits 1 with the install and the
+   settings still in place. The launcher is the one symlink the scripts create
+   and remove; it goes with `rm -f`, never with `-r`.
+2. **The installed uninstaller is a copy, fixed at install time.** `install.sh`
+   writes `$XDG_DATA_HOME/SystemMonitor/uninstall.sh`, so a user who deletes the
+   unpacked folder can still uninstall; the archive's own copy works as well and
+   removes the installed one. An install made before this change, or one whose
+   copy was deleted, still needs the archive.
+3. **The `SystemMonitor/` data directory is removed only when empty.** The
+   uninstaller removes itself and then the directory; a leftover `app.old`, or
+   any other file beside it, keeps the directory in place.
+4. **The tray needs a StatusNotifier host.** Without one, close minimises; the
+   window cannot be hidden with no way back, but the behaviour differs from KDE.
+5. **No Intel GPU temperature**, no memory modules, no SMART-backed disk
+   temperature, no `r8152` link speed — all need root or are not exposed at all.
+6. **The app never elevates**, so system units are read-only and processes owned
+   by other users cannot be signalled.
+7. **The probe output is developer-facing** and not a supported user interface.
+8. **The update swap is two renames, not one atomic step.** A run killed between
+   them leaves `app/` missing with the previous version in `app.old/`, and the
+   program cannot start until the next `install.sh` run (or the next update)
+   puts it back. The repair is automatic, but it is not instantaneous.
 
-1. ตัวช่วยอนุมัติเขียน Diag log แม้ผู้ใช้ปิด diagnostics — ผลกระทบ: มีร่องรอยการใช้งานเสมอเมื่ออนุมัติส่วนเสริม
-2. ถ้า `IViewProvider.GetView` ค้างเกิน 5 วินาที โฮสต์ `Dispose` ส่วนเสริมต่อทั้งที่ยังมีผู้เรียกค้าง — ผลกระทบ: ส่วนเสริมที่ช้าเสี่ยงถูกเรียกหลัง dispose
-3. ติดตั้งแบบ per-user: exe หลักอยู่ในโฟลเดอร์ที่ผู้ใช้เขียนได้ มัลแวร์สิทธิ์ผู้ใช้เขียนทับ exe ได้ — ปิดได้เฉพาะสำหรับผู้ที่เลือกติดตั้งแบบ admin (R-022, `Docs/adr/0002-machine-wide-install.md`) ส่วน per-user ยังเป็นค่าเดิม
-4. ปุ่ม "รันใหม่แบบผู้ดูแลระบบ" ในหน้า settings ขึ้นเมื่อส่วนเสริม SMART มีสถานะ `Loaded` แม้ไม่มี `DiskInfoCore.dll` (โฮสต์ไม่รู้ว่าไฟล์ขาด) — และปุ่ม restart ใน sidebar หลักใช้ป้าย "รันใหม่แบบผู้ดูแลระบบ" ทุกครั้งที่ยังไม่ elevated โดยไม่ดูส่วนเสริมเลย
-5. `ExtensionHost.Reload` ล้าง cached display name — ผลกระทบ: ชื่อที่แสดงอาจเปลี่ยนกลับเป็นชื่อใน manifest ชั่วขณะก่อน `GetView` รอบถัดไป
-6. เทสต์ `ExtensionHost_SetEnabled_LeavesRealConfigUntouched` อ่าน `%APPDATA%\SystemMonitor\config.wpf.json` จริง (อ่านอย่างเดียว) — ผลกระทบ: เทสต์แตะโปรไฟล์ของผู้รัน
-7. build ตรงด้วย IDE หรือ `dotnet build` โดยไม่ผ่าน `build-wpf.cmd` อาจฝัง `first-party-extensions.json` รุ่นเก่า — ผลกระทบ: exe ที่ได้อาจไม่รู้จักส่วนเสริม first-party รุ่นปัจจุบัน
-8. รัน `SysMonitor.PackTool` สองตัวพร้อมกันด้วย allowlist ไฟล์เดียวกันอาจทำให้ hash หายหนึ่งรายการ (read–modify–write ไม่มี lock ข้ามโปรเซส) — สคริปต์จึงรันเรียงลำดับ
-9. ไฟล์ในแพ็กเกจถูกล็อกตอนอัปเกรด → ส่วนเสริมนั้นแสดง `HashMismatch`/`UnsafePath` จนกว่าจะรันตัวติดตั้งซ้ำ
-10. เทสต์ 2 ตัวถูกข้ามเพราะสร้าง file symlink ไม่ได้บนเครื่องพัฒนา — การป้องกัน file link จึงยังไม่ถูกพิสูจน์ด้วยของจริง
-11. ไม่ทำตลาด/ดาวน์โหลด/อัปเดตส่วนเสริมอัตโนมัติ ไม่มี package ของบุคคลที่สาม และไม่ตรวจมัลแวร์ (หน้าที่ของแอนตี้ไวรัส)
-
-หนี้ทางเอกสารและความไม่สอดคล้องที่ตรวจพบ:
-
-- `Docs/TESTING.md` ยังเป็นแม่แบบที่เต็มไปด้วย `[PLACEHOLDER]` จึงยังไม่ได้เป็นแหล่งคำสั่งตรวจสอบจริง
-- `Diag` เขียน log ที่ `%APPDATA%\SysMonitor\` แต่ `Installer.SettingsFiles` ระบุไฟล์ log ใต้ `%APPDATA%\SystemMonitor\` (§7)
-- `SysMonitor.Wpf/README.md` ยังระบุ config อยู่ที่ `%APPDATA%\SysMonitor\config.wpf.json` ซึ่งไม่ตรงกับ `AppConfig.Path`
-
-งานที่ยังไม่ทำ (ห้ามถือว่าเสร็จ): ตรวจ R-022 บนเครื่องจริง (UAC, Scheduled Task, ACL ของ Program Files/ProgramData, การย้ายและการถอนจริง) · เทียบอุณหภูมิ ±2 °C กับ CrystalDiskInfo (R-019/R-020) · ตรวจ ACL ของ `%ProgramData%\SystemMonitor` จริง · ลองอนุมัติส่วนเสริมผ่าน UAC จริง
+Not done and not to be assumed finished: a real update run from an older release
+to a newer one (no Linux release exists yet), tray behaviour on GNOME without an
+AppIndicator extension, and an install on a machine without `update-desktop-database`
+or `gtk-update-icon-cache`.
