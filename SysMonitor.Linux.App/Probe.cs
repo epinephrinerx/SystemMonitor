@@ -1,4 +1,6 @@
 using System.Text;
+using Avalonia.Platform;
+using SkiaSharp;
 using SysMonitor.Linux.Presentation;
 using SysMonitor.Linux.Sampling;
 using SysMonitor.Linux.Sensors;
@@ -51,6 +53,8 @@ internal static class Probe
             $"cpu_temp={(snapshot.CpuTemp is { } t ? t + "°C" : "n/a")}  " +
             $"processes={snapshot.Processes.Count}  services={snapshot.Services.Count}");
         text.AppendLine();
+
+        DescribeFonts(text);
 
         text.AppendLine($"Widget pages ({shell.WidgetPages.Count})");
         for (int i = 0; i < shell.WidgetPages.Count; i++)
@@ -133,6 +137,59 @@ internal static class Probe
         Console.Out.Flush();
         return snapshot.Ready ? 0 : 2;
     }
+
+    /// <summary>
+    /// The bundled UI font (spec section 1): the family the windows resolve to,
+    /// the system fallbacks behind it, and every embedded face as the same Skia
+    /// build the renderer uses reads it. The bytes come from the assembly's
+    /// avares resources, so a font dropped from the build, renamed, or shipped
+    /// at the wrong weight is visible here without opening a window.
+    /// </summary>
+    private static void DescribeFonts(StringBuilder text)
+    {
+        text.AppendLine(
+            $"Fonts: family=\"{Ui.Family.Name}\"  " +
+            $"fallbacks=\"{string.Join(", ", Ui.Family.FamilyNames.Skip(1))}\"");
+        text.AppendLine($"  stack {Ui.FontStack}");
+
+        var loader = new StandardAssetLoader(typeof(Probe).Assembly);
+        foreach ((string file, int weight) in Ui.Faces)
+        {
+            string head = $"  face {file}";
+            try
+            {
+                using Stream stream = loader.Open(new Uri(Ui.FontFolder + "/" + file));
+                using SKTypeface? typeface = SKTypeface.FromStream(stream);
+                if (typeface is null)
+                {
+                    text.AppendLine(head + "  unreadable (Skia returned no typeface)");
+                    continue;
+                }
+
+                string missing = string.Concat(Glyphs.Where(c => typeface.GetGlyph(c) == 0));
+                text.AppendLine(
+                    head +
+                    $"  family=\"{typeface.FamilyName}\"" +
+                    $"  weight={typeface.FontWeight}" +
+                    (typeface.FontWeight == weight ? " (ok)" : $" (EXPECTED {weight})") +
+                    $"  fallback glyphs={(missing.Length > 0 ? "\"" + missing + "\"" : "none")}");
+            }
+            catch (Exception exception)
+            {
+                text.AppendLine(head + "  unreadable: " + exception.Message);
+            }
+        }
+
+        text.AppendLine();
+    }
+
+    /// <summary>
+    /// The characters the window draws as text rather than as a path icon:
+    /// the arrows and separators in the readouts, the tilde of an estimated
+    /// temperature, the warning sign on a disk alert, and Thai letters with a
+    /// mark. Anything the bundled face lacks must come from the fallback list.
+    /// </summary>
+    private const string Glyphs = "↓↑°·…≈~⚠▲ก์";
 
     /// <summary>Every Full tab: rail text, facts and every card's numbers.</summary>
     private static void DescribeFull(StringBuilder text, ShellModel shell)

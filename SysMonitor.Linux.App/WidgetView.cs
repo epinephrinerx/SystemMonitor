@@ -26,6 +26,10 @@ internal sealed class WidgetView : UserControl
 
         _scale = new LayoutTransformControl
         {
+            // Spec section 1: 16 px all round. The old vertical budget applies
+            // again now that every text block has a 1.36 em line box (see
+            // Ui.LineHeightEm), so the amendment's temporary 8 px top and
+            // bottom margin is gone.
             Margin = new Thickness(16),
             LayoutTransform = new ScaleTransform(1, 1),
         };

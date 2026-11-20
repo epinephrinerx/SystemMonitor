@@ -20,10 +20,49 @@ namespace SysMonitor.Linux.App;
 /// </summary>
 internal static class Ui
 {
-    /// <summary>The Linux stand-in for Segoe UI / Leelawadee UI (spec section 1).</summary>
-    public const string FontStack = "Noto Sans, Noto Sans Thai, Ubuntu, sans-serif";
+    /// <summary>
+    /// The Linux stand-in for Segoe UI + Leelawadee UI (spec section 1).
+    /// <para>
+    /// IBM Plex Sans Thai draws both the Latin and the Thai glyphs, so a mixed
+    /// line no longer switches between two fonts with different x-heights and
+    /// line metrics. It is embedded in this assembly, so the primary family does
+    /// not depend on what a user has installed; the system families after it are
+    /// fallbacks for the glyphs Plex lacks (for example "▲").
+    /// </para>
+    /// </summary>
+    public const string FontStack =
+        "avares://sysmonitor/Assets/Fonts#IBM Plex Sans Thai, Noto Sans, Noto Sans Thai, sans-serif";
+
+    /// <summary>The embedded folder the first family in <see cref="FontStack"/> comes from.</summary>
+    public const string FontFolder = "avares://sysmonitor/Assets/Fonts";
+
+    /// <summary>
+    /// The line box every text block uses, as a multiple of its font size
+    /// (spec section 1). Plex Thai's natural line box is 1.65 em and Noto Sans'
+    /// was 1.36 em, so without this the sidebar rows and the fixed-height
+    /// Widget grow by a third. The explicit value keeps the old vertical
+    /// rhythm; <see cref="Text"/> turns the block's clip off, because at 9 and
+    /// 10 px the tallest Thai marks reach slightly above this shorter box and
+    /// must still be drawn in full.
+    /// </summary>
+    public const double LineHeightEm = 1.36;
 
     public static readonly FontFamily Family = new(FontStack);
+
+    /// <summary>
+    /// Every embedded face and the OpenType weight class it must serve, so the
+    /// two weights the spec uses (SemiBold and Bold) are real files rather than
+    /// a synthesised slant. <c>--probe-ui</c> opens each one and compares the
+    /// weight the file reports with this list. The numbers are the weights
+    /// <see cref="FontWeight.Normal"/>, <see cref="FontWeight.SemiBold"/> and
+    /// <see cref="FontWeight.Bold"/> resolve to.
+    /// </summary>
+    public static readonly (string File, int Weight)[] Faces =
+    {
+        ("IBMPlexSansThai-Regular.ttf", 400),
+        ("IBMPlexSansThai-SemiBold.ttf", 600),
+        ("IBMPlexSansThai-Bold.ttf", 700),
+    };
 
     public static Color Color(Colour colour) =>
         Avalonia.Media.Color.FromArgb(colour.A, colour.R, colour.G, colour.B);
@@ -44,6 +83,14 @@ internal static class Ui
             Text = text,
             FontFamily = Family,
             FontSize = size,
+            // Amendment 1: 1.36 x the size, the metrics Noto Sans had, instead
+            // of Plex Thai's natural 1.65 em. TextBlock clips to its own bounds
+            // by default, and Avalonia puts the baseline at the ascent when the
+            // line is this short, so the tallest Thai marks would lose their
+            // top pixels. Turning the clip off keeps the glyphs whole while the
+            // row keeps the compact 1.36 em height.
+            LineHeight = Math.Round(size * LineHeightEm, 2),
+            ClipToBounds = false,
             Foreground = Brush(colour),
             TextWrapping = wrap ? TextWrapping.Wrap : TextWrapping.NoWrap,
             TextTrimming = ellipsis ? TextTrimming.CharacterEllipsis : TextTrimming.None,

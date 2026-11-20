@@ -224,10 +224,28 @@ file never stops the program.
 | `Docs` | workflow, architecture and testing documents, ADRs, handoffs |
 | `CHANGELOG.md` | what each release changed |
 
+## Credits and licences
+
+The interface font is **IBM Plex Sans Thai** (Regular, SemiBold and Bold),
+bundled in `SysMonitor.Linux.App/Assets/Fonts` under the **SIL Open Font
+License 1.1**; the licence text ships beside the program as `Assets/Fonts/OFL.txt`.
+
 ## History
 
-The project began as two Electron prototypes, became a Python/Tk widget
-(2.x, standard library only), and was ported to C#/WPF from 3.0. The Windows
-4.3.0 line lives on `main`; this branch rebuilds the program for Linux from that
-release, keeping the three views and the data it shows. `CHANGELOG.md` keeps the
-release history.
+- **1.x — browser extension, then Electron.** The first System Monitor was
+  written in HTML and JavaScript as a Firefox/Chrome extension. It was then
+  wrapped in Electron so it could run on its own, outside the browser. Two
+  prototypes came out of that line, `Gemini/1.0.4` and `Claude/1.0.5`; the
+  second is the first plus drive details (type, interface, read/write
+  speed). Their source is not in this repository.
+- **2.x — Python/Tk.** A rewrite as a native Windows widget with only the
+  Python standard library (`tkinter`, `ctypes`), carrying the union of both
+  prototypes' features (commits `7b8d91d`, 2.0.0, and `41c246a`, 2.0.1).
+- **3.x–4.x — C#/WPF.** Ported to C#/WPF on 2026-09-20 (3.0.0); the Python
+  source left the repository in 4.0.
+
+- **Linux 4.3.0 — Avalonia.** This branch rebuilds the program for Linux from
+  the Windows 4.3.0 release (which lives on `main`), keeping the three views
+  and the data it shows.
+
+`CHANGELOG.md` keeps the release history.

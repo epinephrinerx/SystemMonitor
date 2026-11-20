@@ -16,6 +16,10 @@
     <PackageReference Include="Avalonia" Version="12.1.5" />
     <PackageReference Include="Avalonia.Desktop" Version="12.1.5" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.5" />
+    <!-- The same Skia the Avalonia render interface uses, called directly by
+         the UI probe to prove the bundled faces parse. Kept at the version
+         Avalonia.Skia already pulls in so only one copy ships. -->
+    <PackageReference Include="SkiaSharp" Version="3.119.4" />
   </ItemGroup>
 
   <ItemGroup>
@@ -26,6 +30,16 @@
     <!-- The app's own icon (spec section 9): the tray uses it, with an
          embedded fallback when an install ships without this file. -->
     <None Include="..\SysMonitor.ico" Link="Assets\SysMonitor.ico" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- R-027 follow-up: one bundled family for Thai and Latin. The embedded
+         copy is what the app loads, as avares://sysmonitor/Assets/Fonts plus the
+         family name; the same three files also ship loose, so an install carries
+         the font and its licence as plain files next to the program. -->
+    <AvaloniaResource Include="Assets\Fonts\*.ttf" />
+    <None Update="Assets\Fonts\*.ttf;Assets\Fonts\OFL.txt"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
