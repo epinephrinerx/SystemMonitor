@@ -21,6 +21,7 @@
 | | |
 |---|---|
 | สถานะ | 🕐 รอยืนยัน — ขอบเขตเดียวกับ R-030 ฝั่ง Linux; คุณสั่งให้ส่ง requirement มาที่รุ่น Windows ด้วย (2026-11-20) · ลำดับ: ทำหลัง R-030 บน Linux ผ่านการทดสอบด้วยมือ |
+| รุ่นเป้าหมาย | **4.4.0** — คุณกำหนด (2026-11-20): ปรับหน้าตาและเพิ่มหน้าใหม่ ไม่ได้เปลี่ยน engine; config เดิมย้ายค่าให้อัตโนมัติ จึงเป็นรุ่นย่อย ไม่ใช่ 5.0 |
 | วันที่ | 2026-11-20 |
 | แตะส่วนไหน | `SysMonitor.Wpf` (หน้าต่างหลักแทน Overall + Full, หน้า Apps/Processes) · ตัวอ่านข้อมูลรายโปรเซส · เอกสาร |
 | เกี่ยวกับ | R-030 บน branch `linux-native` (แผนเต็ม: `Docs/PLAN-R030-main-window.md` บน branch นั้น) · [[R-029]] (Battery เป็นโมดูลหนึ่งใน sidebar) |
@@ -36,6 +37,20 @@
 - Services ย้ายเป็นแท็บที่สองในหน้า Processes เหมือนฝั่ง Linux
 - ตัวเลือกเฉพาะโมดูล (แยกราย core, แยกรายไดรฟ์ ฯลฯ) ย้ายไปอยู่ในหน้าของโมดูลนั้น; การแสดง/ซ่อนโมดูลอยู่ใน Settings (เหมือน R-030)
 - หน้า Memory: กราฟ Swap คือ page file (`GlobalMemoryStatusEx` ค่า commit/page file) และการ์ด Properties ของ RAM จาก WMI `Win32_PhysicalMemory`/`Win32_PhysicalMemoryArray` (ช่องที่ใช้, ชนิด, ความเร็ว, ผู้ผลิต, ขนาดรายโมดูล) — ไม่แสดงหมายเลขซีเรียล/part number
+
+**คุณเพิ่ม (2026-11-20)** หลังส่ง screenshot หน้าโมดูลของ Resources: "ให้แสดงผลในลักษณะนี้ทั้งบน windows linux และ mac ครับ"
+
+→ หน้าโมดูลใช้โครงเดียวกับ Linux: หัวเรื่องชื่ออุปกรณ์ → แถบตัวเลือก → Usage (กราฟหลายตัว "ค่าปัจจุบัน · สูงสุด") → Sensors (อุณหภูมิ) → Properties (อ่านไม่ได้ = N/A ไม่เดาค่า). ช่องที่ต้องมี (คอลัมน์แหล่งข้อมูลเขียนตาม Linux — ฝั่ง Windows ใช้ PDH/WMI: `Win32_Processor`, `Win32_PhysicalMemory`, `MSFT_PhysicalDisk`, `Win32_Battery`/`BatteryStaticData`, PDH GPU Engine, NVML/`nvidia-smi` สำหรับ clock/power/PCIe link ของ NVIDIA):
+
+| Module | Usage charts to add | Properties to add |
+|---|---|---|
+| CPU | Each logical-CPU card shows its current clock (`cpufreq/scaling_cur_freq`). A temperature chart with its peak. | Max frequency (`cpuinfo_max_freq`) · logical cores · physical cores · sockets · uptime · virtualisation **type** (VT-x / AMD-V, not just Enabled) · architecture |
+| Memory | Swap (§2) | RAM properties card (§2). On Linux today the module list is empty, so the card is new. |
+| GPU (each) | Separate charts for usage, video encoder/decoder, and video-memory usage (`used / total · %`). A temperature chart with its peak, or "N/A". | Manufacturer · PCI slot · driver (exists) · GPU clock · video-memory clock · power usage · max power cap · link (`current / max`, e.g. "PCIe 1.0 ×4 / PCIe 3.0 ×4") |
+| Disk (each physical drive) | Drive activity % (busy time, `/sys/block/X/stat` io_ticks) · read speed and write speed as **separate** charts with their peaks · total read and total written since boot. The per-volume cards stay below. | Type (NVMe / SSD / HDD) · device (`nvme0n1`) · capacity · writable · removable · link (e.g. "USB 2.0 (480 Mb/s)", "PCIe 3.0 ×4") |
+| Network (each) | Download and upload as separate charts with their peaks · total received and total sent since boot | Interface · type · driver (exists) · MAC **hidden** (privacy rule) · IPv4/IPv6 · link speed (wired) or SSID, signal and frequency (Wi-Fi) |
+| Battery | Charge chart `100 % (Full)` · power-usage chart with its peak | Health · design capacity · charge cycles · technology · manufacturer · model · device. This matches R-028 phase B, which moves here. |
+
 
 **ข้อจำกัด:** build/ทดสอบต้องทำบนเครื่อง Windows
 
