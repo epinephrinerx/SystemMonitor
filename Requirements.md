@@ -1,6 +1,6 @@
 # Requirements — SystemMonitor4.0
 
-บันทึกสิ่งที่ตกลงกันไว้ · อัปเดตล่าสุด 2026-11-20 (branch `Mac`: R-020–R-025, R-032)
+บันทึกสิ่งที่ตกลงกันไว้ · อัปเดตล่าสุด 2026-11-20 (branch `Mac`: R-020–R-025, R-032, R-033)
 **intake ปิดแล้ว (2026-09-30)** — ทุกข้อได้รับการรับรอง; งานถัดไป: handoff ให้ Coding Owner ประเมินและแบ่งเฟส
 บริบทของโปรเจกต์อยู่ที่ `AGENTS.md` / `CLAUDE.md` (root) — ไฟล์นี้ไม่เล่าซ้ำ
 
@@ -17,6 +17,36 @@
 ---
 
 > **เลข R-019 ไม่ใช้บน branch นี้** — ถูกใช้แล้วบน branch `agent/*` (SMART / DiskInfoCore) จึงเริ่ม Mac Edition ที่ R-020 เพื่อไม่ให้รหัสชนกันเมื่อรวม branch
+
+## R-033 · Mac — อ่านและแสดงข้อมูลแบตเตอรี่ (รวมแบตอุปกรณ์ Bluetooth)
+
+| | |
+|---|---|
+| สถานะ | ✅ ตกลงแล้ว — คุณสั่ง "ให้เขียนลงใน branch ของ windows และ mac ด้วยครับ ว่าให้เพิ่มส่วนอ่าน battery" (2026-11-20) |
+| วันที่ | 2026-11-20 |
+| แตะส่วนไหน | `SysMonitor.Core` (model `Battery`/`PowerSource`/`PeripheralBattery` เดียวกับ Linux) · ตัวอ่านใน `SysMonitor.Mac` · views · ข้อความไทย/อังกฤษ · README |
+| เกี่ยวกับ | R-028 (Linux, `linux-native` — ตัวอ่านเสร็จแล้ว ใช้เป็นต้นแบบ) · R-029 (Windows, `main`) · R-032 (หน้า Battery แบบ Usage/Properties ในหน้าต่างใหม่) |
+
+**คุณระบุ (2026-11-20):** แสดงข้อมูลแบตเตอรี่แบบที่ KDE Resources ทำได้ ทั้ง Windows และ Mac; ขอบเขตเหมือน R-028: Full/หน้าโมดูล Battery · แถว Overall · หน้า Battery ใน Widget · แบตอุปกรณ์ Bluetooth · ซ่อนอัตโนมัติเมื่อไม่มีแบต · ตัวเลือก `show_battery`
+
+**ผมเข้าใจว่า (แหล่งข้อมูล ไม่ต้องใช้ root ไม่เพิ่ม package):**
+- %, สถานะ (ชาร์จ/คายประจุ/เต็ม), เสียบไฟหรือไม่, เวลาที่เหลือ: IOKit `IOPSCopyPowerSourcesInfo` / `IOPSGetProvidingPowerSourceType`
+- ความจุออกแบบ (`DesignCapacity`), ความจุเต็มตอนนี้ (`AppleRawMaxCapacity` → สุขภาพแบต), รอบชาร์จ (`CycleCount`), แรงดัน (`Voltage`), กระแส (`InstantAmperage` → W), อุณหภูมิ, ผู้ผลิต/รุ่น: IOKit service `AppleSmartBattery` (ไม่อ่าน/ไม่แสดง `Serial`)
+- ที่ชาร์จ: `IOPSCopyExternalPowerAdapterDetails` (กำลังวัตต์ของอะแดปเตอร์)
+- แบตอุปกรณ์ Bluetooth: `BatteryPercent` ของอุปกรณ์ HID ใน IORegistry (ค่าเดียวกับเมนู Bluetooth) — ไม่แสดง MAC
+- ค่าที่ไม่มีแสดงเป็น "ไม่ทราบ"/N/A ไม่เดาค่า; เวลาที่เหลือคำนวณแบบเดียวกับ Linux (EMA, ≥ 0.5 W, ไม่เกิน 48 ชม.) เมื่อระบบไม่ให้ค่า
+- Mac เดสก์ท็อป (ไม่มีแบต) ซ่อนส่วนนี้ทั้งหมด
+
+**เกณฑ์ตรวจรับ:**
+1. บน MacBook: %, สถานะ, สุขภาพ (ตรงกับ System Settings → Battery → Battery Health โดยประมาณ) และรอบชาร์จ ตรงกับ `system_profiler SPPowerDataType`
+2. ถอดสายแล้วเห็นกำลังไฟ (W) และเวลาที่เหลือ; เสียบกลับเห็นสถานะชาร์จ
+3. เมาส์/คีย์บอร์ด/AirPods ที่เมนู Bluetooth แสดง % ได้ แสดงในแอปตรงกัน
+4. ปิด `show_battery` แล้วหายทุกมุมมอง; Mac ที่ไม่มีแบตไม่เห็นส่วนนี้
+5. ข้อความไทย/อังกฤษครบ; เทสต์เดิมผ่านทั้งหมด
+
+**ข้อจำกัด:** build/ทดสอบต้องทำบนเครื่อง Mac
+
+---
 
 ## R-032 · Mac — หน้าต่างหลักแบบ Resources: sidebar, Apps, Processes และหน้าโมดูลแบบ Usage/Sensors/Properties
 
