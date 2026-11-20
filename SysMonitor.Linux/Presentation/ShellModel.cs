@@ -795,11 +795,18 @@ public sealed class ShellModel
 
         if (installed)
         {
-            Updates.Installing();
+            if (_updater.OpenedPackageInstaller)
+            {
+                Updates.PackageOpened();
+            }
+            else
+            {
+                Updates.Installing();
+            }
         }
         else
         {
-            Updates.DownloadFailed();
+            Updates.DownloadFailed(_updater.SavedPackagePath);
         }
         Rebuild();
         StructureChanged?.Invoke();

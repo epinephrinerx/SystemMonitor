@@ -33,10 +33,18 @@ public interface IRestarter
 }
 
 /// <summary>
-/// One check: whether it succeeded, the release version when it did, and the
-/// reason when it did not (a missing Linux asset is a failure, not "current").
+/// One check: whether it succeeded, the release version when it did, the
+/// reason when it did not (a missing asset or a bad response is a failure, not
+/// "current"), and the tag and a one-line explanation for the probes and log.
+/// A successful check with no version means no Linux release exists yet, which
+/// is up to date, not a failure.
 /// </summary>
-public sealed record UpdateCheck(bool Succeeded, string? Version, string? Reason = null);
+public sealed record UpdateCheck(
+    bool Succeeded,
+    string? Version,
+    string? Reason = null,
+    string? Tag = null,
+    string? Detail = null);
 
 public interface IUpdater
 {
@@ -48,6 +56,19 @@ public interface IUpdater
     /// <summary>Download and start the installer. False means the download failed.</summary>
     Task<bool> DownloadAndInstallAsync(
         string version, IProgress<int>? progress, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// True when the last download ended by handing a .deb to the desktop's
+    /// package installer instead of starting <c>install.sh</c>, so the panel
+    /// says which one happened.
+    /// </summary>
+    bool OpenedPackageInstaller => false;
+
+    /// <summary>
+    /// The verified package that was saved but could not be opened, so the
+    /// panel can show its path; null otherwise (Amendment 1, item 3).
+    /// </summary>
+    string? SavedPackagePath => null;
 }
 
 public sealed class NoopAutostart : IAutostart
@@ -102,6 +123,7 @@ public sealed class UpdatePanelState
         Found,
         Downloading,
         Installing,
+        PackageOpened,
         DownloadFailed,
         CheckFailed,
     }
@@ -116,12 +138,16 @@ public sealed class UpdatePanelState
     public string? PendingVersion { get; private set; }
     public int Progress { get; private set; }
 
+    /// <summary>A saved .deb shown when the desktop could not open it.</summary>
+    public string? SavedPackagePath { get; private set; }
+
     public bool Busy => State is Phase.Checking or Phase.Downloading or Phase.Installing;
 
     public void StartCheck()
     {
         State = Phase.Checking;
         Progress = 0;
+        SavedPackagePath = null;
     }
 
     public void Checked(string currentVersion, string? newestVersion)
@@ -148,6 +174,7 @@ public sealed class UpdatePanelState
     {
         State = Phase.Downloading;
         Progress = 0;
+        SavedPackagePath = null;
     }
 
     public void DownloadProgress(int percent)
@@ -160,9 +187,27 @@ public sealed class UpdatePanelState
         State = Phase.Installing;
     }
 
-    public void DownloadFailed()
+    /// <summary>
+    /// A .deb install: the package is in Downloads and the desktop's installer
+    /// has been asked to open it. The rest is the desktop's business, so the
+    /// pending update is cleared and the button goes back to a check.
+    /// </summary>
+    public void PackageOpened()
     {
         PendingVersion = null;
+        SavedPackagePath = null;
+        State = Phase.PackageOpened;
+    }
+
+    /// <summary>
+    /// The download failed. <paramref name="savedPackagePath"/> is set when a
+    /// verified .deb was saved but its installer could not be opened; the
+    /// status line then shows the path instead of a bare failure.
+    /// </summary>
+    public void DownloadFailed(string? savedPackagePath = null)
+    {
+        PendingVersion = null;
+        SavedPackagePath = savedPackagePath;
         State = Phase.DownloadFailed;
     }
 
@@ -177,7 +222,10 @@ public sealed class UpdatePanelState
         Phase.Found => $"{lang["update_found"]} {PendingVersion}",
         Phase.Downloading => $"{lang["downloading"]} {Progress}%",
         Phase.Installing => lang["installing"],
-        Phase.DownloadFailed => lang["download_failed"],
+        Phase.PackageOpened => lang["update_deb_opened"],
+        Phase.DownloadFailed => SavedPackagePath is { } path
+            ? lang.Get("update_deb_saved", path)
+            : lang["download_failed"],
         Phase.CheckFailed => lang["check_failed"],
         _ => null,
     };

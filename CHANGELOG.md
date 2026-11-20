@@ -54,6 +54,26 @@ update or a plain uninstall. `--purge` removes them.
 archive that holds a link. The Windows-only features — extensions, SMART,
 machine-wide install, elevation — are not part of this edition.
 
+**Linux releases and the .deb.** The release page is shared with the Windows
+builds, so Linux releases use the tag `SystemMonitorLinux-<version>` and are
+published without "Latest". The updater now reads the release list instead of
+`/releases/latest`, considers only non-draft, non-prerelease
+`SystemMonitorLinux-*` tags whose suffix is exactly `Major.Minor.Build`, and
+never offers a Windows or Mac release to a Linux install; no Linux release
+means "up to date", not a failed check.
+`./build-linux.sh --deb` also produces
+`systemmonitor_<version>_<amd64|arm64>.deb` from the same publish output:
+program under `/opt/systemmonitor`, symlink in `/usr/bin`, menu entry, icon and
+a DEP-5 copyright that covers the bundled IBM Plex Sans Thai fonts. A packaged
+install updates by downloading the `.deb`, verifying its SHA-256, saving it in
+Downloads and opening it with the desktop's package installer, which asks for
+authentication; the program itself never runs `sudo`, `pkexec`, `apt` or
+`dpkg`. A verified package already in Downloads is reused, a different file is
+saved under a free `(n)` name instead of being overwritten, and a failed opener
+keeps the verified file and shows its path in the panel. `--deb` cannot be
+combined with `--framework-dependent`, because the package is always
+self-contained.
+
 ## v4.3.0 — 2026-11-16 — Machine-wide install
 
 **Install for everyone, running as administrator.** The setup can now install

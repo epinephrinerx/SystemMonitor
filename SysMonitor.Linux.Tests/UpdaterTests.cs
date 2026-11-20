@@ -13,6 +13,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using SysMonitor.Linux;
 using SysMonitor.Linux.Presentation;
 
 namespace SysMonitor.Linux.Tests;
@@ -36,6 +37,27 @@ public sealed class UpdaterTests
         {
             Requests.Add(request);
             return Task.FromResult(_responder(request));
+        }
+    }
+
+    private sealed class FakeCommandRunner : ICommandRunner
+    {
+        private readonly Func<string, IReadOnlyList<string>, string?>? _handler;
+
+        public FakeCommandRunner(Func<string, IReadOnlyList<string>, string?>? handler = null)
+        {
+            _handler = handler;
+        }
+
+        public List<(string File, IReadOnlyList<string> Args)> Invocations { get; } = new();
+
+        public string? Run(string file, string args, int timeoutMs) =>
+            Run(file, args.Split(' ', StringSplitOptions.RemoveEmptyEntries), timeoutMs);
+
+        public string? Run(string file, IReadOnlyList<string> args, int timeoutMs)
+        {
+            Invocations.Add((file, args));
+            return _handler?.Invoke(file, args);
         }
     }
 
@@ -69,6 +91,33 @@ public sealed class UpdaterTests
 
         Assert.AreEqual("SystemMonitor-4.4.0-linux-x64.tar.gz", archive);
         Assert.AreEqual("SystemMonitor-4.4.0-linux-x64.tar.gz.sha256", checksum);
+    }
+
+    [TestMethod]
+    public void UpdateAssets_DebNames_FormatCorrectly_And_MapsArchitecture()
+    {
+        Assert.AreEqual("amd64", UpdateAssets.DebArchitectureSuffix(Architecture.X64));
+        Assert.AreEqual("arm64", UpdateAssets.DebArchitectureSuffix(Architecture.Arm64));
+        Assert.AreEqual("armhf", UpdateAssets.DebArchitectureSuffix(Architecture.Arm));
+        Assert.AreEqual("i386", UpdateAssets.DebArchitectureSuffix(Architecture.X86));
+
+        string debX64 = UpdateAssets.DebName("4.4.0", "amd64");
+        string debArm64 = UpdateAssets.DebName("4.4.0", "arm64");
+        Assert.AreEqual("systemmonitor_4.4.0_amd64.deb", debX64);
+        Assert.AreEqual("systemmonitor_4.4.0_arm64.deb", debArm64);
+        Assert.AreEqual("systemmonitor_4.4.0_amd64.deb.sha256", UpdateAssets.ChecksumName(debX64));
+
+        var x64Set = UpdateAssetSet.Deb("amd64");
+        Assert.AreEqual("deb package (amd64)", x64Set.Describe());
+        (string file64, string chk64) = x64Set.Names("4.4.0");
+        Assert.AreEqual("systemmonitor_4.4.0_amd64.deb", file64);
+        Assert.AreEqual("systemmonitor_4.4.0_amd64.deb.sha256", chk64);
+
+        var arm64Set = UpdateAssetSet.Deb("arm64");
+        Assert.AreEqual("deb package (arm64)", arm64Set.Describe());
+        (string fileArm, string chkArm) = arm64Set.Names("4.4.0");
+        Assert.AreEqual("systemmonitor_4.4.0_arm64.deb", fileArm);
+        Assert.AreEqual("systemmonitor_4.4.0_arm64.deb.sha256", chkArm);
     }
 
     // ------------------------------------------------------------- UpdateReleaseParser
@@ -111,91 +160,344 @@ public sealed class UpdaterTests
     }
 
     [TestMethod]
-    public void UpdateReleaseParser_Parse_ValidJson_ReturnsRelease()
+    public void UpdateReleaseParser_Select_ValidJson_ReturnsRelease()
     {
         string json = """
-        {
-          "tag_name": "v4.4.0",
-          "assets": [
-            {
-              "name": "SystemMonitor-4.4.0-linux-x64.tar.gz",
-              "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/v4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz"
-            },
-            {
-              "name": "SystemMonitor-4.4.0-linux-x64.tar.gz.sha256",
-              "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/v4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz.sha256"
-            }
-          ]
-        }
+        [
+          {
+            "tag_name": "SystemMonitorLinux-4.4.0",
+            "assets": [
+              {
+                "name": "SystemMonitor-4.4.0-linux-x64.tar.gz",
+                "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz"
+              },
+              {
+                "name": "SystemMonitor-4.4.0-linux-x64.tar.gz.sha256",
+                "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz.sha256"
+              }
+            ]
+          }
+        ]
         """;
 
-        (UpdateRelease? release, string? error) = UpdateReleaseParser.Parse(json, "x64");
+        (UpdateRelease? release, string? error, string note) =
+            UpdateReleaseParser.Select(json, UpdateAssetSet.TarGz("x64"));
 
         Assert.IsNull(error);
         Assert.IsNotNull(release);
         Assert.AreEqual("4.4.0", release.Version);
+        Assert.AreEqual("SystemMonitorLinux-4.4.0", release.Tag);
         Assert.AreEqual("SystemMonitor-4.4.0-linux-x64.tar.gz", release.ArchiveName);
         Assert.AreEqual("SystemMonitor-4.4.0-linux-x64.tar.gz.sha256", release.ChecksumName);
+        Assert.IsTrue(note.Contains("picked SystemMonitorLinux-4.4.0"));
     }
 
     [TestMethod]
-    public void UpdateReleaseParser_Parse_MissingAssetOrChecksum_ReturnsError()
+    public void UpdateReleaseParser_Select_MissingAssetOrChecksum_ReturnsError()
     {
         string missingChecksum = """
-        {
-          "tag_name": "v4.4.0",
-          "assets": [
-            {
-              "name": "SystemMonitor-4.4.0-linux-x64.tar.gz",
-              "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/v4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz"
-            }
-          ]
-        }
+        [
+          {
+            "tag_name": "SystemMonitorLinux-4.4.0",
+            "assets": [
+              {
+                "name": "SystemMonitor-4.4.0-linux-x64.tar.gz",
+                "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz"
+              }
+            ]
+          }
+        ]
         """;
 
-        (UpdateRelease? release, string? error) = UpdateReleaseParser.Parse(missingChecksum, "x64");
+        (UpdateRelease? release, string? error, _) =
+            UpdateReleaseParser.Select(missingChecksum, UpdateAssetSet.TarGz("x64"));
         Assert.IsNull(release);
         Assert.IsTrue(error!.Contains("no checksum asset"));
 
         string missingLinuxAsset = """
-        {
-          "tag_name": "v4.4.0",
-          "assets": [
-            {
-              "name": "SystemMonitor-4.4.0-win-x64.zip",
-              "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/v4.4.0/SystemMonitor-4.4.0-win-x64.zip"
-            }
-          ]
-        }
+        [
+          {
+            "tag_name": "SystemMonitorLinux-4.4.0",
+            "assets": [
+              {
+                "name": "SystemMonitor-4.4.0-win-x64.zip",
+                "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-win-x64.zip"
+              }
+            ]
+          }
+        ]
         """;
 
-        (release, error) = UpdateReleaseParser.Parse(missingLinuxAsset, "x64");
+        (release, error, _) =
+            UpdateReleaseParser.Select(missingLinuxAsset, UpdateAssetSet.TarGz("x64"));
         Assert.IsNull(release);
         Assert.IsTrue(error!.Contains("no linux asset"));
     }
 
     [TestMethod]
-    public void UpdateReleaseParser_Parse_DisallowedHost_ReturnsError()
+    public void UpdateReleaseParser_Select_DisallowedHost_ReturnsError()
     {
         string json = """
-        {
-          "tag_name": "v4.4.0",
-          "assets": [
-            {
-              "name": "SystemMonitor-4.4.0-linux-x64.tar.gz",
-              "browser_download_url": "https://unauthorized-domain.com/SystemMonitor-4.4.0-linux-x64.tar.gz"
-            },
-            {
-              "name": "SystemMonitor-4.4.0-linux-x64.tar.gz.sha256",
-              "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/v4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz.sha256"
-            }
-          ]
-        }
+        [
+          {
+            "tag_name": "SystemMonitorLinux-4.4.0",
+            "assets": [
+              {
+                "name": "SystemMonitor-4.4.0-linux-x64.tar.gz",
+                "browser_download_url": "https://unauthorized-domain.com/SystemMonitor-4.4.0-linux-x64.tar.gz"
+              },
+              {
+                "name": "SystemMonitor-4.4.0-linux-x64.tar.gz.sha256",
+                "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz.sha256"
+              }
+            ]
+          }
+        ]
         """;
 
-        (UpdateRelease? release, string? error) = UpdateReleaseParser.Parse(json, "x64");
+        (UpdateRelease? release, string? error, _) =
+            UpdateReleaseParser.Select(json, UpdateAssetSet.TarGz("x64"));
         Assert.IsNull(release);
         Assert.IsTrue(error!.Contains("not on an allowed https host"));
+    }
+
+    [TestMethod]
+    public void UpdateReleaseParser_Select_IgnoresWindowsMacDraftAndPrereleaseReleases()
+    {
+        string json = """
+        [
+          {
+            "tag_name": "v4.5.0",
+            "draft": false,
+            "prerelease": false,
+            "assets": [
+              {
+                "name": "SystemMonitor-4.5.0-win-x64.zip",
+                "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/v4.5.0/SystemMonitor-4.5.0-win-x64.zip"
+              }
+            ]
+          },
+          {
+            "tag_name": "SystemMonitorMac-4.6.0",
+            "draft": false,
+            "prerelease": false,
+            "assets": []
+          },
+          {
+            "tag_name": "SystemMonitorLinux-4.7.0",
+            "draft": true,
+            "prerelease": false,
+            "assets": []
+          },
+          {
+            "tag_name": "SystemMonitorLinux-4.8.0",
+            "draft": false,
+            "prerelease": true,
+            "assets": []
+          },
+          {
+            "tag_name": "SystemMonitorLinux-4.4.0",
+            "draft": false,
+            "prerelease": false,
+            "assets": [
+              {
+                "name": "SystemMonitor-4.4.0-linux-x64.tar.gz",
+                "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz"
+              },
+              {
+                "name": "SystemMonitor-4.4.0-linux-x64.tar.gz.sha256",
+                "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz.sha256"
+              }
+            ]
+          }
+        ]
+        """;
+
+        (UpdateRelease? release, string? error, string note) =
+            UpdateReleaseParser.Select(json, UpdateAssetSet.TarGz("x64"));
+
+        Assert.IsNull(error);
+        Assert.IsNotNull(release);
+        Assert.AreEqual("4.4.0", release.Version);
+        Assert.AreEqual("SystemMonitorLinux-4.4.0", release.Tag);
+        Assert.IsTrue(note.Contains("picked SystemMonitorLinux-4.4.0"));
+        Assert.IsTrue(note.Contains("1 prerelease, 1 draft, 2 other tag(s)"));
+    }
+
+    [TestMethod]
+    public void UpdateReleaseParser_TryLinuxVersion_ValidatesFormatStrictly()
+    {
+        Assert.IsFalse(UpdateReleaseParser.TryLinuxVersion("v4.4.0", out _));
+        Assert.IsFalse(UpdateReleaseParser.TryLinuxVersion("4.4.0-rc1", out _));
+        Assert.IsFalse(UpdateReleaseParser.TryLinuxVersion("4.4.0.1", out _));
+        Assert.IsFalse(UpdateReleaseParser.TryLinuxVersion("4.4", out _));
+        Assert.IsFalse(UpdateReleaseParser.TryLinuxVersion("", out _));
+        Assert.IsFalse(UpdateReleaseParser.TryLinuxVersion(null, out _));
+
+        Assert.IsTrue(UpdateReleaseParser.TryLinuxVersion("4.3.1", out string v1));
+        Assert.AreEqual("4.3.1", v1);
+        Assert.IsTrue(UpdateReleaseParser.TryLinuxVersion("4.10.0", out string v2));
+        Assert.AreEqual("4.10.0", v2);
+    }
+
+    [TestMethod]
+    public void UpdateReleaseParser_Select_IgnoresV440AndRc1_AndChoosesValid431()
+    {
+        string json = """
+        [
+          {
+            "tag_name": "SystemMonitorLinux-v4.4.0",
+            "draft": false,
+            "prerelease": false,
+            "assets": [
+              {
+                "name": "SystemMonitor-v4.4.0-linux-x64.tar.gz",
+                "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-v4.4.0/SystemMonitor-v4.4.0-linux-x64.tar.gz"
+              },
+              {
+                "name": "SystemMonitor-v4.4.0-linux-x64.tar.gz.sha256",
+                "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-v4.4.0/SystemMonitor-v4.4.0-linux-x64.tar.gz.sha256"
+              }
+            ]
+          },
+          {
+            "tag_name": "SystemMonitorLinux-4.4.0-rc1",
+            "draft": false,
+            "prerelease": false,
+            "assets": [
+              {
+                "name": "SystemMonitor-4.4.0-rc1-linux-x64.tar.gz",
+                "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0-rc1/SystemMonitor-4.4.0-rc1-linux-x64.tar.gz"
+              },
+              {
+                "name": "SystemMonitor-4.4.0-rc1-linux-x64.tar.gz.sha256",
+                "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0-rc1/SystemMonitor-4.4.0-rc1-linux-x64.tar.gz.sha256"
+              }
+            ]
+          },
+          {
+            "tag_name": "SystemMonitorLinux-4.3.1",
+            "draft": false,
+            "prerelease": false,
+            "assets": [
+              {
+                "name": "SystemMonitor-4.3.1-linux-x64.tar.gz",
+                "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.3.1/SystemMonitor-4.3.1-linux-x64.tar.gz"
+              },
+              {
+                "name": "SystemMonitor-4.3.1-linux-x64.tar.gz.sha256",
+                "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.3.1/SystemMonitor-4.3.1-linux-x64.tar.gz.sha256"
+              }
+            ]
+          }
+        ]
+        """;
+
+        (UpdateRelease? release, string? error, string note) =
+            UpdateReleaseParser.Select(json, UpdateAssetSet.TarGz("x64"));
+
+        Assert.IsNull(error);
+        Assert.IsNotNull(release);
+        Assert.AreEqual("4.3.1", release.Version);
+        Assert.AreEqual("SystemMonitorLinux-4.3.1", release.Tag);
+        Assert.AreEqual("SystemMonitor-4.3.1-linux-x64.tar.gz", release.ArchiveName);
+        Assert.IsTrue(note.Contains("picked SystemMonitorLinux-4.3.1 (4.3.1) of 1 Linux release(s) seen in 3"));
+        Assert.IsTrue(note.Contains("2 other tag(s)"));
+    }
+
+    [TestMethod]
+    public void UpdateReleaseParser_Select_HighestVersionWins_ComparedNumerically()
+    {
+        Assert.IsTrue(UpdateReleaseParser.CompareVersions("4.10.0", "4.9.0") > 0);
+        Assert.IsTrue(UpdateReleaseParser.CompareVersions("4.9.0", "4.10.0") < 0);
+        Assert.AreEqual(0, UpdateReleaseParser.CompareVersions("4.10.0", "4.10.0"));
+        Assert.IsTrue(UpdateReleaseParser.CompareVersions("5.0.0", "4.10.0") > 0);
+
+        string json = """
+        [
+          {
+            "tag_name": "SystemMonitorLinux-4.9.0",
+            "draft": false,
+            "prerelease": false,
+            "assets": [
+              {
+                "name": "SystemMonitor-4.9.0-linux-x64.tar.gz",
+                "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.9.0/SystemMonitor-4.9.0-linux-x64.tar.gz"
+              },
+              {
+                "name": "SystemMonitor-4.9.0-linux-x64.tar.gz.sha256",
+                "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.9.0/SystemMonitor-4.9.0-linux-x64.tar.gz.sha256"
+              }
+            ]
+          },
+          {
+            "tag_name": "SystemMonitorLinux-4.10.0",
+            "draft": false,
+            "prerelease": false,
+            "assets": [
+              {
+                "name": "SystemMonitor-4.10.0-linux-x64.tar.gz",
+                "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.10.0/SystemMonitor-4.10.0-linux-x64.tar.gz"
+              },
+              {
+                "name": "SystemMonitor-4.10.0-linux-x64.tar.gz.sha256",
+                "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.10.0/SystemMonitor-4.10.0-linux-x64.tar.gz.sha256"
+              }
+            ]
+          },
+          {
+            "tag_name": "SystemMonitorLinux-4.2.0",
+            "draft": false,
+            "prerelease": false,
+            "assets": [
+              {
+                "name": "SystemMonitor-4.2.0-linux-x64.tar.gz",
+                "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.2.0/SystemMonitor-4.2.0-linux-x64.tar.gz"
+              },
+              {
+                "name": "SystemMonitor-4.2.0-linux-x64.tar.gz.sha256",
+                "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.2.0/SystemMonitor-4.2.0-linux-x64.tar.gz.sha256"
+              }
+            ]
+          }
+        ]
+        """;
+
+        (UpdateRelease? release, string? error, string note) =
+            UpdateReleaseParser.Select(json, UpdateAssetSet.TarGz("x64"));
+
+        Assert.IsNull(error);
+        Assert.IsNotNull(release);
+        Assert.AreEqual("4.10.0", release.Version);
+        Assert.AreEqual("SystemMonitorLinux-4.10.0", release.Tag);
+        Assert.IsTrue(note.Contains("picked SystemMonitorLinux-4.10.0"));
+    }
+
+    [TestMethod]
+    public void UpdateReleaseParser_Select_NoLinuxRelease_ReturnsNullReleaseAndNullError()
+    {
+        string emptyList = "[]";
+        (UpdateRelease? r1, string? err1, string note1) =
+            UpdateReleaseParser.Select(emptyList, UpdateAssetSet.TarGz("x64"));
+
+        Assert.IsNull(r1);
+        Assert.IsNull(err1);
+        Assert.IsTrue(note1.Contains("no SystemMonitorLinux-* release among 0"));
+
+        string windowsOnly = """
+        [
+          {
+            "tag_name": "v4.4.0",
+            "assets": []
+          }
+        ]
+        """;
+        (UpdateRelease? r2, string? err2, string note2) =
+            UpdateReleaseParser.Select(windowsOnly, UpdateAssetSet.TarGz("x64"));
+
+        Assert.IsNull(r2);
+        Assert.IsNull(err2);
+        Assert.IsTrue(note2.Contains("no SystemMonitorLinux-* release among 1"));
     }
 
     // ------------------------------------------------------------- UpdatePanelState
@@ -271,6 +573,11 @@ public sealed class UpdaterTests
         state.Installing();
         Assert.AreEqual("Starting the installer...", state.StatusText(lang));
 
+        state.PackageOpened();
+        Assert.AreEqual(UpdatePanelState.Phase.PackageOpened, state.State);
+        Assert.AreEqual("Opened the package installer; confirm there", state.StatusText(lang));
+        Assert.AreEqual("Check for updates", state.ButtonLabel(lang));
+
         state.DownloadFailed();
         Assert.AreEqual("Download failed", state.StatusText(lang));
         Assert.AreEqual("Check for updates", state.ButtonLabel(lang));
@@ -282,24 +589,26 @@ public sealed class UpdaterTests
     public async Task GitHubUpdater_CheckAsync_SetsHeaders_And_ParsesRelease()
     {
         string releaseJson = """
-        {
-          "tag_name": "v4.4.0",
-          "assets": [
-            {
-              "name": "SystemMonitor-4.4.0-linux-x64.tar.gz",
-              "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/v4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz"
-            },
-            {
-              "name": "SystemMonitor-4.4.0-linux-x64.tar.gz.sha256",
-              "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/v4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz.sha256"
-            }
-          ]
-        }
+        [
+          {
+            "tag_name": "SystemMonitorLinux-4.4.0",
+            "assets": [
+              {
+                "name": "SystemMonitor-4.4.0-linux-x64.tar.gz",
+                "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz"
+              },
+              {
+                "name": "SystemMonitor-4.4.0-linux-x64.tar.gz.sha256",
+                "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz.sha256"
+              }
+            ]
+          }
+        ]
         """;
 
         var handler = new FakeHttpMessageHandler(req =>
         {
-            Assert.AreEqual("https://api.github.com/repos/epinephrinerx/SystemMonitor/releases/latest", req.RequestUri!.ToString());
+            Assert.AreEqual(UpdateReleaseParser.Endpoint, req.RequestUri!.ToString());
             Assert.AreEqual("SystemMonitor/4.3.0", req.Headers.UserAgent.ToString());
             Assert.IsTrue(req.Headers.Accept.ToString().Contains("application/vnd.github+json"));
 
@@ -314,8 +623,37 @@ public sealed class UpdaterTests
 
         Assert.IsTrue(result.Succeeded);
         Assert.AreEqual("4.4.0", result.Version);
+        Assert.AreEqual("SystemMonitorLinux-4.4.0", result.Tag);
         Assert.IsNotNull(updater.Release);
         Assert.AreEqual("SystemMonitor-4.4.0-linux-x64.tar.gz", updater.Release.ArchiveName);
+    }
+
+    [TestMethod]
+    public async Task GitHubUpdater_CheckAsync_NoLinuxRelease_TransitionsToUpToDate()
+    {
+        var handler = new FakeHttpMessageHandler(req =>
+        {
+            Assert.AreEqual(UpdateReleaseParser.Endpoint, req.RequestUri!.ToString());
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("[]", Encoding.UTF8, "application/json")
+            };
+        });
+
+        var updater = new GitHubUpdater("4.3.0", architecture: "x64", handler: handler);
+        UpdateCheck result = await updater.CheckAsync(CancellationToken.None);
+
+        Assert.IsTrue(result.Succeeded);
+        Assert.IsNull(result.Version);
+        Assert.IsNull(result.Reason);
+        Assert.IsNull(updater.Release);
+        Assert.IsTrue(result.Detail!.Contains("no SystemMonitorLinux-*"));
+
+        var state = new UpdatePanelState("4.3.0");
+        state.Checked("4.3.0", result.Version);
+        Assert.AreEqual(UpdatePanelState.Phase.UpToDate, state.State);
+        Assert.IsNull(state.PendingVersion);
+        Assert.AreEqual("You have the newest version", state.StatusText(new Lang("en")));
     }
 
     [TestMethod]
@@ -330,6 +668,89 @@ public sealed class UpdaterTests
         Assert.IsFalse(result.Succeeded);
         Assert.IsNull(result.Version);
         Assert.IsTrue(result.Reason!.Contains("404"));
+    }
+
+    [TestMethod]
+    public async Task GitHubUpdater_CheckAsync_Non200Response_ReturnsCheckFailed()
+    {
+        var handler = new FakeHttpMessageHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.InternalServerError));
+
+        var updater = new GitHubUpdater("4.3.0", architecture: "x64", handler: handler);
+        UpdateCheck result = await updater.CheckAsync(CancellationToken.None);
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.IsNull(result.Version);
+        Assert.IsTrue(result.Reason!.Contains("500"));
+
+        var state = new UpdatePanelState("4.3.0");
+        state.CheckFailed();
+        Assert.AreEqual(UpdatePanelState.Phase.CheckFailed, state.State);
+        Assert.AreEqual("Could not check. Try again.", state.StatusText(new Lang("en")));
+    }
+
+    [TestMethod]
+    public async Task GitHubUpdater_CheckAsync_MalformedJson_ReturnsCheckFailed()
+    {
+        var handler = new FakeHttpMessageHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("not-valid-json", Encoding.UTF8, "application/json")
+            });
+
+        var updater = new GitHubUpdater("4.3.0", architecture: "x64", handler: handler);
+        UpdateCheck result = await updater.CheckAsync(CancellationToken.None);
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.IsTrue(result.Reason!.Contains("not JSON"));
+
+        // Also test payload that is a JSON object instead of an array
+        var objectHandler = new FakeHttpMessageHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json")
+            });
+
+        var objectUpdater = new GitHubUpdater("4.3.0", architecture: "x64", handler: objectHandler);
+        UpdateCheck objectResult = await objectUpdater.CheckAsync(CancellationToken.None);
+
+        Assert.IsFalse(objectResult.Succeeded);
+        Assert.IsTrue(objectResult.Reason!.Contains("not a list"));
+    }
+
+    [TestMethod]
+    public async Task GitHubUpdater_CheckAsync_NewestLinuxReleaseMissingArchitectureAsset_ReturnsCheckFailed()
+    {
+        string json = """
+        [
+          {
+            "tag_name": "SystemMonitorLinux-4.4.0",
+            "assets": [
+              {
+                "name": "SystemMonitor-4.4.0-linux-arm64.tar.gz",
+                "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-arm64.tar.gz"
+              },
+              {
+                "name": "SystemMonitor-4.4.0-linux-arm64.tar.gz.sha256",
+                "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-arm64.tar.gz.sha256"
+              }
+            ]
+          }
+        ]
+        """;
+
+        var handler = new FakeHttpMessageHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            });
+
+        var updater = new GitHubUpdater("4.3.0", architecture: "x64", handler: handler);
+        UpdateCheck result = await updater.CheckAsync(CancellationToken.None);
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.IsNull(result.Version);
+        Assert.IsTrue(result.Reason!.Contains("no linux asset \"SystemMonitor-4.4.0-linux-x64.tar.gz\""));
     }
 
     [TestMethod]
@@ -380,25 +801,27 @@ public sealed class UpdaterTests
             string checksumPayload = $"{sha256}  SystemMonitor-4.4.0-linux-x64.tar.gz\n";
 
             string releaseJson = """
-            {
-              "tag_name": "v4.4.0",
-              "assets": [
-                {
-                  "name": "SystemMonitor-4.4.0-linux-x64.tar.gz",
-                  "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/v4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz"
-                },
-                {
-                  "name": "SystemMonitor-4.4.0-linux-x64.tar.gz.sha256",
-                  "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/v4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz.sha256"
-                }
-              ]
-            }
+            [
+              {
+                "tag_name": "SystemMonitorLinux-4.4.0",
+                "assets": [
+                  {
+                    "name": "SystemMonitor-4.4.0-linux-x64.tar.gz",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz"
+                  },
+                  {
+                    "name": "SystemMonitor-4.4.0-linux-x64.tar.gz.sha256",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz.sha256"
+                  }
+                ]
+              }
+            ]
             """;
 
             var handler = new FakeHttpMessageHandler(req =>
             {
                 string url = req.RequestUri!.ToString();
-                if (url.EndsWith("/latest"))
+                if (url.Contains("/releases?per_page=30"))
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
@@ -483,25 +906,27 @@ public sealed class UpdaterTests
             string checksumPayload = $"{wrongSha256}  SystemMonitor-4.4.0-linux-x64.tar.gz\n";
 
             string releaseJson = """
-            {
-              "tag_name": "v4.4.0",
-              "assets": [
-                {
-                  "name": "SystemMonitor-4.4.0-linux-x64.tar.gz",
-                  "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/v4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz"
-                },
-                {
-                  "name": "SystemMonitor-4.4.0-linux-x64.tar.gz.sha256",
-                  "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/v4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz.sha256"
-                }
-              ]
-            }
+            [
+              {
+                "tag_name": "SystemMonitorLinux-4.4.0",
+                "assets": [
+                  {
+                    "name": "SystemMonitor-4.4.0-linux-x64.tar.gz",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz"
+                  },
+                  {
+                    "name": "SystemMonitor-4.4.0-linux-x64.tar.gz.sha256",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz.sha256"
+                  }
+                ]
+              }
+            ]
             """;
 
             var handler = new FakeHttpMessageHandler(req =>
             {
                 string url = req.RequestUri!.ToString();
-                if (url.EndsWith("/latest"))
+                if (url.Contains("/releases?per_page=30"))
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
@@ -569,25 +994,27 @@ public sealed class UpdaterTests
             string checksumPayload = $"{sha256}  SystemMonitor-4.4.0-linux-x64.tar.gz\n";
 
             string releaseJson = """
-            {
-              "tag_name": "v4.4.0",
-              "assets": [
-                {
-                  "name": "SystemMonitor-4.4.0-linux-x64.tar.gz",
-                  "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/v4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz"
-                },
-                {
-                  "name": "SystemMonitor-4.4.0-linux-x64.tar.gz.sha256",
-                  "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/v4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz.sha256"
-                }
-              ]
-            }
+            [
+              {
+                "tag_name": "SystemMonitorLinux-4.4.0",
+                "assets": [
+                  {
+                    "name": "SystemMonitor-4.4.0-linux-x64.tar.gz",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz"
+                  },
+                  {
+                    "name": "SystemMonitor-4.4.0-linux-x64.tar.gz.sha256",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz.sha256"
+                  }
+                ]
+              }
+            ]
             """;
 
             var handler = new FakeHttpMessageHandler(req =>
             {
                 string url = req.RequestUri!.ToString();
-                if (url.EndsWith("/latest"))
+                if (url.Contains("/releases?per_page=30"))
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
@@ -630,6 +1057,900 @@ public sealed class UpdaterTests
             {
                 Directory.Delete(cacheDir, recursive: true);
             }
+        }
+    }
+
+    // ------------------------------------------------------------- DebPackage and Deb Install
+
+    [TestMethod]
+    public void DebPackage_IsInstalled_RequiresUnderOptRoot_And_DpkgQueryInstalled()
+    {
+        var validRunner = new FakeCommandRunner((file, args) =>
+        {
+            if (file == "dpkg-query" && args.Contains("-f=${Status}") && args.Contains("systemmonitor"))
+            {
+                return "install ok installed\n";
+            }
+            return null;
+        });
+
+        // Path under /opt/systemmonitor/ and registered in dpkg -> true
+        Assert.IsTrue(DebPackage.IsInstalled("/opt/systemmonitor/sysmonitor", validRunner));
+        Assert.IsTrue(DebPackage.IsInstalled("/opt/systemmonitor/bin/sysmonitor", validRunner));
+
+        // Path under /opt/systemmonitor/ but dpkg-query says not installed -> false
+        var notInstalledRunner = new FakeCommandRunner((_, _) => "unknown ok not-installed\n");
+        Assert.IsFalse(DebPackage.IsInstalled("/opt/systemmonitor/sysmonitor", notInstalledRunner));
+
+        // Path under /opt/systemmonitor/ but dpkg-query fails (returns null) -> false
+        var failingRunner = new FakeCommandRunner((_, _) => null);
+        Assert.IsFalse(DebPackage.IsInstalled("/opt/systemmonitor/sysmonitor", failingRunner));
+
+        // Not under /opt/systemmonitor/, even if dpkg-query says installed -> false
+        Assert.IsFalse(DebPackage.IsInstalled("/home/user/apps/sysmonitor", validRunner));
+        Assert.IsFalse(DebPackage.IsInstalled("/usr/local/bin/sysmonitor", validRunner));
+        Assert.IsFalse(DebPackage.IsInstalled("/opt/otherapp/sysmonitor", validRunner));
+        Assert.IsFalse(DebPackage.IsInstalled(null, validRunner));
+        Assert.IsFalse(DebPackage.IsInstalled("", validRunner));
+
+        // Verify with GitHubUpdater
+        var updaterDeb = new GitHubUpdater(
+            "4.3.0",
+            processPath: "/opt/systemmonitor/sysmonitor",
+            commands: validRunner);
+        Assert.IsTrue(updaterDeb.DebInstall);
+        Assert.IsTrue(updaterDeb.Assets.Package);
+        Assert.AreEqual("deb package (amd64)", updaterDeb.Assets.Describe());
+
+        var updaterTar = new GitHubUpdater(
+            "4.3.0",
+            processPath: "/home/user/sysmonitor",
+            commands: validRunner,
+            architecture: "x64");
+        Assert.IsFalse(updaterTar.DebInstall);
+        Assert.IsFalse(updaterTar.Assets.Package);
+        Assert.AreEqual("tar.gz archive (x64)", updaterTar.Assets.Describe());
+    }
+
+    [TestMethod]
+    public void DebPackage_ResolveDownloadDirectory_UsesXdgDownloadDir_WhenSet()
+    {
+        string? prev = Environment.GetEnvironmentVariable("XDG_DOWNLOAD_DIR");
+        try
+        {
+            Environment.SetEnvironmentVariable("XDG_DOWNLOAD_DIR", "/custom/xdg/downloads");
+            var runner = new FakeCommandRunner();
+            string dir = DebPackage.ResolveDownloadDirectory(runner);
+            Assert.AreEqual("/custom/xdg/downloads", dir);
+            Assert.AreEqual(0, runner.Invocations.Count, "xdg-user-dir must not be invoked when XDG_DOWNLOAD_DIR is set.");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("XDG_DOWNLOAD_DIR", prev);
+        }
+    }
+
+    [TestMethod]
+    public void DebPackage_ResolveDownloadDirectory_FallsBackToXdgUserDir_OrDownloadsFolder()
+    {
+        string? prevXdg = Environment.GetEnvironmentVariable("XDG_DOWNLOAD_DIR");
+        try
+        {
+            Environment.SetEnvironmentVariable("XDG_DOWNLOAD_DIR", null);
+
+            // 1. xdg-user-dir DOWNLOAD returns a custom path
+            var runnerCustom = new FakeCommandRunner((file, args) =>
+                file == "xdg-user-dir" && args.Contains("DOWNLOAD") ? "/custom/user/downloads\n" : null);
+            string dir1 = DebPackage.ResolveDownloadDirectory(runnerCustom);
+            Assert.AreEqual("/custom/user/downloads", dir1);
+
+            // 2. xdg-user-dir DOWNLOAD returns the user's home directory -> fallback to ~/Downloads
+            string home = Environment.GetEnvironmentVariable("HOME")
+                ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var runnerHome = new FakeCommandRunner((file, args) =>
+                file == "xdg-user-dir" && args.Contains("DOWNLOAD") ? home : null);
+            string dir2 = DebPackage.ResolveDownloadDirectory(runnerHome);
+            Assert.AreEqual(Path.Combine(home, "Downloads"), dir2);
+
+            // 3. xdg-user-dir DOWNLOAD fails (null) -> fallback to ~/Downloads
+            var runnerNull = new FakeCommandRunner((_, _) => null);
+            string dir3 = DebPackage.ResolveDownloadDirectory(runnerNull);
+            Assert.AreEqual(Path.Combine(home, "Downloads"), dir3);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("XDG_DOWNLOAD_DIR", prevXdg);
+        }
+    }
+
+    [TestMethod]
+    public async Task GitHubUpdater_DownloadAndInstallAsync_DebPath_HappyPath_DownloadsVerifiesAndOpensWithDesktop()
+    {
+        string cacheDir = Path.Combine(Path.GetTempPath(), "updater-deb-happy-" + Guid.NewGuid().ToString("N"));
+        string downloadDir = Path.Combine(Path.GetTempPath(), "updater-deb-down-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            byte[] debBytes = Encoding.UTF8.GetBytes("fake deb package binary content");
+            string sha256 = Convert.ToHexString(SHA256.HashData(debBytes)).ToLowerInvariant();
+            string checksumPayload = $"{sha256}  systemmonitor_4.4.0_amd64.deb\n";
+
+            string releaseJson = """
+            [
+              {
+                "tag_name": "SystemMonitorLinux-4.4.0",
+                "assets": [
+                  {
+                    "name": "systemmonitor_4.4.0_amd64.deb",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/systemmonitor_4.4.0_amd64.deb"
+                  },
+                  {
+                    "name": "systemmonitor_4.4.0_amd64.deb.sha256",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/systemmonitor_4.4.0_amd64.deb.sha256"
+                  }
+                ]
+              }
+            ]
+            """;
+
+            var handler = new FakeHttpMessageHandler(req =>
+            {
+                string url = req.RequestUri!.ToString();
+                if (url.Contains("/releases?per_page=30"))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(releaseJson, Encoding.UTF8, "application/json")
+                    };
+                }
+                if (url.EndsWith(".deb.sha256"))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(checksumPayload, Encoding.UTF8, "text/plain")
+                    };
+                }
+                if (url.EndsWith(".deb"))
+                {
+                    var response = new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new ByteArrayContent(debBytes)
+                    };
+                    response.Content.Headers.ContentLength = debBytes.Length;
+                    return response;
+                }
+                return new HttpResponseMessage(HttpStatusCode.NotFound);
+            });
+
+            var fakeCommands = new FakeCommandRunner((file, args) =>
+            {
+                if (file == "dpkg-query" && args.Contains("-f=${Status}"))
+                {
+                    return "install ok installed\n";
+                }
+                return null;
+            });
+
+            string? openedPath = null;
+            bool startCalled = false;
+            var progressReports = new List<int>();
+            var progress = new Progress<int>(progressReports.Add);
+
+            var updater = new GitHubUpdater(
+                currentVersion: "4.3.0",
+                cacheDirectory: cacheDir,
+                downloadDirectory: downloadDir,
+                handler: handler,
+                debInstall: true,
+                commands: fakeCommands,
+                start: (_, _) =>
+                {
+                    startCalled = true;
+                    return true;
+                },
+                open: path =>
+                {
+                    openedPath = path;
+                    return true;
+                });
+
+            await updater.CheckAsync(CancellationToken.None);
+            bool success = await updater.DownloadAndInstallAsync("4.4.0", progress, CancellationToken.None);
+
+            Assert.IsTrue(success);
+            Assert.IsTrue(updater.OpenedPackageInstaller);
+            Assert.IsFalse(startCalled, "install.sh must not be started for a .deb install.");
+
+            string expectedDestination = Path.Combine(downloadDir, "systemmonitor_4.4.0_amd64.deb");
+            Assert.AreEqual(expectedDestination, openedPath);
+            Assert.IsTrue(File.Exists(expectedDestination), "Downloaded deb must exist in Downloads directory.");
+            CollectionAssert.AreEqual(debBytes, File.ReadAllBytes(expectedDestination));
+
+            // Cached copies must have been deleted
+            Assert.IsFalse(File.Exists(Path.Combine(cacheDir, "systemmonitor_4.4.0_amd64.deb")));
+            Assert.IsFalse(File.Exists(Path.Combine(cacheDir, "systemmonitor_4.4.0_amd64.deb.sha256")));
+
+            // Opener was called, and no privileged commands like sudo, pkexec, apt or dpkg -i were run
+            foreach (var (cmd, args) in fakeCommands.Invocations)
+            {
+                Assert.AreNotEqual("sudo", cmd);
+                Assert.AreNotEqual("pkexec", cmd);
+                Assert.AreNotEqual("apt", cmd);
+                Assert.AreNotEqual("apt-get", cmd);
+                if (cmd == "dpkg")
+                {
+                    Assert.IsFalse(args.Contains("-i") || args.Contains("--install"));
+                }
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(cacheDir)) Directory.Delete(cacheDir, recursive: true);
+            if (Directory.Exists(downloadDir)) Directory.Delete(downloadDir, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task GitHubUpdater_DownloadAndInstallAsync_DebPath_ShaMismatch_RemovesFileAndFails()
+    {
+        string cacheDir = Path.Combine(Path.GetTempPath(), "updater-deb-mismatch-" + Guid.NewGuid().ToString("N"));
+        string downloadDir = Path.Combine(Path.GetTempPath(), "updater-deb-down-mismatch-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            byte[] debBytes = Encoding.UTF8.GetBytes("fake deb package binary content");
+            string wrongSha = new string('0', 64);
+            string checksumPayload = $"{wrongSha}  systemmonitor_4.4.0_amd64.deb\n";
+
+            string releaseJson = """
+            [
+              {
+                "tag_name": "SystemMonitorLinux-4.4.0",
+                "assets": [
+                  {
+                    "name": "systemmonitor_4.4.0_amd64.deb",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/systemmonitor_4.4.0_amd64.deb"
+                  },
+                  {
+                    "name": "systemmonitor_4.4.0_amd64.deb.sha256",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/systemmonitor_4.4.0_amd64.deb.sha256"
+                  }
+                ]
+              }
+            ]
+            """;
+
+            var handler = new FakeHttpMessageHandler(req =>
+            {
+                string url = req.RequestUri!.ToString();
+                if (url.Contains("/releases?per_page=30"))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(releaseJson, Encoding.UTF8, "application/json")
+                    };
+                }
+                if (url.EndsWith(".deb.sha256"))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(checksumPayload, Encoding.UTF8, "text/plain")
+                    };
+                }
+                if (url.EndsWith(".deb"))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new ByteArrayContent(debBytes)
+                    };
+                }
+                return new HttpResponseMessage(HttpStatusCode.NotFound);
+            });
+
+            bool openerCalled = false;
+            var updater = new GitHubUpdater(
+                currentVersion: "4.3.0",
+                cacheDirectory: cacheDir,
+                downloadDirectory: downloadDir,
+                handler: handler,
+                debInstall: true,
+                open: _ =>
+                {
+                    openerCalled = true;
+                    return true;
+                });
+
+            await updater.CheckAsync(CancellationToken.None);
+            bool success = await updater.DownloadAndInstallAsync("4.4.0", null, CancellationToken.None);
+
+            Assert.IsFalse(success);
+            Assert.IsFalse(updater.OpenedPackageInstaller);
+            Assert.IsFalse(openerCalled);
+
+            string destination = Path.Combine(downloadDir, "systemmonitor_4.4.0_amd64.deb");
+            Assert.IsFalse(File.Exists(destination));
+            Assert.IsFalse(File.Exists(Path.Combine(cacheDir, "systemmonitor_4.4.0_amd64.deb")));
+            Assert.IsFalse(File.Exists(Path.Combine(cacheDir, "systemmonitor_4.4.0_amd64.deb.sha256")));
+        }
+        finally
+        {
+            if (Directory.Exists(cacheDir)) Directory.Delete(cacheDir, recursive: true);
+            if (Directory.Exists(downloadDir)) Directory.Delete(downloadDir, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task GitHubUpdater_DownloadAndInstallAsync_DebPath_ExistingMatchingShaFile_IsReused()
+    {
+        string cacheDir = Path.Combine(Path.GetTempPath(), "updater-deb-reuse-" + Guid.NewGuid().ToString("N"));
+        string downloadDir = Path.Combine(Path.GetTempPath(), "updater-deb-down-reuse-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(downloadDir);
+
+            byte[] debBytes = Encoding.UTF8.GetBytes("fake deb package binary content for reuse");
+            string sha256 = Convert.ToHexString(SHA256.HashData(debBytes)).ToLowerInvariant();
+            string checksumPayload = $"{sha256}  systemmonitor_4.4.0_amd64.deb\n";
+
+            string existingFile = Path.Combine(downloadDir, "systemmonitor_4.4.0_amd64.deb");
+            File.WriteAllBytes(existingFile, debBytes);
+            DateTime originalTimestamp = DateTime.UtcNow.AddHours(-2);
+            File.SetLastWriteTimeUtc(existingFile, originalTimestamp);
+
+            string releaseJson = """
+            [
+              {
+                "tag_name": "SystemMonitorLinux-4.4.0",
+                "assets": [
+                  {
+                    "name": "systemmonitor_4.4.0_amd64.deb",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/systemmonitor_4.4.0_amd64.deb"
+                  },
+                  {
+                    "name": "systemmonitor_4.4.0_amd64.deb.sha256",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/systemmonitor_4.4.0_amd64.deb.sha256"
+                  }
+                ]
+              }
+            ]
+            """;
+
+            var handler = new FakeHttpMessageHandler(req =>
+            {
+                string url = req.RequestUri!.ToString();
+                if (url.Contains("/releases?per_page=30"))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(releaseJson, Encoding.UTF8, "application/json")
+                    };
+                }
+                if (url.EndsWith(".deb.sha256"))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(checksumPayload, Encoding.UTF8, "text/plain")
+                    };
+                }
+                if (url.EndsWith(".deb"))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new ByteArrayContent(debBytes)
+                    };
+                }
+                return new HttpResponseMessage(HttpStatusCode.NotFound);
+            });
+
+            string? openedPath = null;
+            var logs = new List<string>();
+
+            var updater = new GitHubUpdater(
+                currentVersion: "4.3.0",
+                cacheDirectory: cacheDir,
+                downloadDirectory: downloadDir,
+                handler: handler,
+                debInstall: true,
+                log: logs.Add,
+                open: path =>
+                {
+                    openedPath = path;
+                    return true;
+                });
+
+            await updater.CheckAsync(CancellationToken.None);
+            bool success = await updater.DownloadAndInstallAsync("4.4.0", null, CancellationToken.None);
+
+            Assert.IsTrue(success);
+            Assert.AreEqual(existingFile, openedPath);
+            Assert.IsTrue(File.Exists(existingFile));
+            CollectionAssert.AreEqual(debBytes, File.ReadAllBytes(existingFile));
+            Assert.AreEqual(originalTimestamp, File.GetLastWriteTimeUtc(existingFile), "Reused file must not be modified or overwritten.");
+            Assert.IsTrue(logs.Any(l => l.Contains("reusing the package already in " + downloadDir)));
+
+            string numberedCandidate = Path.Combine(downloadDir, "systemmonitor_4.4.0_amd64 (1).deb");
+            Assert.IsFalse(File.Exists(numberedCandidate), "Numbered deb file must not be created when existing matches.");
+        }
+        finally
+        {
+            if (Directory.Exists(cacheDir)) Directory.Delete(cacheDir, recursive: true);
+            if (Directory.Exists(downloadDir)) Directory.Delete(downloadDir, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task GitHubUpdater_DownloadAndInstallAsync_DebPath_ExistingDifferentShaFile_SavesAsNumberedDeb_AndLeavesOriginalUntouched()
+    {
+        string cacheDir = Path.Combine(Path.GetTempPath(), "updater-deb-numbered-" + Guid.NewGuid().ToString("N"));
+        string downloadDir = Path.Combine(Path.GetTempPath(), "updater-deb-down-num-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(downloadDir);
+
+            byte[] originalBytes = Encoding.UTF8.GetBytes("pre-existing different content");
+            string existingFile = Path.Combine(downloadDir, "systemmonitor_4.4.0_amd64.deb");
+            File.WriteAllBytes(existingFile, originalBytes);
+            DateTime originalTimestamp = DateTime.UtcNow.AddHours(-1);
+            File.SetLastWriteTimeUtc(existingFile, originalTimestamp);
+
+            byte[] newDebBytes = Encoding.UTF8.GetBytes("new deb content from remote release");
+            string sha256 = Convert.ToHexString(SHA256.HashData(newDebBytes)).ToLowerInvariant();
+            string checksumPayload = $"{sha256}  systemmonitor_4.4.0_amd64.deb\n";
+
+            string releaseJson = """
+            [
+              {
+                "tag_name": "SystemMonitorLinux-4.4.0",
+                "assets": [
+                  {
+                    "name": "systemmonitor_4.4.0_amd64.deb",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/systemmonitor_4.4.0_amd64.deb"
+                  },
+                  {
+                    "name": "systemmonitor_4.4.0_amd64.deb.sha256",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/systemmonitor_4.4.0_amd64.deb.sha256"
+                  }
+                ]
+              }
+            ]
+            """;
+
+            var handler = new FakeHttpMessageHandler(req =>
+            {
+                string url = req.RequestUri!.ToString();
+                if (url.Contains("/releases?per_page=30"))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(releaseJson, Encoding.UTF8, "application/json")
+                    };
+                }
+                if (url.EndsWith(".deb.sha256"))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(checksumPayload, Encoding.UTF8, "text/plain")
+                    };
+                }
+                if (url.EndsWith(".deb"))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new ByteArrayContent(newDebBytes)
+                    };
+                }
+                return new HttpResponseMessage(HttpStatusCode.NotFound);
+            });
+
+            string? openedPath = null;
+            var updater = new GitHubUpdater(
+                currentVersion: "4.3.0",
+                cacheDirectory: cacheDir,
+                downloadDirectory: downloadDir,
+                handler: handler,
+                debInstall: true,
+                open: path =>
+                {
+                    openedPath = path;
+                    return true;
+                });
+
+            await updater.CheckAsync(CancellationToken.None);
+            bool success = await updater.DownloadAndInstallAsync("4.4.0", null, CancellationToken.None);
+
+            Assert.IsTrue(success);
+            string expectedNumberedFile = Path.Combine(downloadDir, "systemmonitor_4.4.0_amd64 (1).deb");
+            Assert.AreEqual(expectedNumberedFile, openedPath);
+            Assert.IsTrue(File.Exists(expectedNumberedFile), "New deb must be saved under numbered name … (1).deb");
+            CollectionAssert.AreEqual(newDebBytes, File.ReadAllBytes(expectedNumberedFile));
+
+            // Original must be untouched
+            Assert.IsTrue(File.Exists(existingFile), "Original file must still exist.");
+            CollectionAssert.AreEqual(originalBytes, File.ReadAllBytes(existingFile));
+            Assert.AreEqual(originalTimestamp, File.GetLastWriteTimeUtc(existingFile), "Original file timestamp must be untouched.");
+        }
+        finally
+        {
+            if (Directory.Exists(cacheDir)) Directory.Delete(cacheDir, recursive: true);
+            if (Directory.Exists(downloadDir)) Directory.Delete(downloadDir, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task GitHubUpdater_DownloadAndInstallAsync_DebPath_XdgOpenExitCode0_PackageOpened_StatusShowsOpened()
+    {
+        string cacheDir = Path.Combine(Path.GetTempPath(), "updater-deb-code0-" + Guid.NewGuid().ToString("N"));
+        string downloadDir = Path.Combine(Path.GetTempPath(), "updater-deb-down0-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            byte[] debBytes = Encoding.UTF8.GetBytes("fake deb package binary content");
+            string sha256 = Convert.ToHexString(SHA256.HashData(debBytes)).ToLowerInvariant();
+            string checksumPayload = $"{sha256}  systemmonitor_4.4.0_amd64.deb\n";
+
+            string releaseJson = """
+            [
+              {
+                "tag_name": "SystemMonitorLinux-4.4.0",
+                "assets": [
+                  {
+                    "name": "systemmonitor_4.4.0_amd64.deb",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/systemmonitor_4.4.0_amd64.deb"
+                  },
+                  {
+                    "name": "systemmonitor_4.4.0_amd64.deb.sha256",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/systemmonitor_4.4.0_amd64.deb.sha256"
+                  }
+                ]
+              }
+            ]
+            """;
+
+            var handler = new FakeHttpMessageHandler(req =>
+            {
+                string url = req.RequestUri!.ToString();
+                if (url.Contains("/releases?per_page=30"))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(releaseJson, Encoding.UTF8, "application/json")
+                    };
+                }
+                if (url.EndsWith(".deb.sha256"))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(checksumPayload, Encoding.UTF8, "text/plain")
+                    };
+                }
+                if (url.EndsWith(".deb"))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new ByteArrayContent(debBytes)
+                    };
+                }
+                return new HttpResponseMessage(HttpStatusCode.NotFound);
+            });
+
+            string? openedPath = null;
+            var updater = new GitHubUpdater(
+                currentVersion: "4.3.0",
+                cacheDirectory: cacheDir,
+                downloadDirectory: downloadDir,
+                handler: handler,
+                debInstall: true,
+                open: path =>
+                {
+                    openedPath = path;
+                    return true; // Simulating xdg-open exit code 0
+                });
+
+            await updater.CheckAsync(CancellationToken.None);
+            bool success = await updater.DownloadAndInstallAsync("4.4.0", null, CancellationToken.None);
+
+            Assert.IsTrue(success);
+            Assert.IsTrue(updater.OpenedPackageInstaller);
+            Assert.IsNull(updater.SavedPackagePath);
+            Assert.AreEqual(Path.Combine(downloadDir, "systemmonitor_4.4.0_amd64.deb"), openedPath);
+
+            var state = new UpdatePanelState("4.3.0");
+            state.PackageOpened();
+            Assert.AreEqual(UpdatePanelState.Phase.PackageOpened, state.State);
+
+            var langEn = new Lang("en");
+            Assert.AreEqual("Opened the package installer; confirm there", state.StatusText(langEn));
+            Assert.AreEqual("Check for updates", state.ButtonLabel(langEn));
+
+            var langTh = new Lang("th");
+            Assert.AreEqual("เปิดตัวติดตั้งแพ็กเกจแล้ว ยืนยันในตัวจัดการแพ็กเกจ", state.StatusText(langTh));
+            Assert.AreEqual("ตรวจหาเวอร์ชันใหม่", state.ButtonLabel(langTh));
+        }
+        finally
+        {
+            if (Directory.Exists(cacheDir)) Directory.Delete(cacheDir, recursive: true);
+            if (Directory.Exists(downloadDir)) Directory.Delete(downloadDir, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task GitHubUpdater_DownloadAndInstallAsync_DebPath_XdgOpenExitCode3_Fails_FileKept_StatusShowsPath()
+    {
+        string cacheDir = Path.Combine(Path.GetTempPath(), "updater-deb-openfail-" + Guid.NewGuid().ToString("N"));
+        string downloadDir = Path.Combine(Path.GetTempPath(), "updater-deb-down-fail-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            byte[] debBytes = Encoding.UTF8.GetBytes("fake deb package binary content");
+            string sha256 = Convert.ToHexString(SHA256.HashData(debBytes)).ToLowerInvariant();
+            string checksumPayload = $"{sha256}  systemmonitor_4.4.0_amd64.deb\n";
+
+            string releaseJson = """
+            [
+              {
+                "tag_name": "SystemMonitorLinux-4.4.0",
+                "assets": [
+                  {
+                    "name": "systemmonitor_4.4.0_amd64.deb",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/systemmonitor_4.4.0_amd64.deb"
+                  },
+                  {
+                    "name": "systemmonitor_4.4.0_amd64.deb.sha256",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/systemmonitor_4.4.0_amd64.deb.sha256"
+                  }
+                ]
+              }
+            ]
+            """;
+
+            var handler = new FakeHttpMessageHandler(req =>
+            {
+                string url = req.RequestUri!.ToString();
+                if (url.Contains("/releases?per_page=30"))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(releaseJson, Encoding.UTF8, "application/json")
+                    };
+                }
+                if (url.EndsWith(".deb.sha256"))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(checksumPayload, Encoding.UTF8, "text/plain")
+                    };
+                }
+                if (url.EndsWith(".deb"))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new ByteArrayContent(debBytes)
+                    };
+                }
+                return new HttpResponseMessage(HttpStatusCode.NotFound);
+            });
+
+            var updater = new GitHubUpdater(
+                currentVersion: "4.3.0",
+                cacheDirectory: cacheDir,
+                downloadDirectory: downloadDir,
+                handler: handler,
+                debInstall: true,
+                open: _ => false); // Simulating xdg-open exit code 3 (non-zero)
+
+            await updater.CheckAsync(CancellationToken.None);
+            bool success = await updater.DownloadAndInstallAsync("4.4.0", null, CancellationToken.None);
+
+            Assert.IsFalse(success);
+            Assert.IsFalse(updater.OpenedPackageInstaller);
+            string destination = Path.Combine(downloadDir, "systemmonitor_4.4.0_amd64.deb");
+            Assert.IsTrue(File.Exists(destination), "Destination file must be kept when xdg-open fails.");
+            Assert.AreEqual(destination, updater.SavedPackagePath);
+
+            var state = new UpdatePanelState("4.3.0");
+            state.DownloadFailed(updater.SavedPackagePath);
+            Assert.AreEqual(UpdatePanelState.Phase.DownloadFailed, state.State);
+
+            var langEn = new Lang("en");
+            Assert.AreEqual($"Saved the package to {destination}; open it to install", state.StatusText(langEn));
+            Assert.AreEqual("Check for updates", state.ButtonLabel(langEn));
+
+            var langTh = new Lang("th");
+            Assert.AreEqual($"บันทึกแพ็กเกจไว้ที่ {destination} เปิดไฟล์นี้เพื่อติดตั้งเอง", state.StatusText(langTh));
+            Assert.AreEqual("ตรวจหาเวอร์ชันใหม่", state.ButtonLabel(langTh));
+        }
+        finally
+        {
+            if (Directory.Exists(cacheDir)) Directory.Delete(cacheDir, recursive: true);
+            if (Directory.Exists(downloadDir)) Directory.Delete(downloadDir, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task GitHubUpdater_DownloadAndInstallAsync_FailedDownload_DeletesOnlyFilesItCreated()
+    {
+        string cacheDir = Path.Combine(Path.GetTempPath(), "updater-failed-created-" + Guid.NewGuid().ToString("N"));
+        string downloadDir = Path.Combine(Path.GetTempPath(), "updater-down-failed-created-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(cacheDir);
+            Directory.CreateDirectory(downloadDir);
+
+            // 1. Pre-existing file in downloads directory
+            string preExistingDownload = Path.Combine(downloadDir, "systemmonitor_4.4.0_amd64.deb");
+            byte[] preExistingDownloadBytes = Encoding.UTF8.GetBytes("unrelated pre-existing download file");
+            File.WriteAllBytes(preExistingDownload, preExistingDownloadBytes);
+
+            // 2. Pre-existing unrelated file in cache directory
+            string preExistingCache = Path.Combine(cacheDir, "pre-existing-cache.txt");
+            byte[] preExistingCacheBytes = Encoding.UTF8.GetBytes("pre-existing cache content");
+            File.WriteAllBytes(preExistingCache, preExistingCacheBytes);
+
+            byte[] debBytes = Encoding.UTF8.GetBytes("deb content");
+            string sha256 = Convert.ToHexString(SHA256.HashData(debBytes)).ToLowerInvariant();
+            string checksumPayload = $"{sha256}  systemmonitor_4.4.0_amd64.deb\n";
+
+            string releaseJson = """
+            [
+              {
+                "tag_name": "SystemMonitorLinux-4.4.0",
+                "assets": [
+                  {
+                    "name": "systemmonitor_4.4.0_amd64.deb",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/systemmonitor_4.4.0_amd64.deb"
+                  },
+                  {
+                    "name": "systemmonitor_4.4.0_amd64.deb.sha256",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/systemmonitor_4.4.0_amd64.deb.sha256"
+                  }
+                ]
+              }
+            ]
+            """;
+
+            var handler = new FakeHttpMessageHandler(req =>
+            {
+                string url = req.RequestUri!.ToString();
+                if (url.Contains("/releases?per_page=30"))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(releaseJson, Encoding.UTF8, "application/json")
+                    };
+                }
+                if (url.EndsWith(".deb.sha256"))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(checksumPayload, Encoding.UTF8, "text/plain")
+                    };
+                }
+                if (url.EndsWith(".deb"))
+                {
+                    // Fail the package download
+                    return new HttpResponseMessage(HttpStatusCode.InternalServerError);
+                }
+                return new HttpResponseMessage(HttpStatusCode.NotFound);
+            });
+
+            var updater = new GitHubUpdater(
+                currentVersion: "4.3.0",
+                cacheDirectory: cacheDir,
+                downloadDirectory: downloadDir,
+                handler: handler,
+                debInstall: true);
+
+            await updater.CheckAsync(CancellationToken.None);
+            bool success = await updater.DownloadAndInstallAsync("4.4.0", null, CancellationToken.None);
+
+            Assert.IsFalse(success);
+
+            // Pre-existing files must be untouched
+            Assert.IsTrue(File.Exists(preExistingDownload), "Pre-existing file in download directory must not be deleted.");
+            CollectionAssert.AreEqual(preExistingDownloadBytes, File.ReadAllBytes(preExistingDownload));
+
+            Assert.IsTrue(File.Exists(preExistingCache), "Pre-existing file in cache directory must not be deleted.");
+            CollectionAssert.AreEqual(preExistingCacheBytes, File.ReadAllBytes(preExistingCache));
+
+            // Any temporary files created by this run in cache must be deleted
+            string tempChecksum = Path.Combine(cacheDir, "systemmonitor_4.4.0_amd64.deb.sha256");
+            Assert.IsFalse(File.Exists(tempChecksum), "Downloaded checksum file created by this run must be deleted.");
+
+            string tempPackage = Path.Combine(cacheDir, "systemmonitor_4.4.0_amd64.deb");
+            Assert.IsFalse(File.Exists(tempPackage), "Package file created by this run must be deleted.");
+        }
+        finally
+        {
+            if (Directory.Exists(cacheDir)) Directory.Delete(cacheDir, recursive: true);
+            if (Directory.Exists(downloadDir)) Directory.Delete(downloadDir, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task GitHubUpdater_DownloadAndInstallAsync_CancelledAfterWritingDestination_DeletesCreatedFile_AndLeavesOriginalUntouched()
+    {
+        string cacheDir = Path.Combine(Path.GetTempPath(), "updater-cancel-dest-" + Guid.NewGuid().ToString("N"));
+        string downloadDir = Path.Combine(Path.GetTempPath(), "updater-down-cancel-dest-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(downloadDir);
+
+            // Pre-existing file
+            string originalFile = Path.Combine(downloadDir, "systemmonitor_4.4.0_amd64.deb");
+            byte[] originalBytes = Encoding.UTF8.GetBytes("original deb content");
+            File.WriteAllBytes(originalFile, originalBytes);
+
+            byte[] newDebBytes = Encoding.UTF8.GetBytes("new deb content");
+            string sha256 = Convert.ToHexString(SHA256.HashData(newDebBytes)).ToLowerInvariant();
+            string checksumPayload = $"{sha256}  systemmonitor_4.4.0_amd64.deb\n";
+
+            string releaseJson = """
+            [
+              {
+                "tag_name": "SystemMonitorLinux-4.4.0",
+                "assets": [
+                  {
+                    "name": "systemmonitor_4.4.0_amd64.deb",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/systemmonitor_4.4.0_amd64.deb"
+                  },
+                  {
+                    "name": "systemmonitor_4.4.0_amd64.deb.sha256",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/systemmonitor_4.4.0_amd64.deb.sha256"
+                  }
+                ]
+              }
+            ]
+            """;
+
+            var handler = new FakeHttpMessageHandler(req =>
+            {
+                string url = req.RequestUri!.ToString();
+                if (url.Contains("/releases?per_page=30"))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(releaseJson, Encoding.UTF8, "application/json")
+                    };
+                }
+                if (url.EndsWith(".deb.sha256"))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(checksumPayload, Encoding.UTF8, "text/plain")
+                    };
+                }
+                if (url.EndsWith(".deb"))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new ByteArrayContent(newDebBytes)
+                    };
+                }
+                return new HttpResponseMessage(HttpStatusCode.NotFound);
+            });
+
+            // Opener throws OperationCanceledException after file was saved to destination
+            var updater = new GitHubUpdater(
+                currentVersion: "4.3.0",
+                cacheDirectory: cacheDir,
+                downloadDirectory: downloadDir,
+                handler: handler,
+                debInstall: true,
+                open: _ => throw new OperationCanceledException());
+
+            await updater.CheckAsync(CancellationToken.None);
+            bool success = await updater.DownloadAndInstallAsync("4.4.0", null, CancellationToken.None);
+
+            Assert.IsFalse(success);
+
+            // The created (1).deb file must have been deleted by catch handler
+            string numberedFile = Path.Combine(downloadDir, "systemmonitor_4.4.0_amd64 (1).deb");
+            Assert.IsFalse(File.Exists(numberedFile), "Candidate file created in this run must be deleted on cancellation.");
+
+            // Original file must be untouched
+            Assert.IsTrue(File.Exists(originalFile), "Original pre-existing file must remain untouched.");
+            CollectionAssert.AreEqual(originalBytes, File.ReadAllBytes(originalFile));
+        }
+        finally
+        {
+            if (Directory.Exists(cacheDir)) Directory.Delete(cacheDir, recursive: true);
+            if (Directory.Exists(downloadDir)) Directory.Delete(downloadDir, recursive: true);
         }
     }
 
@@ -884,7 +2205,6 @@ public sealed class UpdaterTests
     [TestMethod]
     public void TarExtractor_Extract_RejectsSymlinkChain_EscapingTarget()
     {
-        // Include the `a -> .` + `a/install.sh -> ../outside.sh` case
         string destDir = Path.Combine(Path.GetTempPath(), "tar-symchain-" + Guid.NewGuid().ToString("N"));
         string archivePath = Path.Combine(Path.GetTempPath(), "test-symchain-" + Guid.NewGuid().ToString("N") + ".tar.gz");
         try
@@ -921,7 +2241,6 @@ public sealed class UpdaterTests
     [TestMethod]
     public void TarExtractor_Extract_ClearsPreviousExtractionDirectoryFirst()
     {
-        // A previous extraction directory is cleared first (Amendment 2, item 2)
         string destDir = Path.Combine(Path.GetTempPath(), "tar-clear-" + Guid.NewGuid().ToString("N"));
         string archivePath = Path.Combine(Path.GetTempPath(), "test-clear-" + Guid.NewGuid().ToString("N") + ".tar.gz");
         try
@@ -1035,7 +2354,7 @@ public sealed class UpdaterTests
         var handler = new FakeHttpMessageHandler(req =>
         {
             var res = new HttpResponseMessage(HttpStatusCode.Found);
-            res.Headers.Location = new Uri("https://malicious.example.com/releases/latest");
+            res.Headers.Location = new Uri("https://malicious.example.com/releases?per_page=30");
             return res;
         });
 
@@ -1052,7 +2371,7 @@ public sealed class UpdaterTests
         var handler = new FakeHttpMessageHandler(req =>
         {
             var res = new HttpResponseMessage(HttpStatusCode.Found);
-            res.Headers.Location = new Uri("http://github.com/releases/latest");
+            res.Headers.Location = new Uri("http://github.com/releases?per_page=30");
             return res;
         });
 
@@ -1087,19 +2406,21 @@ public sealed class UpdaterTests
     public async Task GitHubUpdater_CheckAsync_AllowedToAllowedRedirect_Succeeds()
     {
         string releaseJson = """
-        {
-          "tag_name": "v4.4.0",
-          "assets": [
-            {
-              "name": "SystemMonitor-4.4.0-linux-x64.tar.gz",
-              "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/v4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz"
-            },
-            {
-              "name": "SystemMonitor-4.4.0-linux-x64.tar.gz.sha256",
-              "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/v4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz.sha256"
-            }
-          ]
-        }
+        [
+          {
+            "tag_name": "SystemMonitorLinux-4.4.0",
+            "assets": [
+              {
+                "name": "SystemMonitor-4.4.0-linux-x64.tar.gz",
+                "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz"
+              },
+              {
+                "name": "SystemMonitor-4.4.0-linux-x64.tar.gz.sha256",
+                "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz.sha256"
+              }
+            ]
+          }
+        ]
         """;
 
         var handler = new FakeHttpMessageHandler(req =>
@@ -1107,7 +2428,7 @@ public sealed class UpdaterTests
             if (req.RequestUri!.Host == "api.github.com")
             {
                 var res = new HttpResponseMessage(HttpStatusCode.Found);
-                res.Headers.Location = new Uri("https://github.com/epinephrinerx/SystemMonitor/releases/latest");
+                res.Headers.Location = new Uri("https://github.com/epinephrinerx/SystemMonitor/releases?per_page=30");
                 return res;
             }
 
@@ -1131,25 +2452,27 @@ public sealed class UpdaterTests
         try
         {
             string releaseJson = """
-            {
-              "tag_name": "v4.4.0",
-              "assets": [
-                {
-                  "name": "SystemMonitor-4.4.0-linux-x64.tar.gz",
-                  "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/v4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz"
-                },
-                {
-                  "name": "SystemMonitor-4.4.0-linux-x64.tar.gz.sha256",
-                  "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/v4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz.sha256"
-                }
-              ]
-            }
+            [
+              {
+                "tag_name": "SystemMonitorLinux-4.4.0",
+                "assets": [
+                  {
+                    "name": "SystemMonitor-4.4.0-linux-x64.tar.gz",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz"
+                  },
+                  {
+                    "name": "SystemMonitor-4.4.0-linux-x64.tar.gz.sha256",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz.sha256"
+                  }
+                ]
+              }
+            ]
             """;
 
             var handler = new FakeHttpMessageHandler(req =>
             {
                 string url = req.RequestUri!.ToString();
-                if (url.EndsWith("/latest"))
+                if (url.Contains("/releases?per_page=30"))
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
@@ -1184,25 +2507,27 @@ public sealed class UpdaterTests
         try
         {
             string releaseJson = """
-            {
-              "tag_name": "v4.4.0",
-              "assets": [
-                {
-                  "name": "SystemMonitor-4.4.0-linux-x64.tar.gz",
-                  "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/v4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz"
-                },
-                {
-                  "name": "SystemMonitor-4.4.0-linux-x64.tar.gz.sha256",
-                  "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/v4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz.sha256"
-                }
-              ]
-            }
+            [
+              {
+                "tag_name": "SystemMonitorLinux-4.4.0",
+                "assets": [
+                  {
+                    "name": "SystemMonitor-4.4.0-linux-x64.tar.gz",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz"
+                  },
+                  {
+                    "name": "SystemMonitor-4.4.0-linux-x64.tar.gz.sha256",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz.sha256"
+                  }
+                ]
+              }
+            ]
             """;
 
             var handler = new FakeHttpMessageHandler(req =>
             {
                 string url = req.RequestUri!.ToString();
-                if (url.EndsWith("/latest"))
+                if (url.Contains("/releases?per_page=30"))
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
@@ -1237,26 +2562,28 @@ public sealed class UpdaterTests
         try
         {
             string releaseJson = """
-            {
-              "tag_name": "v4.4.0",
-              "assets": [
-                {
-                  "name": "SystemMonitor-4.4.0-linux-x64.tar.gz",
-                  "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/v4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz"
-                },
-                {
-                  "name": "SystemMonitor-4.4.0-linux-x64.tar.gz.sha256",
-                  "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/v4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz.sha256"
-                }
-              ]
-            }
+            [
+              {
+                "tag_name": "SystemMonitorLinux-4.4.0",
+                "assets": [
+                  {
+                    "name": "SystemMonitor-4.4.0-linux-x64.tar.gz",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz"
+                  },
+                  {
+                    "name": "SystemMonitor-4.4.0-linux-x64.tar.gz.sha256",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz.sha256"
+                  }
+                ]
+              }
+            ]
             """;
 
             int checksumHops = 0;
             var handler = new FakeHttpMessageHandler(req =>
             {
                 string url = req.RequestUri!.ToString();
-                if (url.EndsWith("/latest"))
+                if (url.Contains("/releases?per_page=30"))
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
@@ -1301,25 +2628,27 @@ public sealed class UpdaterTests
             string checksumPayload = $"{sha256}  SystemMonitor-4.4.0-linux-x64.tar.gz\n";
 
             string releaseJson = """
-            {
-              "tag_name": "v4.4.0",
-              "assets": [
-                {
-                  "name": "SystemMonitor-4.4.0-linux-x64.tar.gz",
-                  "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/v4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz"
-                },
-                {
-                  "name": "SystemMonitor-4.4.0-linux-x64.tar.gz.sha256",
-                  "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/v4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz.sha256"
-                }
-              ]
-            }
+            [
+              {
+                "tag_name": "SystemMonitorLinux-4.4.0",
+                "assets": [
+                  {
+                    "name": "SystemMonitor-4.4.0-linux-x64.tar.gz",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz"
+                  },
+                  {
+                    "name": "SystemMonitor-4.4.0-linux-x64.tar.gz.sha256",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz.sha256"
+                  }
+                ]
+              }
+            ]
             """;
 
             var handler = new FakeHttpMessageHandler(req =>
             {
                 string url = req.RequestUri!.ToString();
-                if (url.EndsWith("/latest"))
+                if (url.Contains("/releases?per_page=30"))
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
@@ -1377,25 +2706,27 @@ public sealed class UpdaterTests
         {
             string checksumPayload = $"{new string('a', 64)}  SystemMonitor-4.4.0-linux-x64.tar.gz\n";
             string releaseJson = """
-            {
-              "tag_name": "v4.4.0",
-              "assets": [
-                {
-                  "name": "SystemMonitor-4.4.0-linux-x64.tar.gz",
-                  "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/v4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz"
-                },
-                {
-                  "name": "SystemMonitor-4.4.0-linux-x64.tar.gz.sha256",
-                  "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/v4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz.sha256"
-                }
-              ]
-            }
+            [
+              {
+                "tag_name": "SystemMonitorLinux-4.4.0",
+                "assets": [
+                  {
+                    "name": "SystemMonitor-4.4.0-linux-x64.tar.gz",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz"
+                  },
+                  {
+                    "name": "SystemMonitor-4.4.0-linux-x64.tar.gz.sha256",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz.sha256"
+                  }
+                ]
+              }
+            ]
             """;
 
             var handler = new FakeHttpMessageHandler(req =>
             {
                 string url = req.RequestUri!.ToString();
-                if (url.EndsWith("/latest"))
+                if (url.Contains("/releases?per_page=30"))
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
@@ -1438,25 +2769,27 @@ public sealed class UpdaterTests
         {
             string checksumPayload = $"{new string('a', 64)}  SystemMonitor-4.4.0-linux-x64.tar.gz\n";
             string releaseJson = """
-            {
-              "tag_name": "v4.4.0",
-              "assets": [
-                {
-                  "name": "SystemMonitor-4.4.0-linux-x64.tar.gz",
-                  "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/v4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz"
-                },
-                {
-                  "name": "SystemMonitor-4.4.0-linux-x64.tar.gz.sha256",
-                  "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/v4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz.sha256"
-                }
-              ]
-            }
+            [
+              {
+                "tag_name": "SystemMonitorLinux-4.4.0",
+                "assets": [
+                  {
+                    "name": "SystemMonitor-4.4.0-linux-x64.tar.gz",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz"
+                  },
+                  {
+                    "name": "SystemMonitor-4.4.0-linux-x64.tar.gz.sha256",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz.sha256"
+                  }
+                ]
+              }
+            ]
             """;
 
             var handler = new FakeHttpMessageHandler(req =>
             {
                 string url = req.RequestUri!.ToString();
-                if (url.EndsWith("/latest"))
+                if (url.Contains("/releases?per_page=30"))
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
@@ -1499,26 +2832,28 @@ public sealed class UpdaterTests
         {
             string checksumPayload = $"{new string('a', 64)}  SystemMonitor-4.4.0-linux-x64.tar.gz\n";
             string releaseJson = """
-            {
-              "tag_name": "v4.4.0",
-              "assets": [
-                {
-                  "name": "SystemMonitor-4.4.0-linux-x64.tar.gz",
-                  "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/v4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz"
-                },
-                {
-                  "name": "SystemMonitor-4.4.0-linux-x64.tar.gz.sha256",
-                  "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/v4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz.sha256"
-                }
-              ]
-            }
+            [
+              {
+                "tag_name": "SystemMonitorLinux-4.4.0",
+                "assets": [
+                  {
+                    "name": "SystemMonitor-4.4.0-linux-x64.tar.gz",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz"
+                  },
+                  {
+                    "name": "SystemMonitor-4.4.0-linux-x64.tar.gz.sha256",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz.sha256"
+                  }
+                ]
+              }
+            ]
             """;
 
             int archiveHops = 0;
             var handler = new FakeHttpMessageHandler(req =>
             {
                 string url = req.RequestUri!.ToString();
-                if (url.EndsWith("/latest"))
+                if (url.Contains("/releases?per_page=30"))
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
@@ -1570,25 +2905,27 @@ public sealed class UpdaterTests
             string checksumPayload = $"{sha256}  SystemMonitor-4.4.0-linux-x64.tar.gz\n";
 
             string releaseJson = """
-            {
-              "tag_name": "v4.4.0",
-              "assets": [
-                {
-                  "name": "SystemMonitor-4.4.0-linux-x64.tar.gz",
-                  "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/v4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz"
-                },
-                {
-                  "name": "SystemMonitor-4.4.0-linux-x64.tar.gz.sha256",
-                  "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/v4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz.sha256"
-                }
-              ]
-            }
+            [
+              {
+                "tag_name": "SystemMonitorLinux-4.4.0",
+                "assets": [
+                  {
+                    "name": "SystemMonitor-4.4.0-linux-x64.tar.gz",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz"
+                  },
+                  {
+                    "name": "SystemMonitor-4.4.0-linux-x64.tar.gz.sha256",
+                    "browser_download_url": "https://github.com/epinephrinerx/SystemMonitor/releases/download/SystemMonitorLinux-4.4.0/SystemMonitor-4.4.0-linux-x64.tar.gz.sha256"
+                  }
+                ]
+              }
+            ]
             """;
 
             var handler = new FakeHttpMessageHandler(req =>
             {
                 string url = req.RequestUri!.ToString();
-                if (url.EndsWith("/latest"))
+                if (url.Contains("/releases?per_page=30"))
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {

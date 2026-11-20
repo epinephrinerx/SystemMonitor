@@ -4,8 +4,8 @@
 
 A native Linux desktop widget that shows what the machine is doing — CPU, RAM,
 disks, GPU and network — built with C# / .NET 10 and Avalonia. It installs into
-your own home directory, needs no root and no package manager, and asks no
-administrator rights for anything it shows.
+your own home directory from a tar.gz, or system-wide from a .deb; the program
+itself needs no root and asks no administrator rights for anything it shows.
 
 ## The three views
 
@@ -77,6 +77,7 @@ units are read-only, because the app never asks for administrator rights.
 ./build-linux.sh                        # x64, self-contained
 ./build-linux.sh --arch arm64
 ./build-linux.sh --framework-dependent
+./build-linux.sh --deb                  # also build the .deb
 ```
 
 The script reads `<Version>` from `SysMonitor.Linux.App/SysMonitor.Linux.App.csproj`,
@@ -84,7 +85,11 @@ publishes it for `linux-<arch>`, stages the scripts, the icon and `VERSION`
 around the program, and writes `dist/SystemMonitor-<version>-linux-<arch>.tar.gz`
 plus a `.sha256` file that `sha256sum -c` accepts. The archive is flat
 (`install.sh` at the root, as the updater requires) and holds no links of any
-kind.
+kind. With `--deb` it also packs the same publish output into
+`dist/systemmonitor_<version>_<amd64|arm64>.deb` plus a `.sha256`; the package
+needs `dpkg-deb` and `dpkg-shlibdeps` (the `dpkg-dev` package) on the build
+machine, and its `Depends` line is worked out from the native libraries the
+publish ships.
 
 For ordinary development:
 
@@ -129,20 +134,76 @@ leads outside it. Each rename and removal re-checks the path first, so an
 install can always be undone by the same rules. `uninstall.sh` also refuses to
 remove a program directory that has become a symlink.
 
+### .deb package
+
+The release also has a Debian package built from the same publish output:
+
+```
+sudo apt install ./systemmonitor_<ver>_amd64.deb
+```
+
+`apt`, Discover and GNOME Software all understand a local `.deb`; they resolve
+the dependencies and ask for your password once. The program itself still never
+asks for administrator rights. It installs into `/opt/systemmonitor`, with
+`/usr/bin/sysmonitor` as a symlink to it, a menu entry at
+`/usr/share/applications/systemmonitor.desktop`, the icon under
+`/usr/share/icons/hicolor/256x256/apps`, and a DEP-5 copyright file under
+`/usr/share/doc/systemmonitor`. The .deb and the tar.gz are alternatives, not
+two halves of one install: pick one.
+
+Remove it with:
+
+```
+sudo apt remove systemmonitor
+```
+
+That leaves your settings in `~/.config/SystemMonitor` alone. To remove them
+too, delete `~/.config/SystemMonitor` and `~/.local/state/SystemMonitor`; the
+per-user `uninstall.sh --purge` does the same for a tar.gz install.
+
 ## Update
 
 The setting "Check for updates at start" is on by default, and the Updates
-section also has a "Check for updates" button. When a newer release exists the
-button becomes "Download and install"; the program downloads the archive,
-verifies its SHA-256, unpacks it, and runs its
-`install.sh --update --wait-pid <pid>`. That waits up to 30 seconds for the
-running copy to exit, restores the previous version if an earlier update was
-interrupted, installs into the same place, and starts the new copy. The menu
-entry, the command and the autostart entry keep pointing at the same path, so
-nothing else needs to change.
+section also has a "Check for updates" button. The check reads the GitHub
+release list and considers only releases whose tag starts with
+`SystemMonitorLinux-` and that are neither drafts nor prereleases; the Windows
+(`v*`) and Mac releases share the same page and are ignored. When no such
+release exists the answer is "you have the newest version", not a failed check.
 
-The check itself is one HTTPS `GET` to the GitHub Releases API; hosts outside
-the allow-list are refused, as are redirects that leave it.
+What "Download and install" does depends on how the program was installed:
+
+- **tar.gz (per-user).** The program downloads the archive, verifies its
+  SHA-256, unpacks it, and runs its `install.sh --update --wait-pid <pid>`.
+  That waits up to 30 seconds for the running copy to exit, restores the
+  previous version if an earlier update was interrupted, installs into the same
+  place, and starts the new copy. The menu entry, the command and the autostart
+  entry keep pointing at the same path, so nothing else needs to change.
+- **.deb.** The program downloads `systemmonitor_<ver>_<amd64|arm64>.deb`,
+  verifies its SHA-256, saves it in your Downloads directory and opens it with
+  `xdg-open`. A package already there with the same SHA-256 is reused, and
+  nothing that the program did not write is overwritten: a different file is
+  saved as `systemmonitor_<ver>_<arch> (1).deb`, `(2)`, and so on. Discover or
+  GNOME Software then asks for your password and installs it; the panel says
+  "Opened the package installer; confirm there" once the file has been handed
+  over. If `xdg-open` is missing or exits non-zero, the verified file is kept
+  and the panel shows its path so you can open it by hand. The program never
+  runs `sudo`, `pkexec`, `apt` or `dpkg -i` itself.
+
+The check itself is one HTTPS `GET` to the GitHub Releases API
+(`/releases?per_page=30`); hosts outside the allow-list are refused, as are
+redirects that leave it.
+
+## Release tags
+
+Linux releases are tagged `SystemMonitorLinux-<version>` and published with
+**Latest** cleared, because `v4.3.0` and the other Windows releases are the
+page's "Latest". The first Linux tag is `SystemMonitorLinux-3.2.0`, a
+prerelease. The updater therefore never asks for `/releases/latest`: it reads
+the list and keeps the newest non-draft, non-prerelease `SystemMonitorLinux-*`
+tag, so a Windows release can never be offered to a Linux install. The text
+after the prefix must be exactly `Major.Minor.Build` (digits only), so tags
+such as `SystemMonitorLinux-v4.4.0` or `SystemMonitorLinux-4.4.0-rc1` are
+ignored.
 
 ## Uninstall
 
@@ -184,7 +245,7 @@ file never stops the program.
 
 | Feature | Windows 4.3.0 (`main`) | Linux (`linux-native`) |
 |---|---|---|
-| Install | per-user setup, optional machine-wide with one UAC prompt | per-user tar.gz and shell scripts, no root, no package manager |
+| Install | per-user setup, optional machine-wide with one UAC prompt | per-user tar.gz, or a .deb for the whole machine |
 | Toolkit / runtime | WPF on .NET 8 Desktop | Avalonia 12.1.5 on .NET 10, self-contained or framework-dependent |
 | Widget, Overall and Full views | yes | yes, same layout and keyboard behaviour |
 | Themes, Thai/English, opacity, font scale, window memory | yes | yes |
@@ -205,9 +266,9 @@ file never stops the program.
 | Autostart | registry Run key or Scheduled Task | XDG autostart |
 | Restart | yes, optionally as administrator | yes, without elevation |
 | Single instance | mutex | lock file under `$XDG_RUNTIME_DIR` |
-| Update | setup `.exe` from GitHub | tar.gz from GitHub, installed by `install.sh` |
-| Elevation | optional, per feature | never |
-| Machine-wide install | yes | no |
+| Update | setup `.exe` from GitHub | tar.gz from GitHub, installed by `install.sh`; or the `.deb`, opened in the desktop's installer |
+| Elevation | optional, per feature | never for the program; only the `.deb` install asks, through the desktop |
+| Machine-wide install | yes | yes, with the .deb |
 
 ## Repository layout
 
@@ -218,7 +279,7 @@ file never stops the program.
 | `SysMonitor.Linux.App` | the Avalonia application: windows, controls, event wiring |
 | `SysMonitor.Linux.Probe` | console probe that prints one snapshot as text or JSON |
 | `SysMonitor.Linux.Tests` | the test suite (MSTest, 379 tests) |
-| `packaging/linux` | `install.sh`, `uninstall.sh` and the menu-entry template |
+| `packaging/linux` | `install.sh`, `uninstall.sh`, the menu-entry template, and the `.deb` templates in `deb/` |
 | `Assets` | the 256×256 application icon |
 | `build-linux.sh` | builds the release archive |
 | `Docs` | workflow, architecture and testing documents, ADRs, handoffs |

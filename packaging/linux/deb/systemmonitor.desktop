@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=System Monitor
+Comment=What this machine is doing: CPU, memory, disks, GPU and network
+Exec=/opt/systemmonitor/sysmonitor
+Icon=systemmonitor
+Terminal=false
+Categories=System;Monitor;
+Keywords=system;monitor;cpu;memory;disk;gpu;network;
+StartupNotify=false

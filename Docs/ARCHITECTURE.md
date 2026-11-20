@@ -24,7 +24,10 @@ it (menu entry, command, autostart entry) stays unchanged.
 ### Goals
 
 - The three views and the readings of the Windows 4.3.0 edition, on Linux.
-- No root, no elevation, no package manager, no distribution package.
+- No root and no elevation at run time. Two install paths: the per-user tar.gz
+  (`install.sh`, no package manager) and, since the 4.3.0 release, an optional
+  `.deb` (`/opt/systemmonitor`) that the user installs through their own
+  package tools. The app never runs `sudo`, `pkexec`, `apt` or `dpkg`.
 - Values that need privileges are shown as `n/a`; nothing is guessed and no
   prompt appears.
 - All logic that can be tested lives in `SysMonitor.Linux`, away from Avalonia.
@@ -35,7 +38,7 @@ From `Requirements.md` R-027:
 
 - No extension system on Linux (R-027 excludes it).
 - No full SMART scanning; disk temperature comes from hwmon only.
-- No `.deb`, `.rpm`, Flatpak or Snap package in this requirement.
+- No `.rpm`, Flatpak or Snap package (the `.deb` was added for the 4.3.0 release at the user's request, 2026-11-20).
 - No behaviour change to the Windows edition.
 
 ## 2. Context diagram
@@ -101,13 +104,13 @@ SystemMonitor/
 
 | Component | Responsibility | Public interface |
 |---|---|---|
-| `SysMonitor.Core` | models shared by sampler and UI | `Snapshot`, `Ram`, `Disk`, `IoRate` |
-| `SysMonitor.Linux` (sensors) | read `/proc`, `/sys`, hwmon, DRM fdinfo and the three external tools into one `Snapshot` | `LinuxSampler.Sample(bool processes, bool services, bool keepMemory)`, plus one pure reader per source (`ProcStat`, `MemInfo`, `DiskStats`, `MountInfo`, `BlockDevices`, `NetDev`, `Hwmon`, `ThermalReader`, `DrmFdinfo`, `GpuReader`, `ProcessReader`, `ServiceReader`) |
+| `SysMonitor.Core` | models shared by sampler and UI | `Snapshot`, `Ram`, `Disk`, `IoRate`, `Battery`, `PowerSource`, `PeripheralBattery` (R-028) |
+| `SysMonitor.Linux` (sensors) | read `/proc`, `/sys`, hwmon, DRM fdinfo and the three external tools into one `Snapshot` | `LinuxSampler.Sample(bool processes, bool services, bool keepMemory)`, plus one pure reader per source (`ProcStat`, `MemInfo`, `DiskStats`, `MountInfo`, `BlockDevices`, `NetDev`, `Hwmon`, `ThermalReader`, `DrmFdinfo`, `GpuReader`, `ProcessReader`, `ServiceReader`, `BatteryReader` (`/sys/class/power_supply`), `UPowerReader` (`upower --dump` every 30 s, peripherals; ids are hashes, never MAC or serial)) |
 | `SysMonitor.Linux` (presentation) | turn a snapshot into row models, hold settings, own the integrations | `ShellModel`, `WidgetBoard`, `OverallBoard`, `FullBoard`, `UiRows`, `AppConfig`, `Lang`, `Palette`, `ChartMath`, `Format`, `ViewState`, `WindowGeometry`, `UpdateAutoCheck`, `GitHubUpdater`, `TarExtractor`, `FileAutostart`, `DesktopEntry`, `TrayText`, `TrayHost`, `Restart`, `SingleInstanceLock`, `KillFlow`, `ServiceControl`, `Diagnostics` |
 | `SysMonitor.Linux.App` | Avalonia windows, controls, event wiring, sampling loop, tray | `Program`, `App`, `ShellWindow`, `WidgetView`, `OverallView`, `FullView`, `PanelWindow`, `ChartControl`, `DialView`, `TrayIconHost`, `Probe` |
 | `SysMonitor.Linux.Probe` | developer console view of one snapshot | `dotnet run --project SysMonitor.Linux.Probe -- [--json]` |
 | `SysMonitor.Linux.Tests` | the suite | `dotnet test SysMonitor.Linux.Tests` |
-| `packaging/linux` + `build-linux.sh` | per-user install, update and uninstall | `install.sh`, `uninstall.sh`, `build-linux.sh` |
+| `packaging/linux` + `build-linux.sh` | per-user install, update and uninstall; `.deb` build | `install.sh`, `uninstall.sh`, `build-linux.sh [--deb]`, `packaging/linux/deb/` |
 
 ## 5. Dependency rules
 
@@ -151,10 +154,11 @@ Failure behaviour (verified in code):
 ### (c) Update
 
 1. The start-up check (`UpdateAutoCheck`) runs only while the setting is on, retries once after 60 s, and stays silent until the side panel is opened.
-2. `GitHubUpdater.CheckAsync` makes one HTTPS `GET` to the releases API with the allow-listed hosts, follows at most five redirects by hand (each hop must stay https and allow-listed), and looks for `SystemMonitor-<ver>-linux-<arch>.tar.gz` plus its `.sha256` asset. A missing asset or missing checksum is `check_failed`, never `up_to_date`.
+2. `GitHubUpdater.CheckAsync` makes one HTTPS `GET` to `/releases?per_page=30` (not `/releases/latest`, which belongs to the Windows edition) with the allow-listed hosts; `UpdateReleaseParser.Select` keeps only non-draft, non-prerelease `SystemMonitorLinux-<ver>` tags and takes the highest version (none → `up_to_date`). It follows at most five redirects by hand (each hop must stay https and allow-listed), and looks for `SystemMonitor-<ver>-linux-<arch>.tar.gz` plus its `.sha256` asset — or, for a `.deb` install (binary under `/opt/systemmonitor/` and `dpkg-query` reports `install ok installed`), `systemmonitor_<ver>_<debarch>.deb` plus `.sha256`. A missing asset or missing checksum is `check_failed`, never `up_to_date`.
 3. `DownloadAsync` downloads into `$XDG_CACHE_HOME/SystemMonitor/update`, reports progress, deletes a partial file on failure, verifies the SHA-256, and clears a pending update on any error.
 4. `TarExtractor` refuses absolute paths, `..`, links, devices and FIFOs, and extracts into a freshly emptied `…/update/<ver>/`. `install.sh` must be a regular file inside that directory.
-5. The updater then starts `/bin/sh install.sh --update --wait-pid <own pid>` detached through `ArgumentList`, saves the configuration and exits. `install.sh` waits up to 30 s for the pid, restores the previous version if an interrupted run left `app.old` behind, installs with two renames, and starts the new copy; a pid that does not exit leaves everything untouched and exits 1.
+5. `.deb` install: the verified package is saved to the XDG download directory and opened with `xdg-open`, so the desktop's package installer asks for authentication; the app does nothing privileged itself. Steps 4 and 6 apply to the tar.gz install only.
+6. The updater then starts `/bin/sh install.sh --update --wait-pid <own pid>` detached through `ArgumentList`, saves the configuration and exits. `install.sh` waits up to 30 s for the pid, restores the previous version if an interrupted run left `app.old` behind, installs with two renames, and starts the new copy; a pid that does not exit leaves everything untouched and exits 1.
 
 ## 7. Data and storage
 
@@ -256,7 +260,8 @@ Failure behaviour (verified in code):
 | Linux edition built from the 4.3.0 line as a separate branch, Windows code left on `main` | Accepted (R-027 decision 3) |
 | Avalonia 12.1.5 (MIT) as the one package exception, in `SysMonitor.Linux.App` only | Accepted (R-027 decision 1) |
 | Sensors and presentation logic in `SysMonitor.Linux`, testable through fake roots and `ICommandRunner` | Accepted (R-027) |
-| Per-user tar.gz with shell scripts instead of a distribution package | Accepted (R-027) |
+| Per-user tar.gz with shell scripts instead of a distribution package | Accepted (R-027); `.deb` added alongside for 4.3.0 |
+| Linux releases tagged `SystemMonitorLinux-<ver>`, published as not-Latest; the Linux updater lists releases instead of reading `/releases/latest` | Accepted (2026-11-20) |
 | Archive layout and `install.sh --update --wait-pid` contract | Accepted (R-027 phase 3 handoff) |
 
 ADR 0001 (extension architecture) and ADR 0002 (machine-wide install) describe

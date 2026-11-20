@@ -12,6 +12,7 @@ export DOTNET_ROOT=~/.dotnet PATH=~/.dotnet:$PATH
 dotnet build SysMonitor.Linux.App -c Release      # ต้องได้ 0 warnings, 0 errors
 dotnet test  SysMonitor.Linux.Tests               # ต้องเขียวทั้งหมด
 ./build-linux.sh                                  # archive + sha256 ใน dist/
+./build-linux.sh --deb                            # archive + sha256 + .deb + sha256 ใน dist/
 ```
 
 ข้อกำหนดเบื้องต้น:
@@ -32,6 +33,7 @@ dotnet test  SysMonitor.Linux.Tests               # ต้องเขียว�
 | Smoke (UI model) | สอง sample จริง → view model เดียวกับที่หน้าต่างใช้ | `SysMonitor.Linux.App --probe-ui` | `dotnet run --project SysMonitor.Linux.App -- --probe-ui` |
 | Smoke (update) | ยิง GitHub จริงหนึ่งครั้ง (GET เท่านั้น ไม่ดาวน์โหลด) | `SysMonitor.Linux.App --probe-update` | `dotnet run --project SysMonitor.Linux.App -- --probe-update` |
 | Packaging | publish, stage, archive, checksum | `build-linux.sh` | `./build-linux.sh` |
+| Packaging (.deb) | layout, control, checksum | `build-linux.sh --deb` | `./build-linux.sh --deb` |
 | Installer scripts | ติดตั้ง/อัปเดต/ถอน ใน sandbox | `packaging/linux` | ดู §5 |
 
 `--probe-ui` และ `--probe-update` พิมพ์ข้อความแล้วจบ ไม่เปิดหน้าต่าง และไม่เขียน config, autostart หรือไฟล์ใด ๆ
@@ -112,6 +114,36 @@ rm -rf "$S"
   `restored the previous version from …` และจบด้วย `app/` ที่สมบูรณ์โดยไม่มี `app.new`/`app.old`
 - `shellcheck` เป็นทางเลือก: ถ้าติดตั้งไว้ ให้รัน `shellcheck build-linux.sh packaging/linux/*.sh`; ถ้าไม่มี ให้รายงานว่าไม่มี
 
+### .deb package (build only — ห้ามติดตั้ง)
+
+`--deb` สร้าง `dist/systemmonitor_<ver>_<amd64|arm64>.deb` จาก publish output เดียวกัน
+ต้องมี `dpkg-deb` และ `dpkg-shlibdeps` (`dpkg-dev`) บนเครื่อง build และใช้ได้เฉพาะ
+กับ self-contained build: `./build-linux.sh --deb --framework-dependent` ต้องพิมพ์
+ข้อผิดพลาดและ exit 2
+
+```sh
+./build-linux.sh --deb
+cd dist
+sha256sum -c SystemMonitor-<ver>-linux-x64.tar.gz.sha256
+sha256sum -c systemmonitor_<ver>_amd64.deb.sha256
+
+dpkg-deb --info systemmonitor_<ver>_amd64.deb
+dpkg-deb --contents systemmonitor_<ver>_amd64.deb | head -30
+dpkg-deb --contents systemmonitor_<ver>_amd64.deb | wc -l
+```
+
+ตรวจเพิ่มด้วยตา:
+
+- `/opt/systemmonitor/sysmonitor` เป็น 755 และเป็นไฟล์ executable เดียวในแพ็กเกจ
+- `/usr/bin/sysmonitor` เป็น symlink ไป `/opt/systemmonitor/sysmonitor`
+- `/usr/share/applications/systemmonitor.desktop` มี `Exec=/opt/systemmonitor/sysmonitor` (ไม่มี field code)
+- `/usr/share/icons/hicolor/256x256/apps/systemmonitor.png` มีอยู่
+- `/usr/share/doc/systemmonitor/copyright` เป็น DEP-5: โปรแกรม + ฟอนต์ IBM Plex Sans Thai (OFL-1.1)
+- `Depends` ใน `control` มาจาก `dpkg-shlibdeps` บน `.so` ที่ publish แล้ว บวก ICU, OpenSSL, X11/SM ที่ runtime `dlopen`
+
+**ห้าม**ติดตั้งแพ็กเกจนี้ระหว่างตรวจรับ: ไม่รัน `dpkg -i`, `apt install`, `sudo` หรือเปิด GUI
+`lintian` ไม่ได้ติดตั้งบนเครื่องนี้ — ถ้าไม่มี ให้รายงานว่าไม่มี
+
 ## 6. Coverage policy
 
 - Coverage เป็นสัญญาณ ไม่ใช่เป้าหมายเพียงอย่างเดียว
@@ -148,7 +180,7 @@ Critical smoke checklist:
 
 - `dotnet run --project SysMonitor.Linux.Probe -- --json` คืน snapshot ที่มี CPU/RAM/disk/network
 - `--probe-ui` พิมพ์ view model ของทั้งสามมุมมอง พร้อม autostart `IsEnabled`, tray tooltip และชื่อ asset ของ update
-- `--probe-update` คืนผลที่อ่านได้ (ยังไม่มี Linux release จึงคาดว่า `check_failed` พร้อมเหตุผล "no linux asset")
+- `--probe-update` คืนผลที่อ่านได้: พิมพ์ endpoint, ชนิด install (`tar.gz` หรือ `.deb`), asset ที่จะใช้, และ tag ที่เลือกพร้อมเหตุผล (ยังไม่มี Linux release ที่ไม่ใช่ prerelease จึงคาดว่า `up_to_date` พร้อม `no SystemMonitorLinux-* release`)
 - ติดตั้งใน sandbox แล้วเปิดเมนู `.desktop` และไอคอนได้ (ตรวจด้วยตา ไม่ต้องรันแอป)
 - ถอนแล้วไม่มีไฟล์ของโปรแกรมเหลือ และ settings อยู่ครบ (หรือหายเมื่อ `--purge`)
 
@@ -178,6 +210,7 @@ Critical smoke checklist:
 
 - `dotnet build -c Release` 0 warnings และ `dotnet test SysMonitor.Linux.Tests` ผ่านจาก commit ที่จะ release
 - `./build-linux.sh` สร้าง archive ที่มี `install.sh` ที่ root, ไม่มี link, และ `sha256sum -c` ผ่าน
+- `./build-linux.sh --deb` สร้าง `.deb` ที่ `dpkg-deb --info`/`--contents` ตรงตาม §5 และ `sha256sum -c` ผ่าน
 - ติดตั้ง/อัปเดต/ถอนใน sandbox ผ่านตาม §5 (ไม่แตะ `$HOME` จริง)
 - `--probe-ui` และ `--probe-update` ให้ผลตามที่คาด
 - rollback/forward-fix plan พร้อม: archive รุ่นก่อนหน้ายังติดตั้งทับได้ด้วย `install.sh` ตัวเดียวกัน

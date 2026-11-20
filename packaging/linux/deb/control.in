@@ -1,0 +1,18 @@
+Package: systemmonitor
+Version: @VERSION@
+Architecture: @ARCH@
+Maintainer: @MAINTAINER@
+Installed-Size: @INSTALLED_SIZE@
+Section: utils
+Priority: optional
+Depends: @DEPENDS@
+Homepage: https://github.com/epinephrinerx/SystemMonitor
+Description: desktop widget for CPU, RAM, disk, GPU and network
+ System Monitor is a native Linux desktop widget built with .NET and
+ Avalonia. It shows CPU, memory, disk, GPU and network activity from the
+ files the kernel and the drivers already publish, so nothing runs as root
+ and nothing asks for administrator rights.
+ .
+ This package installs the program under /opt/systemmonitor and a menu
+ entry. The program downloads and verifies later releases itself and hands
+ the package to the desktop's installer; it never runs apt, dpkg or sudo.

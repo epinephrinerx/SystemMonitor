@@ -295,9 +295,13 @@ internal static class Probe
         text.AppendLine("Tray tooltip: " + Escape(TrayText.Build(snapshot, shell.Language)));
 
         string architecture = UpdateAssets.ArchitectureSuffix();
-        string archive = UpdateAssets.ArchiveName(Version, architecture);
-        text.AppendLine(
-            $"Update assets ({architecture}): {archive} + {UpdateAssets.ChecksumName(archive)}");
+        bool package = DebPackage.IsInstalled(
+            Environment.ProcessPath, new ProcessCommandRunner());
+        UpdateAssetSet assets = package
+            ? UpdateAssetSet.Deb()
+            : UpdateAssetSet.TarGz(architecture);
+        (string file, string checksum) = assets.Names(Version);
+        text.AppendLine($"Update assets ({assets.Describe()}): {file} + {checksum}");
         text.AppendLine();
     }
 
@@ -307,13 +311,20 @@ internal static class Probe
 
     /// <summary>
     /// <c>--probe-update</c>: one real GitHub check (GET only, no download) and
-    /// the parsed result on stdout. The log lines go to stderr.
+    /// the parsed result on stdout. It prints the tag it picked and why, and
+    /// the files it would install, because which of them is picked is the whole
+    /// point of the Linux release rule. The log lines go to stderr.
     /// </summary>
     public static int RunUpdate()
     {
         string version = Version;
         string architecture = UpdateAssets.ArchitectureSuffix();
-        string archive = UpdateAssets.ArchiveName(version, architecture);
+        bool package = DebPackage.IsInstalled(
+            Environment.ProcessPath, new ProcessCommandRunner());
+        UpdateAssetSet assets = package
+            ? UpdateAssetSet.Deb()
+            : UpdateAssetSet.TarGz(architecture);
+        (string file, string checksum) = assets.Names(version);
 
         var updater = new GitHubUpdater(
             version,
@@ -323,10 +334,23 @@ internal static class Probe
 
         Console.WriteLine($"System Monitor {version} -- --probe-update");
         Console.WriteLine($"endpoint {UpdateReleaseParser.Endpoint}");
-        Console.WriteLine($"arch {architecture}  assets {archive} + {UpdateAssets.ChecksumName(archive)}");
-        Console.WriteLine(result.Succeeded
-            ? $"result ok  latest={result.Version}"
-            : $"result check_failed  reason={result.Reason}");
+        Console.WriteLine(
+            $"install {(updater.DebInstall ? "deb package (systemmonitor)" : "tar.gz (per-user)")}  " +
+            $"arch {architecture}");
+        Console.WriteLine($"assets {file} + {checksum}");
+        if (!result.Succeeded)
+        {
+            Console.WriteLine($"result check_failed  reason={result.Reason}");
+        }
+        else if (result.Version is null)
+        {
+            Console.WriteLine($"result up_to_date  {result.Detail}");
+        }
+        else
+        {
+            Console.WriteLine(
+                $"result ok  tag={result.Tag}  version={result.Version}  {result.Detail}");
+        }
         return 0;
     }
 
