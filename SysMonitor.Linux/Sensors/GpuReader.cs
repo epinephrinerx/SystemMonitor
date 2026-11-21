@@ -27,6 +27,10 @@ public sealed class GpuReader
     private readonly Dictionary<string, FdinfoScan> _fdinfo =
         new(StringComparer.Ordinal);
 
+    /// <summary>What a card is, read once and kept: it cannot change at run time.</summary>
+    private readonly Dictionary<string, CardStatic> _static =
+        new(StringComparer.Ordinal);
+
     private long? _nvidiaStamp;
     private IReadOnlyDictionary<string, NvidiaReading> _nvidia = NoNvidia;
     private IReadOnlyList<string> _nvidiaRequested = Array.Empty<string>();
@@ -97,7 +101,43 @@ public sealed class GpuReader
             uevent,
             driver,
             displayName,
-            SysFs.ReadInt(dir, "device", "boot_vga") == 1);
+            SysFs.ReadInt(dir, "device", "boot_vga") == 1,
+            ids.Vendor);
+    }
+
+    /// <summary>
+    /// The card's fixed properties: maker, slot and maximum link.  Read once
+    /// per card; the values cannot change while the machine runs.
+    /// </summary>
+    private CardStatic Statics(CardScan card)
+    {
+        if (_static.TryGetValue(card.Dir, out CardStatic? known))
+        {
+            return known;
+        }
+
+        string manufacturer = _pci.VendorName(card.Vendor);
+        if (manufacturer.Length == 0)
+        {
+            // pci.ids is optional; the three vendors every desktop has are
+            // still known from their IDs alone.
+            manufacturer = card.Vendor switch
+            {
+                0x8086 => "Intel Corporation",
+                0x10DE => "NVIDIA Corporation",
+                0x1002 => "Advanced Micro Devices, Inc. [AMD/ATI]",
+                _ => string.Empty,
+            };
+        }
+
+        var statics = new CardStatic(
+            manufacturer,
+            PciSlot(UeventValue(card.Uevent, "PCI_SLOT_NAME")),
+            LinkText(
+                SysFs.ReadTrimmed(card.Dir, "device", "max_link_speed"),
+                SysFs.ReadTrimmed(card.Dir, "device", "max_link_width")));
+        _static[card.Dir] = statics;
+        return statics;
     }
 
     private (Gpu Gpu, int Index, bool Primary) Build(
@@ -109,6 +149,18 @@ public sealed class GpuReader
         double dedicatedTotalGb = 0;
         int? temp = Hwmon.DeviceTemperature(Path.Combine(card.Dir, "device"));
 
+        CardStatic statics = Statics(card);
+        int? coreClock = null;
+        int? memoryClock = null;
+        double? powerW = null;
+        double? powerCapW = null;
+        int? encoder = null;
+        int? decoder = null;
+        string linkMax = statics.MaxLink;
+        string linkCurrent = LinkText(
+            SysFs.ReadTrimmed(card.Dir, "device", "current_link_speed"),
+            SysFs.ReadTrimmed(card.Dir, "device", "current_link_width"));
+
         if (IsDriver(card, "amdgpu"))
         {
             usage = Math.Clamp(
@@ -116,10 +168,16 @@ public sealed class GpuReader
 
             dedicatedGb = Gigabytes(SysFs.ReadLong(card.Dir, "device", "mem_info_vram_used"));
             dedicatedTotalGb = Gigabytes(SysFs.ReadLong(card.Dir, "device", "mem_info_vram_total"));
+
+            coreClock = DpmClock(SysFs.ReadText(card.Dir, "device", "pp_dpm_sclk"));
+            memoryClock = DpmClock(SysFs.ReadText(card.Dir, "device", "pp_dpm_mclk"));
+            (powerW, powerCapW) = HwmonPower(Path.Combine(card.Dir, "device"));
         }
         else if (IsDriver(card, "i915") || IsDriver(card, "xe"))
         {
             (engines, usage) = FdinfoUsage(card.Name, card.Uevent, stamp);
+            // i915 publishes the render clock here; xe keeps its own under gt/.
+            coreClock = Positive(SysFs.ReadInt(card.Dir, "gt_act_freq_mhz"));
         }
         else if (IsDriver(card, "nvidia") && NvidiaAwake(card.Dir))
         {
@@ -132,6 +190,20 @@ public sealed class GpuReader
                 dedicatedGb = reading.UsedGb;
                 dedicatedTotalGb = reading.TotalGb;
                 temp ??= reading.Temperature;
+                coreClock = reading.CoreClockMhz;
+                memoryClock = reading.MemoryClockMhz;
+                powerW = reading.PowerW;
+                powerCapW = reading.PowerCapW;
+                encoder = reading.EncoderUsage;
+                decoder = reading.DecoderUsage;
+                if (reading.LinkCurrent.Length > 0)
+                {
+                    linkCurrent = reading.LinkCurrent;
+                }
+                if (linkMax.Length == 0)
+                {
+                    linkMax = reading.LinkMax;
+                }
             }
         }
 
@@ -140,11 +212,21 @@ public sealed class GpuReader
             Present = true,
             Name = card.DisplayName,
             Driver = card.Driver,
+            Manufacturer = statics.Manufacturer,
+            PciSlot = statics.Slot,
             Usage = usage,
             Engines = engines,
             DedicatedGb = dedicatedGb,
             DedicatedTotalGb = dedicatedTotalGb,
             Temp = temp,
+            CoreClockMhz = coreClock,
+            MemoryClockMhz = memoryClock,
+            PowerW = powerW,
+            PowerCapW = powerCapW,
+            LinkCurrent = linkCurrent,
+            LinkMax = linkMax,
+            EncoderUsage = encoder,
+            DecoderUsage = decoder,
         }, card.Index, card.Primary);
     }
 
@@ -331,7 +413,10 @@ public sealed class GpuReader
     private IReadOnlyDictionary<string, NvidiaReading> QueryNvidia(IReadOnlyList<string> ids)
     {
         const string columns =
-            "--query-gpu=pci.bus_id,utilization.gpu,memory.total,memory.used,temperature.gpu " +
+            "--query-gpu=pci.bus_id,utilization.gpu,memory.total,memory.used,temperature.gpu," +
+            "clocks.gr,clocks.mem,power.draw,power.limit,utilization.encoder," +
+            "utilization.decoder,pcie.link.gen.current,pcie.link.gen.max," +
+            "pcie.link.width.current,pcie.link.width.max " +
             "--format=csv,noheader,nounits";
 
         string query = $"--id={string.Join(',', ids)} {columns}";
@@ -365,11 +450,22 @@ public sealed class GpuReader
                 temperature is int t && t > 0 ? t : null,
                 usedMb is double used && used > 0 ? used / 1024.0 : 0,
                 totalMb is double total && total > 0 ? total / 1024.0 : 0,
-                usage is int u ? Math.Clamp(u, 0, 100) : 0);
+                usage is int u ? Math.Clamp(u, 0, 100) : 0,
+                Positive(Number(Field(fields, 5))),
+                Positive(Number(Field(fields, 6))),
+                Amount(Field(fields, 7)),
+                Amount(Field(fields, 8)),
+                Percentage(Number(Field(fields, 9))),
+                Percentage(Number(Field(fields, 10))),
+                Generation(Number(Field(fields, 11)), Number(Field(fields, 13))),
+                Generation(Number(Field(fields, 12)), Number(Field(fields, 14))));
         }
 
         return rows;
     }
+
+    private static string Field(string[] fields, int index) =>
+        index < fields.Length ? fields[index] : string.Empty;
 
     /// <summary>
     /// A PCI address in one spelling: lower case, and the domain without its
@@ -477,7 +573,7 @@ public sealed class GpuReader
 
     private static int? Number(string text)
     {
-        if (text.Equals("[N/A]", StringComparison.OrdinalIgnoreCase))
+        if (IsUnavailable(text))
         {
             return null;
         }
@@ -488,13 +584,168 @@ public sealed class GpuReader
 
     private static double? Amount(string text)
     {
-        if (text.Equals("[N/A]", StringComparison.OrdinalIgnoreCase))
+        if (IsUnavailable(text))
         {
             return null;
         }
         return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double value)
             ? value
             : null;
+    }
+
+    /// <summary>nvidia-smi's ways of saying "the driver has no value here".</summary>
+    private static bool IsUnavailable(string text) =>
+        text.Length == 0
+        || text.Equals("[N/A]", StringComparison.OrdinalIgnoreCase)
+        || text.Equals("[Not Supported]", StringComparison.OrdinalIgnoreCase)
+        || text.Equals("N/A", StringComparison.OrdinalIgnoreCase);
+
+    private static int? Positive(int? value) => value is int number && number > 0 ? number : null;
+
+    private static int? Percentage(int? value) =>
+        value is int number ? Math.Clamp(number, 0, 100) : null;
+
+    /// <summary>
+    /// The PCIe generation and width as the one-line link text.  A generation
+    /// of 0 or a width of 0/255 means the card is not talking over PCIe.
+    /// </summary>
+    public static string Generation(int? generation, int? width)
+    {
+        if (generation is not int gen || gen <= 0 || gen > 9
+            || width is not int lanes || lanes <= 0 || lanes == 255)
+        {
+            return string.Empty;
+        }
+        return $"PCIe {gen}.0 ×{lanes}";
+    }
+
+    /// <summary>
+    /// sysfs' link text (<c>8.0 GT/s PCIe</c>, <c>4</c>) as
+    /// <c>PCIe 3.0 ×4</c>.  GT/s is the per-lane rate, so it names the
+    /// generation: 2.5 is 1.0, 5 is 2.0, 8 is 3.0, 16 is 4.0, 32 is 5.0,
+    /// 64 is 6.0.  Anything else, or a width of 0/255, is empty.
+    /// </summary>
+    public static string LinkText(string? speed, string? width)
+    {
+        double? gts = Amount(speed?.Split(' ')[0] ?? string.Empty);
+        int? lanes = Number(width ?? string.Empty);
+        if (gts is not double rate || lanes is not int count || count <= 0 || count == 255)
+        {
+            return string.Empty;
+        }
+
+        int generation = rate switch
+        {
+            2.5 => 1,
+            5 => 2,
+            8 => 3,
+            16 => 4,
+            32 => 5,
+            64 => 6,
+            _ => 0,
+        };
+        return generation == 0 ? string.Empty : $"PCIe {generation}.0 ×{count}";
+    }
+
+    /// <summary>
+    /// The current clock from an amdgpu DPM table, whose line for the active
+    /// level ends with <c>*</c>: <c>1: 617Mhz *</c>.
+    /// </summary>
+    public static int? DpmClock(string? table)
+    {
+        if (table is null)
+        {
+            return null;
+        }
+
+        foreach (string raw in table.Split('\n'))
+        {
+            if (raw.IndexOf('*') < 0)
+            {
+                continue;
+            }
+
+            string line = raw.Replace("*", string.Empty).Trim();
+            int colon = line.IndexOf(':');
+            string rest = (colon >= 0 ? line[(colon + 1)..] : line).Trim();
+            int unit = rest.IndexOf("Mhz", StringComparison.OrdinalIgnoreCase);
+            if (unit >= 0)
+            {
+                rest = rest[..unit].Trim();
+            }
+
+            if (double.TryParse(rest, NumberStyles.Float, CultureInfo.InvariantCulture, out double mhz)
+                && mhz > 0)
+            {
+                return (int)Math.Round(mhz);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// An amdgpu card's power draw and limit from its hwmon chip.  Both are
+    /// micro-watts, and both may be absent.
+    /// </summary>
+    public static (double? DrawW, double? CapW) HwmonPower(string devicePath)
+    {
+        foreach (string chip in HwmonChips(devicePath))
+        {
+            double? average = MicroWatts(SysFs.ReadLong(chip, "power1_average"));
+            double? cap = MicroWatts(SysFs.ReadLong(chip, "power1_cap"));
+            if (average is not null || cap is not null)
+            {
+                return (average, cap);
+            }
+        }
+        return (null, null);
+    }
+
+    private static IEnumerable<string> HwmonChips(string devicePath)
+    {
+        if (!Directory.Exists(devicePath))
+        {
+            yield break;
+        }
+
+        foreach (string child in SysFs.Directories(devicePath))
+        {
+            if (Path.GetFileName(child).StartsWith("hwmon", StringComparison.Ordinal))
+            {
+                yield return child;
+            }
+        }
+
+        foreach (string child in SysFs.Directories(devicePath, "hwmon"))
+        {
+            if (Path.GetFileName(child).StartsWith("hwmon", StringComparison.Ordinal))
+            {
+                yield return child;
+            }
+        }
+    }
+
+    private static double? MicroWatts(long? value) =>
+        value is long micro && micro > 0 ? micro / 1_000_000.0 : null;
+
+    /// <summary>
+    /// A PCI address in the form the entries are listed under, with the domain
+    /// padded to four digits: <c>0000:2b:00.0</c>.  The matcher needs the
+    /// unpadded form (<see cref="NormalisePci"/>); this one is for display.
+    /// </summary>
+    public static string PciSlot(string address)
+    {
+        string text = NormalisePci(address);
+        string[] parts = text.Split(':');
+        if (parts.Length != 3)
+        {
+            return text;
+        }
+
+        return long.TryParse(parts[0], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out long domain)
+            ? domain.ToString("x4", CultureInfo.InvariantCulture) + ":" + parts[1] + ":" + parts[2]
+            : text;
     }
 
     /// <summary>Bytes to gibibytes, with anything non-positive treated as "unknown".</summary>
@@ -535,10 +786,25 @@ public sealed class GpuReader
         string Uevent,
         string Driver,
         string DisplayName,
-        bool Primary);
+        bool Primary,
+        int Vendor);
+
+    /// <summary>What a card is: these cannot change while the machine runs.</summary>
+    private sealed record CardStatic(string Manufacturer, string Slot, string MaxLink);
 
     private sealed record NvidiaReading(
-        int? Temperature, double UsedGb, double TotalGb, int Usage);
+        int? Temperature,
+        double UsedGb,
+        double TotalGb,
+        int Usage,
+        int? CoreClockMhz,
+        int? MemoryClockMhz,
+        double? PowerW,
+        double? PowerCapW,
+        int? EncoderUsage,
+        int? DecoderUsage,
+        string LinkCurrent,
+        string LinkMax);
 
     private sealed record FdinfoScan(
         long Stamp,

@@ -110,6 +110,12 @@ public sealed class Snapshot
     public long MemoryStamp { get; init; }
 
     /// <summary>
+    /// Time since boot, from the first field of <c>/proc/uptime</c>.  Null when
+    /// it cannot be read, which is the case in a container that hides it.
+    /// </summary>
+    public TimeSpan? Uptime { get; init; }
+
+    /// <summary>
     /// Take a copy the caller cannot reach and hand it out read-only.
     ///
     /// A snapshot crosses from the sampler's thread to the UI thread and is
@@ -164,6 +170,13 @@ public sealed class Core
     public int Usage { get; init; }
     public int? Temp { get; init; }
     public bool Estimated { get; init; }
+
+    /// <summary>
+    /// The core's current clock in MHz, from
+    /// <c>cpufreq/scaling_cur_freq</c>.  Null when the machine has no cpufreq
+    /// driver for this core.
+    /// </summary>
+    public int? Mhz { get; init; }
 }
 
 public sealed class Ram
@@ -221,10 +234,52 @@ public sealed class Disk
 /// <summary>A wired or wireless adapter that is currently up.</summary>
 public sealed class Adapter
 {
+    private readonly IReadOnlyList<string> _ipv4 = Array.Empty<string>();
+    private readonly IReadOnlyList<string> _ipv6 = Array.Empty<string>();
+
     public required string Id { get; init; }
     public string Name { get; init; } = string.Empty;
     public string Description { get; init; } = string.Empty;
     public bool Wireless { get; init; }
+
+    /// <summary>The kernel's name for the interface (<c>wlp0s20f3</c>).</summary>
+    public string Interface { get; init; } = string.Empty;
+
+    /// <summary>"Wi-Fi", "Ethernet", or empty for anything else.</summary>
+    public string Kind { get; init; } = string.Empty;
+
+    /// <summary>The kernel driver's module name, or empty when unknown.</summary>
+    public string Driver { get; init; } = string.Empty;
+
+    /// <summary>IPv4 unicast addresses with their prefix (<c>192.168.0.139/24</c>).</summary>
+    public IReadOnlyList<string> Ipv4
+    {
+        get => _ipv4;
+        init => _ipv4 = Seal(value);
+    }
+
+    /// <summary>IPv6 unicast addresses with their prefix, link-local included.</summary>
+    public IReadOnlyList<string> Ipv6
+    {
+        get => _ipv6;
+        init => _ipv6 = Seal(value);
+    }
+
+    /// <summary>
+    /// The wired link rate from sysfs.  Null on Wi-Fi, on an unplugged cable
+    /// and wherever the driver reports nothing usable.
+    /// </summary>
+    public double? LinkSpeedMbps { get; init; }
+
+    /// <summary>
+    /// The Wi-Fi network name.  Deliberately kept in the model only: an SSID
+    /// names a place as much as a network, so the probe never prints it.
+    /// </summary>
+    public string Ssid { get; init; } = string.Empty;
+
+    public int? SignalDbm { get; init; }
+    public int? FrequencyMhz { get; init; }
+    public double? TxBitrateMbps { get; init; }
 
     /// <summary>Link speed, or 0 when the adapter reports none.</summary>
     public double SpeedMbps { get; init; }
@@ -240,6 +295,16 @@ public sealed class Adapter
     /// </summary>
     public int Usage => SpeedMbps <= 0 ? 0
         : (int)Math.Clamp(Math.Round((DownMb + UpMb) * 8 / SpeedMbps * 100), 0, 100);
+
+    /// <summary>The same copy-and-seal the snapshot uses for its lists.</summary>
+    private static IReadOnlyList<string> Seal(IReadOnlyList<string> values)
+    {
+        if (values is null || values.Count == 0)
+        {
+            return Array.Empty<string>();
+        }
+        return Array.AsReadOnly(values.ToArray());
+    }
 }
 
 /// <summary>
@@ -342,6 +407,40 @@ public sealed class PhysicalDisk
     public long Bytes { get; init; }
     public int PartitionCount { get; set; }
 
+    /// <summary>The block device name (<c>nvme0n1</c>, <c>sda</c>).</summary>
+    public string DeviceName { get; set; } = string.Empty;
+
+    /// <summary>"NVMe", "SSD", "HDD", or empty when the drive will not say.</summary>
+    public string Kind { get; set; } = string.Empty;
+
+    /// <summary>Null when sysfs has no <c>removable</c> flag to read.</summary>
+    public bool? Removable { get; set; }
+
+    /// <summary>False for a read-only device. Null when <c>ro</c> is unreadable.</summary>
+    public bool? Writable { get; set; }
+
+    /// <summary>
+    /// How the drive is attached: "PCIe 3.0 ×4", "USB 2.1 (480 Mb/s)", or
+    /// empty when neither describes it.
+    /// </summary>
+    public string Link { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Share of wall time the drive spent serving I/O, from the delta of
+    /// <c>io_ticks</c>.  Null on the first sample, which has no baseline.
+    /// </summary>
+    public double? ActivityPercent { get; set; }
+
+    /// <summary>Bytes per second since the previous sample. 0 before the second one.</summary>
+    public double ReadBytesPerSec { get; set; }
+
+    public double WriteBytesPerSec { get; set; }
+
+    /// <summary>Bytes read since boot, from the whole disk's own counters.</summary>
+    public long? TotalReadBytes { get; set; }
+
+    public long? TotalWrittenBytes { get; set; }
+
     /// <summary>Zero for an SSD, and zero for a disk that will not say.</summary>
     public int Rpm { get; set; }
 
@@ -423,6 +522,18 @@ public sealed class CpuInfo
     /// <summary>Null when the firmware does not report it either way.</summary>
     public bool? Virtualization { get; init; }
 
+    /// <summary>"VT-x", "AMD-V", or empty when the CPU flags say neither.</summary>
+    public string VirtualizationType { get; init; } = string.Empty;
+
+    /// <summary>
+    /// The highest clock the processor will run at, in MHz, from
+    /// <c>cpuinfo_max_freq</c>.  Null when the driver does not publish it.
+    /// </summary>
+    public int? MaxMhz { get; init; }
+
+    /// <summary>"x86_64", "aarch64" and so on. Empty when it cannot be mapped.</summary>
+    public string Architecture { get; init; } = string.Empty;
+
     /// <summary>True once anything at all was read.</summary>
     public bool Known => Name.Length > 0 || Logical > 0;
 }
@@ -440,6 +551,37 @@ public sealed class Gpu
     public bool Present { get; init; }
     public string Name { get; init; } = string.Empty;
     public string Driver { get; init; } = string.Empty;
+
+    /// <summary>The PCI vendor's name, from pci.ids. Empty when the card is not on PCI.</summary>
+    public string Manufacturer { get; init; } = string.Empty;
+
+    /// <summary>The card's PCI address (<c>0000:2b:00.0</c>), or empty.</summary>
+    public string PciSlot { get; init; } = string.Empty;
+
+    /// <summary>The graphics clock in MHz. Null where the driver does not report one.</summary>
+    public int? CoreClockMhz { get; init; }
+
+    /// <summary>The video-memory clock in MHz. Null on integrated adapters.</summary>
+    public int? MemoryClockMhz { get; init; }
+
+    /// <summary>Current board power draw, in watts. Null when not exposed.</summary>
+    public double? PowerW { get; init; }
+
+    /// <summary>The board's power limit, in watts. Null when not exposed.</summary>
+    public double? PowerCapW { get; init; }
+
+    /// <summary>"PCIe 1.0 ×4" and the like, or empty when unreadable.</summary>
+    public string LinkCurrent { get; init; } = string.Empty;
+
+    public string LinkMax { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Video encoder and decoder use, in percent.  NVIDIA only: on Intel and
+    /// AMD the same engines already appear in <see cref="Engines"/>.
+    /// </summary>
+    public int? EncoderUsage { get; init; }
+
+    public int? DecoderUsage { get; init; }
 
     /// <summary>The busiest engine type, which is what Task Manager calls "GPU".</summary>
     public int Usage { get; init; }

@@ -15,6 +15,9 @@ public sealed class DiskReader
     private readonly Func<string, (long Total, long Free)> _space;
     private Dictionary<string, (DiskCounters Counters, long Stamp)> _previous = new();
 
+    /// <summary>What a physical drive is; these cannot change while it is plugged in.</summary>
+    private readonly Dictionary<string, DiskStatics> _statics = new(StringComparer.Ordinal);
+
     public DiskReader(
         string root = "/",
         Func<string, (long Total, long Free)>? space = null)
@@ -47,6 +50,7 @@ public sealed class DiskReader
                 if (!physical.TryGetValue(parent, out disk))
                 {
                     disk = BlockDevices.ReadPhysical(_root, parent, nextDiskNumber++);
+                    ApplyPhysical(disk, parent, counters, stamp);
                     physical[parent] = disk;
                 }
             }
@@ -132,6 +136,69 @@ public sealed class DiskReader
         _previous = next;
 
         return disks;
+    }
+
+    /// <summary>
+    /// Attach the drive-level properties to the physical disk: what it is, how
+    /// it is attached, and this sample's activity.  The counters are the whole
+    /// disk's own /proc/diskstats line, never a partition's, and the baseline
+    /// is the previous sample of that same line.
+    /// </summary>
+    private void ApplyPhysical(
+        PhysicalDisk disk,
+        string name,
+        IReadOnlyDictionary<string, DiskCounters> counters,
+        long stamp)
+    {
+        if (!_statics.TryGetValue(name, out DiskStatics? statics))
+        {
+            statics = new DiskStatics(
+                BlockDevices.Kind(_root, name),
+                BlockDevices.RemovableFlag(_root, name),
+                BlockDevices.Writable(_root, name),
+                BlockDevices.Link(_root, name));
+            _statics[name] = statics;
+        }
+
+        disk.DeviceName = name;
+        disk.Kind = statics.Kind;
+        disk.Removable = statics.Removable;
+        disk.Writable = statics.Writable;
+        disk.Link = statics.Link;
+
+        if (!counters.TryGetValue(name, out DiskCounters current))
+        {
+            return;
+        }
+
+        disk.TotalReadBytes = current.BytesRead;
+        disk.TotalWrittenBytes = current.BytesWritten;
+
+        if (!_previous.TryGetValue(name, out (DiskCounters Counters, long Stamp) previous)
+            || stamp <= previous.Stamp)
+        {
+            // The first sample has no interval to divide by, so it reports no
+            // activity rather than a made-up zero.
+            return;
+        }
+
+        double elapsedMs = stamp - previous.Stamp;
+
+        // Activity needs both readings of io_ticks.  A missing field is
+        // unknown, and a counter that went backwards means the device was
+        // reset, so neither case prints a 0 that would read as "idle".
+        if (current.IoMs is long currentIoMs
+            && previous.Counters.IoMs is long previousIoMs
+            && currentIoMs >= previousIoMs)
+        {
+            disk.ActivityPercent = Math.Clamp(
+                (currentIoMs - previousIoMs) / elapsedMs * 100, 0, 100);
+        }
+
+        disk.ReadBytesPerSec =
+            Math.Max(0, current.BytesRead - previous.Counters.BytesRead) / (elapsedMs / 1000);
+        disk.WriteBytesPerSec =
+            Math.Max(0, current.BytesWritten - previous.Counters.BytesWritten) / (elapsedMs / 1000);
     }
 
     private IReadOnlyDictionary<string, DiskCounters> ReadCounters()
@@ -225,4 +292,7 @@ public sealed class DiskReader
             return (0, 0);
         }
     }
+
+    /// <summary>A physical drive's unchanging description, read once.</summary>
+    private sealed record DiskStatics(string Kind, bool? Removable, bool? Writable, string Link);
 }

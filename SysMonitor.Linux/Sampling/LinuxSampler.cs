@@ -48,7 +48,7 @@ public sealed class LinuxSampler
         PciDatabase pci = PciDatabase.Load(_root);
         _cpuInfo = CpuInfoReader.Read(_root);
         _disks = new DiskReader(_root);
-        _network = new NetworkReader(_root, commands, pci);
+        _network = new NetworkReader(_root, commands, pci, diagnostics);
         _gpus = new GpuReader(_root, commands, pci);
         _services = new ServiceReader(commands);
         _battery = new BatteryReader(_root);
@@ -131,6 +131,7 @@ public sealed class LinuxSampler
             {
                 Usage = cpu.Cores[i].Usage,
                 Temp = i < thermal.CoreTemps.Count ? thermal.CoreTemps[i] : null,
+                Mhz = cpu.Cores[i].Mhz,
             });
         }
 
@@ -158,6 +159,7 @@ public sealed class LinuxSampler
             CpuTemp = thermal.CpuTemp,
             CpuTempEstimated = thermal.Estimated,
             MemoryStamp = memoryStamp,
+            Uptime = ReadUptime(),
             Ready = wasReady,
         };
     }
@@ -179,14 +181,20 @@ public sealed class LinuxSampler
 
             if (previous is null || previous.Cores.Count != current.Cores.Count)
             {
-                var idle = current.Cores.Select(_ => new Core()).ToList();
+                var idle = current.Cores
+                    .Select((_, index) => new Core { Mhz = CpuInfoReader.CurrentMhz(_root, index) })
+                    .ToList();
                 return (idle, 0);
             }
 
             var cores = new List<Core>(current.Cores.Count);
             for (int i = 0; i < current.Cores.Count; i++)
             {
-                cores.Add(new Core { Usage = ProcStat.Usage(previous.Cores[i], current.Cores[i]) });
+                cores.Add(new Core
+                {
+                    Usage = ProcStat.Usage(previous.Cores[i], current.Cores[i]),
+                    Mhz = CpuInfoReader.CurrentMhz(_root, i),
+                });
             }
 
             return (cores, ProcStat.Usage(previous.Total, current.Total));
@@ -195,6 +203,34 @@ public sealed class LinuxSampler
         {
             _previousCpu = null;
             return (Array.Empty<Core>(), 0);
+        }
+    }
+
+    /// <summary>
+    /// Time since boot from <c>/proc/uptime</c>, whose first field is seconds
+    /// with two decimals.  Null when the file is missing or unreadable.
+    /// </summary>
+    private TimeSpan? ReadUptime()
+    {
+        try
+        {
+            string? text = SysFs.ReadText(_root, "proc", "uptime");
+            if (text is null)
+            {
+                return null;
+            }
+
+            string[] fields = SysFs.Fields(text);
+            return fields.Length > 0
+                && double.TryParse(fields[0], System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out double seconds)
+                && seconds >= 0
+                ? TimeSpan.FromSeconds(seconds)
+                : null;
+        }
+        catch (Exception)
+        {
+            return null;
         }
     }
 

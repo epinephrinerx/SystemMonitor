@@ -109,6 +109,21 @@ internal static class Program
         {
             Console.WriteLine("  Cores          : N/A");
         }
+
+        Console.WriteLine("  Properties");
+        if (snapshot.Cores.Count > 0)
+        {
+            var clocks = new List<string>(snapshot.Cores.Count);
+            for (int i = 0; i < snapshot.Cores.Count; i++)
+            {
+                clocks.Add($"CPU{i} {Clock(snapshot.Cores[i].Mhz)}");
+            }
+            Console.WriteLine($"    Core clocks    : {string.Join(" · ", clocks)}");
+        }
+        Console.WriteLine($"    Max clock      : {Clock(info.MaxMhz)}");
+        Console.WriteLine($"    Virtualization : {Text(info.VirtualizationType)}");
+        Console.WriteLine($"    Architecture   : {Text(info.Architecture)}");
+        Console.WriteLine($"    Uptime         : {Uptime(snapshot.Uptime)}");
         Console.WriteLine();
     }
 
@@ -293,6 +308,7 @@ internal static class Program
             Console.WriteLine("  N/A");
         }
 
+        var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (Disk disk in snapshot.Disks)
         {
             Console.WriteLine($"  {disk.Title}");
@@ -311,8 +327,34 @@ internal static class Program
                 Console.WriteLine("    Detail      : N/A");
                 Console.WriteLine("    Partition   : N/A");
             }
+
+            // The drive's own properties, once per physical disk even when two
+            // filesystems live on it.
+            PhysicalDisk? hardware = disk.Detail?.Disk;
+            string key = hardware?.DeviceName is { Length: > 0 } name
+                ? name
+                : hardware?.Name ?? string.Empty;
+            if (seen.Add(key))
+            {
+                PrintDiskProperties(hardware);
+            }
         }
         Console.WriteLine();
+    }
+
+    private static void PrintDiskProperties(PhysicalDisk? disk)
+    {
+        Console.WriteLine("    Properties");
+        Console.WriteLine($"      Device       : {Text(disk?.DeviceName ?? string.Empty)}");
+        Console.WriteLine($"      Type         : {Text(disk?.Kind ?? string.Empty)}");
+        Console.WriteLine($"      Removable    : {YesNo(disk?.Removable)}");
+        Console.WriteLine($"      Writable     : {YesNo(disk?.Writable)}");
+        Console.WriteLine($"      Link         : {Text(disk?.Link ?? string.Empty)}");
+        Console.WriteLine($"      Activity     : {PercentageDouble(disk?.ActivityPercent)}");
+        Console.WriteLine($"      Read speed   : {ByteRate(disk?.ReadBytesPerSec)}");
+        Console.WriteLine($"      Write speed  : {ByteRate(disk?.WriteBytesPerSec)}");
+        Console.WriteLine($"      Total read   : {OptionalBytes(disk?.TotalReadBytes)}");
+        Console.WriteLine($"      Total write  : {OptionalBytes(disk?.TotalWrittenBytes)}");
     }
 
     private static void PrintAdapters(Snapshot snapshot)
@@ -330,6 +372,19 @@ internal static class Program
             Console.WriteLine($"    Throughput  : {Rate(adapter.DownMb)} down, {Rate(adapter.UpMb)} up");
             Console.WriteLine($"    Totals      : {Bytes(adapter.TotalReceived)} received, {Bytes(adapter.TotalSent)} sent");
             Console.WriteLine($"    Description : {Text(adapter.Description)}");
+            Console.WriteLine("    Properties");
+            Console.WriteLine($"      Interface    : {Text(adapter.Interface)}");
+            Console.WriteLine($"      Type         : {Text(adapter.Kind)}");
+            Console.WriteLine($"      Driver       : {Text(adapter.Driver)}");
+            Console.WriteLine("      MAC          : not read (privacy)");
+            Console.WriteLine($"      IPv4         : {Addresses(adapter.Ipv4)}");
+            Console.WriteLine($"      IPv6         : {Addresses(adapter.Ipv6)}");
+            Console.WriteLine($"      Link speed   : {Mbps(adapter.LinkSpeedMbps)}");
+            // The SSID is model-only: say that there is one, never which.
+            Console.WriteLine($"      SSID         : {(adapter.Ssid.Length > 0 ? "(hidden)" : "N/A")}");
+            Console.WriteLine($"      Signal       : {Signal(adapter.SignalDbm)}");
+            Console.WriteLine($"      Frequency    : {Frequency(adapter.FrequencyMhz)}");
+            Console.WriteLine($"      Tx bitrate   : {Mbps(adapter.TxBitrateMbps)}");
         }
         Console.WriteLine();
     }
@@ -352,6 +407,17 @@ internal static class Program
             Console.WriteLine($"    Engines     : {Engines(gpu)}");
             Console.WriteLine($"    Dedicated   : {Dedicated(gpu)}");
             Console.WriteLine($"    Temp        : {Celsius(gpu.Temp)}");
+            Console.WriteLine("    Properties");
+            Console.WriteLine($"      Manufacturer : {Text(gpu.Manufacturer)}");
+            Console.WriteLine($"      PCI slot     : {Text(gpu.PciSlot)}");
+            Console.WriteLine($"      Core clock   : {Clock(gpu.CoreClockMhz)}");
+            Console.WriteLine($"      Memory clock : {Clock(gpu.MemoryClockMhz)}");
+            Console.WriteLine($"      Power        : {Power(gpu.PowerW)}");
+            Console.WriteLine($"      Power cap    : {Power(gpu.PowerCapW)}");
+            Console.WriteLine($"      Link current : {Text(gpu.LinkCurrent)}");
+            Console.WriteLine($"      Link max     : {Text(gpu.LinkMax)}");
+            Console.WriteLine($"      Encoder      : {Percentage(gpu.EncoderUsage)}");
+            Console.WriteLine($"      Decoder      : {Percentage(gpu.DecoderUsage)}");
         }
         Console.WriteLine();
     }
@@ -509,8 +575,9 @@ internal static class Program
 
     /// <summary>
     /// A copy of the snapshot with every disk serial reduced to its last four
-    /// characters.  A serial identifies the machine's hardware, and this output
-    /// is meant to be pasted into a report.
+    /// characters and every <c>enx&lt;MAC&gt;</c> interface name reduced to
+    /// <c>enx…</c>.  Both identify the machine's hardware, and this output is
+    /// meant to be pasted into a report.  The model keeps the real names.
     /// </summary>
     private static Snapshot Masked(Snapshot snapshot)
     {
@@ -526,12 +593,18 @@ internal static class Program
             var masked = new PhysicalDisk
             {
                 Number = physical.Number,
+                Name = physical.Name,
+                DeviceName = physical.DeviceName,
                 Model = physical.Model,
                 Serial = MaskSerial(physical.Serial),
                 Firmware = physical.Firmware,
                 Bus = physical.Bus,
                 Interface = physical.Interface,
                 Media = physical.Media,
+                Kind = physical.Kind,
+                Removable = physical.Removable,
+                Writable = physical.Writable,
+                Link = physical.Link,
                 PartitionStyle = physical.PartitionStyle,
                 Bytes = physical.Bytes,
                 PartitionCount = physical.PartitionCount,
@@ -539,6 +612,11 @@ internal static class Program
                 Healthy = physical.Healthy,
                 Online = physical.Online,
                 AllocatedBytes = physical.AllocatedBytes,
+                ActivityPercent = physical.ActivityPercent,
+                ReadBytesPerSec = physical.ReadBytesPerSec,
+                WriteBytesPerSec = physical.WriteBytesPerSec,
+                TotalReadBytes = physical.TotalReadBytes,
+                TotalWrittenBytes = physical.TotalWrittenBytes,
             };
 
             disks.Add(new Disk
@@ -571,12 +649,60 @@ internal static class Program
             });
         }
 
+        // systemd names a USB Ethernet adapter after its MAC address.  The
+        // probe prints the prefix only and numbers two such adapters (#1, #2)
+        // so they stay distinguishable; Id, Name, Interface and any description
+        // that repeats the name are all redacted.
+        var primaries = new List<string>(snapshot.Adapters.Count);
+        foreach (Adapter adapter in snapshot.Adapters)
+        {
+            primaries.Add(adapter.Interface.Length > 0 ? adapter.Interface : adapter.Id);
+        }
+        IReadOnlyList<string> maskedNames = Privacy.MaskInterfaces(primaries);
+
+        var adapters = new List<Adapter>(snapshot.Adapters.Count);
+        for (int i = 0; i < snapshot.Adapters.Count; i++)
+        {
+            Adapter adapter = snapshot.Adapters[i];
+            string maskedName = maskedNames[i];
+
+            string MaskField(string value) =>
+                string.Equals(value, primaries[i], StringComparison.Ordinal)
+                    ? maskedName
+                    : Privacy.MaskInterface(value);
+
+            // The SSID says where the machine is, so the JSON says only that
+            // there was one. The MAC address was never read.
+            adapters.Add(new Adapter
+            {
+                Id = MaskField(adapter.Id),
+                Name = MaskField(adapter.Name),
+                Description = MaskDescription(adapter.Description, primaries, maskedNames),
+                Wireless = adapter.Wireless,
+                Interface = MaskField(adapter.Interface),
+                Kind = adapter.Kind,
+                Driver = adapter.Driver,
+                Ipv4 = adapter.Ipv4,
+                Ipv6 = adapter.Ipv6,
+                LinkSpeedMbps = adapter.LinkSpeedMbps,
+                Ssid = adapter.Ssid.Length > 0 ? "(hidden)" : string.Empty,
+                SignalDbm = adapter.SignalDbm,
+                FrequencyMhz = adapter.FrequencyMhz,
+                TxBitrateMbps = adapter.TxBitrateMbps,
+                SpeedMbps = adapter.SpeedMbps,
+                DownMb = adapter.DownMb,
+                UpMb = adapter.UpMb,
+                TotalReceived = adapter.TotalReceived,
+                TotalSent = adapter.TotalSent,
+            });
+        }
+
         return new Snapshot
         {
             Cores = snapshot.Cores,
             Ram = snapshot.Ram,
             Disks = disks,
-            Adapters = snapshot.Adapters,
+            Adapters = adapters,
             Gpus = snapshot.Gpus,
             Modules = snapshot.Modules,
             Processes = snapshot.Processes,
@@ -587,6 +713,7 @@ internal static class Program
             SwapDevices = snapshot.SwapDevices,
             MemoryLayout = snapshot.MemoryLayout,
             MemoryStamp = snapshot.MemoryStamp,
+            Uptime = snapshot.Uptime,
             CpuTotal = snapshot.CpuTotal,
             CpuInfo = snapshot.CpuInfo,
             Gpu = snapshot.Gpu,
@@ -595,6 +722,25 @@ internal static class Program
             CpuTempEstimated = snapshot.CpuTempEstimated,
             Ready = snapshot.Ready,
         };
+    }
+
+    /// <summary>
+    /// Replace every masked interface name wherever a description repeats it,
+    /// so no field of the report carries the MAC-bearing name.
+    /// </summary>
+    private static string MaskDescription(
+        string description,
+        IReadOnlyList<string> names,
+        IReadOnlyList<string> masked)
+    {
+        for (int i = 0; i < names.Count; i++)
+        {
+            if (!string.Equals(names[i], masked[i], StringComparison.Ordinal))
+            {
+                description = description.Replace(names[i], masked[i], StringComparison.Ordinal);
+            }
+        }
+        return description;
     }
 
     /// <summary>"S5R2NX0R123456" to "…3456".  An empty serial stays empty; a
@@ -679,6 +825,58 @@ internal static class Program
     }
 
     private static string Mhz(int value) => value > 0 ? $"{value} MHz" : "N/A";
+
+    private static string Clock(int? value) => value is int mhz ? $"{mhz} MHz" : "N/A";
+
+    private static string Percentage(int? value) =>
+        value is int percent ? Number(percent) + " %" : "N/A";
+
+    private static string PercentageDouble(double? value) =>
+        value is double percent ? $"{percent:F1} %" : "N/A";
+
+    private static string Power(double? value) => value is double watts ? $"{watts:F2} W" : "N/A";
+
+    private static string Mbps(double? value) =>
+        value is double mbps && mbps > 0 ? $"{mbps:F1} Mbps" : "N/A";
+
+    private static string Signal(int? value) => value is int dbm ? $"{dbm} dBm" : "N/A";
+
+    private static string Frequency(int? value) => value is int mhz ? $"{mhz} MHz" : "N/A";
+
+    private static string YesNo(bool? value) => value is bool flag ? (flag ? "yes" : "no") : "N/A";
+
+    private static string Addresses(IReadOnlyList<string> values) =>
+        values.Count > 0 ? string.Join(" · ", values) : "N/A";
+
+    private static string ByteRate(double? value)
+    {
+        if (value is not double bytes)
+        {
+            return "N/A";
+        }
+        return bytes >= 1048576 ? $"{bytes / 1048576:F1} MB/s"
+            : bytes >= 1024 ? $"{bytes / 1024:F0} KB/s"
+            : $"{bytes:F0} B/s";
+    }
+
+    private static string OptionalBytes(long? value) =>
+        value is long bytes ? MemoryBoard.Size(bytes) : "N/A";
+
+    /// <summary>"1d 08h 03m", or the hours and minutes when it is a short uptime.</summary>
+    private static string Uptime(TimeSpan? value)
+    {
+        if (value is not TimeSpan span)
+        {
+            return "N/A";
+        }
+
+        int days = (int)span.TotalDays;
+        return days > 0
+            ? $"{days}d {span.Hours:00}h {span.Minutes:00}m"
+            : span.Hours > 0
+                ? $"{span.Hours}h {span.Minutes:00}m"
+                : $"{span.Minutes}m";
+    }
 
     private static string Kb(int value) => value > 0 ? $"{value} KB" : "N/A";
 

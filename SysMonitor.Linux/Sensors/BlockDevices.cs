@@ -174,6 +174,146 @@ public static class BlockDevices
     }
 
     /// <summary>
+    /// The drive's class for the properties card: NVMe by name, otherwise the
+    /// queue's rotational flag.  Empty when the flag cannot be read, rather
+    /// than calling an unknown drive an SSD.
+    /// </summary>
+    public static string Kind(string root, string disk)
+    {
+        if (!SysFs.IsSafeName(disk))
+        {
+            return string.Empty;
+        }
+        if (disk.StartsWith("nvme", StringComparison.Ordinal))
+        {
+            return "NVMe";
+        }
+
+        return SysFs.ReadInt(root, "sys", "class", "block", disk, "queue", "rotational") switch
+        {
+            1 => "HDD",
+            0 => "SSD",
+            _ => string.Empty,
+        };
+    }
+
+    /// <summary>The kernel's ejectable flag, or null when the file is missing.</summary>
+    public static bool? RemovableFlag(string root, string disk)
+    {
+        if (!SysFs.IsSafeName(disk))
+        {
+            return null;
+        }
+
+        return SysFs.ReadInt(root, "sys", "class", "block", disk, "removable") switch
+        {
+            1 => true,
+            0 => false,
+            _ => null,
+        };
+    }
+
+    /// <summary><c>ro</c> is 0 for writable and 1 for read-only. Null when unreadable.</summary>
+    public static bool? Writable(string root, string disk)
+    {
+        if (!SysFs.IsSafeName(disk))
+        {
+            return null;
+        }
+
+        return SysFs.ReadInt(root, "sys", "class", "block", disk, "ro") switch
+        {
+            0 => true,
+            1 => false,
+            _ => null,
+        };
+    }
+
+    /// <summary>
+    /// How the drive is attached, in the same words the GPU uses: an NVMe
+    /// drive reports its PCIe link, a USB drive the first USB device above it
+    /// ("USB 2.1 (480 Mb/s)").  Anything else, and anything unreadable, is empty.
+    /// </summary>
+    public static string Link(string root, string disk)
+    {
+        if (!SysFs.IsSafeName(disk))
+        {
+            return string.Empty;
+        }
+
+        string device = SysFs.Path(root, "sys", "class", "block", disk, "device");
+
+        // NVMe: the controller's device, then the PCI function above it.
+        foreach (string dir in new[] { device, SysFs.Path(device, "device") })
+        {
+            string link = GpuReader.LinkText(
+                SysFs.ReadTrimmed(dir, "current_link_speed"),
+                SysFs.ReadTrimmed(dir, "current_link_width"));
+            if (link.Length > 0)
+            {
+                return link;
+            }
+        }
+
+        return UsbLink(root, disk);
+    }
+
+    /// <summary>
+    /// Walk from the block device up its sysfs path to the first USB device
+    /// node, which is the one carrying <c>version</c> and <c>speed</c>.
+    ///
+    /// The walk starts at the block device's resolved directory, not at its
+    /// <c>device</c> link: that link's target is relative to the directory the
+    /// link really lives in, and only the resolved form is the real sysfs path.
+    /// </summary>
+    private static string UsbLink(string root, string disk)
+    {
+        string block = SysFs.Path(root, "sys", "class", "block", disk);
+        string path = SysFs.ResolvedPath(block);
+        if (path.Length == 0)
+        {
+            path = block;
+        }
+
+        string floor = SysFs.Path(root);
+        for (int level = 0; level < 16
+            && path.Length > floor.Length
+            && path.StartsWith(floor, StringComparison.Ordinal); level++)
+        {
+            string? version = SysFs.ReadTrimmed(path, "version");
+            string? speed = SysFs.ReadTrimmed(path, "speed");
+            if (version is not null && speed is not null && version.Length > 0 && speed.Length > 0)
+            {
+                return $"USB {TrimVersion(version)} ({speed} Mb/s)";
+            }
+
+            DirectoryInfo? parent = Directory.GetParent(path);
+            if (parent is null)
+            {
+                break;
+            }
+            path = parent.FullName;
+        }
+
+        return string.Empty;
+    }
+
+    /// <summary>"2.10" to "2.1", "2.00" to "2": the version without padding.</summary>
+    public static string TrimVersion(string version)
+    {
+        string text = version.Trim();
+        int dot = text.IndexOf('.');
+        if (dot < 0)
+        {
+            return text;
+        }
+
+        string whole = text[..dot];
+        string fraction = text[(dot + 1)..].TrimEnd('0');
+        return fraction.Length > 0 ? whole + "." + fraction : whole;
+    }
+
+    /// <summary>
     /// NVMe, SATA, USB, Virtual, SD/MMC or Unknown, from where the device
     /// hangs in sysfs.  The name is never used to guess a bus: an <c>sd</c>
     /// name says nothing about SATA versus USB, so only the resolved device
@@ -249,7 +389,7 @@ public static class BlockDevices
         string basePath = SysFs.Path(root, "sys", "class", "block", disk);
         if (!Directory.Exists(basePath))
         {
-            return new PhysicalDisk { Number = number, Name = disk };
+            return new PhysicalDisk { Number = number, Name = disk, DeviceName = disk };
         }
 
         string device = SysFs.Path(basePath, "device");
@@ -273,6 +413,7 @@ public static class BlockDevices
         {
             Number = number,
             Name = disk,
+            DeviceName = disk,
             Model = SysFs.ReadTrimmed(device, "model") ?? string.Empty,
             Serial = SysFs.ReadTrimmed(device, "serial") ?? string.Empty,
             Firmware = SysFs.ReadTrimmed(device, "firmware_rev")

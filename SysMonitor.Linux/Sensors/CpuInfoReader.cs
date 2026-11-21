@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Runtime.InteropServices;
 using SysMonitor.Model;
 
 namespace SysMonitor.Linux.Sensors;
@@ -14,6 +15,7 @@ public static class CpuInfoParser
         string name = string.Empty;
         string vendor = string.Empty;
         bool? virtualization = null;
+        string virtualizationType = string.Empty;
 
         int logical = 0;
         var sockets = new HashSet<int>();
@@ -28,7 +30,8 @@ public static class CpuInfoParser
             if (line.Length == 0)
             {
                 ApplyBlock(block, ref name, ref vendor, ref virtualization,
-                           ref logical, sockets, cores, ref hasCoreIds);
+                           ref virtualizationType, ref logical, sockets, cores,
+                           ref hasCoreIds);
                 block.Clear();
                 continue;
             }
@@ -47,7 +50,8 @@ public static class CpuInfoParser
         }
 
         ApplyBlock(block, ref name, ref vendor, ref virtualization,
-                   ref logical, sockets, cores, ref hasCoreIds);
+                   ref virtualizationType, ref logical, sockets, cores,
+                   ref hasCoreIds);
 
         int coreCount = hasCoreIds ? cores.Count : logical;
         return new CpuInfo
@@ -58,7 +62,28 @@ public static class CpuInfoParser
             Cores = coreCount,
             Logical = logical,
             Virtualization = virtualization,
+            VirtualizationType = virtualizationType,
         };
+    }
+
+    /// <summary>
+    /// The virtualisation feature as a name.  "vmx" is Intel VT-x, "svm" is
+    /// AMD-V; a CPU with neither reports an empty string rather than a guess.
+    /// </summary>
+    public static string VirtualizationType(IEnumerable<string> flags)
+    {
+        foreach (string flag in flags)
+        {
+            if (flag == "vmx")
+            {
+                return "VT-x";
+            }
+            if (flag == "svm")
+            {
+                return "AMD-V";
+            }
+        }
+        return string.Empty;
     }
 
     private static void ApplyBlock(
@@ -66,6 +91,7 @@ public static class CpuInfoParser
         ref string name,
         ref string vendor,
         ref bool? virtualization,
+        ref string virtualizationType,
         ref int logical,
         HashSet<int> sockets,
         HashSet<(int Socket, int Core)> cores,
@@ -109,6 +135,10 @@ public static class CpuInfoParser
             if (parts.Contains("vmx") || parts.Contains("svm"))
             {
                 virtualization = true;
+                if (virtualizationType.Length == 0)
+                {
+                    virtualizationType = VirtualizationType(parts);
+                }
             }
             else if (virtualization is null)
             {
@@ -214,7 +244,10 @@ public static class CpuInfoReader
             Cores = baseInfo.Cores,
             Logical = baseInfo.Logical,
             Virtualization = baseInfo.Virtualization,
+            VirtualizationType = baseInfo.VirtualizationType,
             BaseMhz = baseMhz,
+            MaxMhz = MaxMhz(root),
+            Architecture = ArchitectureName(RuntimeInformation.OSArchitecture),
             L2Kb = CpuCaches.L2Kb(caches),
             L3Kb = CpuCaches.L3Kb(caches),
         };
@@ -231,6 +264,44 @@ public static class CpuInfoReader
         }
         return (int)Math.Min(value / 1000, int.MaxValue);
     }
+
+    /// <summary>
+    /// The highest clock the package will run at, from cpu0's
+    /// <c>cpuinfo_max_freq</c>.  Null when the cpufreq driver does not publish it.
+    /// </summary>
+    public static int? MaxMhz(string root = "/")
+    {
+        long? khz = SysFs.ReadLong(root, "sys", "devices", "system", "cpu", "cpu0", "cpufreq", "cpuinfo_max_freq");
+        return khz is long value && value > 0 ? KilohertzToMhz(value) : null;
+    }
+
+    /// <summary>
+    /// One core's current clock, from <c>cpu&lt;N&gt;/cpufreq/scaling_cur_freq</c>.
+    /// The file is in kHz; a value that is missing or not positive is null.
+    /// </summary>
+    public static int? CurrentMhz(string root, int index)
+    {
+        string cpu = "cpu" + index.ToString(CultureInfo.InvariantCulture);
+        long? khz = SysFs.ReadLong(root, "sys", "devices", "system", "cpu", cpu,
+            "cpufreq", "scaling_cur_freq");
+        return khz is long value && value > 0 ? KilohertzToMhz(value) : null;
+    }
+
+    private static int KilohertzToMhz(long khz) =>
+        (int)Math.Min(khz / 1000, int.MaxValue);
+
+    /// <summary>The processor architecture as uname would print it.</summary>
+    public static string ArchitectureName(Architecture architecture) => architecture switch
+    {
+        Architecture.X64 => "x86_64",
+        Architecture.X86 => "x86",
+        Architecture.Arm64 => "aarch64",
+        Architecture.Arm => "arm",
+        Architecture.Armv6 => "armv6",
+        Architecture.S390x => "s390x",
+        Architecture.LoongArch64 => "loongarch64",
+        _ => architecture.ToString().ToLowerInvariant(),
+    };
 
     public static IReadOnlyList<CpuCacheInfo> Caches(string root = "/")
     {

@@ -3,7 +3,11 @@ using SysMonitor.Sensors;
 namespace SysMonitor.Linux.Sensors;
 
 /// <summary>Lifetime byte counters for one block device line.</summary>
-public readonly record struct DiskCounters(string Name, long BytesRead, long BytesWritten);
+public readonly record struct DiskCounters(
+    string Name,
+    long BytesRead,
+    long BytesWritten,
+    long? IoMs = null);
 
 /// <summary>
 /// /proc/diskstats.  One line per disk and per partition, so a partition can
@@ -33,10 +37,22 @@ public static class DiskStats
                 continue;
             }
 
+            // Field 13 of /proc/diskstats (index 12) is io_ticks: the
+            // milliseconds the device spent with I/O in flight.  Older kernels
+            // stop at field 11, and a reset can leave a value that does not
+            // parse, so a missing or invalid field is null -- an unknown, never
+            // a zero that would read as "idle".
+            long? ioMs = fields.Length > 12
+                         && SysFs.TryParseLong(fields[12], out long ticks)
+                         && ticks >= 0
+                ? ticks
+                : null;
+
             result.Add(new DiskCounters(
                 fields[2],
                 sectorsRead > long.MaxValue / 512 ? long.MaxValue : sectorsRead * 512,
-                sectorsWritten > long.MaxValue / 512 ? long.MaxValue : sectorsWritten * 512));
+                sectorsWritten > long.MaxValue / 512 ? long.MaxValue : sectorsWritten * 512,
+                ioMs));
         }
 
         return result;
