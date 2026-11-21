@@ -303,6 +303,7 @@ internal static class StringData
         ("module_disk_n", "ดิสก์ {0}", "Disk {0}"),
         ("gpu_n", "GPU {0}", "GPU {0}"),
         ("module_n", "โมดูล {0}", "Module {0}"),
+        ("settings_more", "ตั้งค่าเพิ่มเติม…", "More settings…"),
         ("na", "N/A", "N/A"),
         ("highest", "สูงสุด: {0}", "Highest: {0}"),
         ("max_frequency", "ความถี่สูงสุด", "Max frequency"),

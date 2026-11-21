@@ -25,11 +25,6 @@ public static class FullBoard
         string rememberedTab,
         PeakTracker? peaks = null)
     {
-        // The palette is the view's business. The memory page's process list
-        // moved to the Processes page in phase C, so no memory model is needed
-        // here any more.
-        _ = palette;
-
         var tabs = new List<FullTab>();
         if (snapshot is not null)
         {
@@ -55,7 +50,7 @@ public static class FullBoard
             }
             if (config.ShowBattery)
             {
-                AddBatteryPages(tabs, snapshot, lang, history, peaks);
+                AddBatteryPages(tabs, snapshot, lang, palette, history, peaks);
             }
         }
 
@@ -106,17 +101,22 @@ public static class FullBoard
             for (int i = 0; i < snapshot.Cores.Count; i++)
             {
                 Core core = snapshot.Cores[i];
-                string value = Format.Percent(core.Usage);
-                if (config.CpuTemperature && core.Temp is { } coreTemp)
-                {
-                    value += FactSeparator + Format.Temperature(coreTemp);
-                }
+                // R-030 fix 4: the card's own line carries everything the core
+                // reports — usage, the temperature when it is read, and the
+                // clock — while the title is the short "C0" the Overall rows
+                // already use. "Core 0" beside that value did not fit an 89 px
+                // card.
+                string value = Format.Join(
+                    Format.Percent(core.Usage),
+                    config.CpuTemperature && core.Temp is { } coreTemp
+                        ? Format.Temperature(coreTemp)
+                        : null,
+                    Clock(core.Mhz));
                 small.Add(new FullCard
                 {
                     Key = "core" + i.ToString(CultureInfo.InvariantCulture),
-                    Title = "Core " + i.ToString(CultureInfo.InvariantCulture),
+                    Title = "C" + i.ToString(CultureInfo.InvariantCulture),
                     Value = value,
-                    Detail = Mhz(core.Mhz) ?? string.Empty,
                     Accent = Accents.Cpu,
                     History = history.Core(i),
                     Small = true,
@@ -748,14 +748,17 @@ public static class FullBoard
     // -------------------------------------------------------------- battery
 
     private static void AddBatteryPages(
-        List<FullTab> tabs, Snapshot snapshot, Lang lang, HistoryBoard history, PeakTracker? peaks)
+        List<FullTab> tabs, Snapshot snapshot, Lang lang, Palette palette,
+        HistoryBoard history, PeakTracker? peaks)
     {
         foreach (Battery battery in snapshot.Batteries)
         {
             string key = PageKeys.Battery(battery.Id);
             string state = BatteryStateText(battery.State, lang);
-            string summary = (battery.Percent is int percent ? Format.Percent(percent) : lang["na"])
-                + (snapshot.OnAcPower ? " ⚡" : string.Empty);
+            // R-030 fix 4: no lightning glyph in the text — IBM Plex Sans Thai
+            // has no such glyph. The sidebar item and the page header draw the
+            // same power icon as the fix-3 badge instead.
+            string summary = battery.Percent is int percent ? Format.Percent(percent) : lang["na"];
 
             var properties = new List<FullFact>();
             AddFact(properties, lang, lang["battery_state"], state);
@@ -784,7 +787,7 @@ public static class FullBoard
             {
                 properties.Add(new FullFact
                 {
-                    Title = PeripheralText(peripheral.Kind, lang),
+                    Title = BatteryText.PeripheralName(peripheral.Kind, lang),
                     Value = JoinParts(new[]
                     {
                         peripheral.Model,
@@ -817,6 +820,7 @@ public static class FullBoard
                 Label = lang["battery"],
                 Detail = state,
                 Summary = summary,
+                Badge = BatteryText.AcBadge(battery, snapshot, palette),
                 Hardware = Format.Join(battery.Manufacturer, battery.Model) is { Length: > 0 } hardware
                     ? hardware
                     : battery.Id,
@@ -842,17 +846,6 @@ public static class FullBoard
         PowerSourceKind.Mains => lang["power_mains"],
         PowerSourceKind.Usb => lang["power_usb"],
         _ => lang["power_other"],
-    };
-
-    private static string PeripheralText(PeripheralKind kind, Lang lang) => kind switch
-    {
-        PeripheralKind.Mouse => lang["periph_mouse"],
-        PeripheralKind.Keyboard => lang["periph_keyboard"],
-        PeripheralKind.Headset => lang["periph_headset"],
-        PeripheralKind.Gamepad => lang["periph_gamepad"],
-        PeripheralKind.Phone => lang["periph_phone"],
-        PeripheralKind.Tablet => lang["periph_tablet"],
-        _ => lang["periph_other"],
     };
 
     internal static string BatteryStateText(BatteryState state, Lang lang) => state switch
@@ -964,6 +957,15 @@ public static class FullBoard
     private static string? Mhz(int? value) =>
         value is int mhz && mhz > 0
             ? mhz.ToString(CultureInfo.InvariantCulture) + " MHz"
+            : null;
+
+    /// <summary>
+    /// "1.2 GHz" from a core's current clock, in the unit the card has room
+    /// for; null when the driver reports no frequency (R-030 fix 4).
+    /// </summary>
+    private static string? Clock(int? value) =>
+        value is int mhz && mhz > 0
+            ? Format.Decimal(mhz / 1000.0, 1) + " GHz"
             : null;
 
     private static string? Virtualisation(CpuInfo info, Lang lang)

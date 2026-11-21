@@ -11,10 +11,11 @@ namespace SysMonitor.Linux.App;
 
 /// <summary>
 /// The main window (R-030 §2): a sidebar on the left and the selected page on
-/// the right. The sidebar holds the three fixed pages, the Settings expander
-/// (today's Overall sidebar rows) and one item per module with its value, its
-/// device name and a sparkline. The right frame shows the Overall cards, a
-/// module page, the Processes page or the Apps placeholder.
+/// the right. The sidebar holds the three fixed pages, the Restart, Manual and
+/// About actions (R-030 fix 5), the Settings expander (today's Overall sidebar
+/// rows) and one item per module with its value, its device name and a
+/// sparkline. The right frame shows the Overall cards, a module page, the
+/// Processes page or the Apps placeholder.
 ///
 /// The window supplies placement and input; this file draws and wires, and
 /// keeps a control per key so a data tick moves numbers without rebuilding.
@@ -22,6 +23,9 @@ namespace SysMonitor.Linux.App;
 internal sealed class MainView : UserControl
 {
     private const double SplitterWidth = 4;
+
+    /// <summary>The sidebar rows' hover tint: 13 % grey over the panel.</summary>
+    private static readonly Colour RowHover = Colour.FromHex("#22808080");
 
     private readonly ShellModel _shell;
     private readonly Action<string> _dispatch;
@@ -202,6 +206,12 @@ internal sealed class MainView : UserControl
     public void SetOpacity(double opacity) =>
         _sidebarPanel.Background = Ui.Brush(_shell.Palette.SidebarBrush(opacity));
 
+    /// <summary>
+    /// Amendment 1: the font dial fires AppearanceChanged without a rebuild,
+    /// so the current module page's small cards re-size in place to match.
+    /// </summary>
+    public void RescaleCards() => _modulePage.RescaleCards();
+
     // ------------------------------------------------------------- header
 
     private void RenderHeader()
@@ -235,6 +245,13 @@ internal sealed class MainView : UserControl
         AddNav(IconName.Widget, _shell.Language["apps"], PageKeys.Apps, page);
         AddNav(IconName.FullData, _shell.Language["processes"], PageKeys.Processes, page);
 
+        // Restart, Manual and About are actions, not pages: they sit in the nav
+        // list (the user's order: under Processes, before Settings) but never
+        // take the selected highlight and never change Main's page (fix 5).
+        AddAction(IconName.Restart, _shell.Language["restart"], ActionKeys.Restart);
+        AddAction(IconName.Manual, _shell.Language["manual"], ActionKeys.OpenManual);
+        AddAction(IconName.About, _shell.Language["about"], ActionKeys.OpenAbout);
+
         _sidebarList.Children.Add(new Border { Height = 6 });
         _sidebarList.Children.Add(SettingsHeader(palette, ramp));
 
@@ -258,6 +275,63 @@ internal sealed class MainView : UserControl
     private void AddNav(IconName icon, string label, string key, string page)
     {
         bool selected = string.Equals(key, page, StringComparison.Ordinal);
+        Border control = NavRowControl(icon, label, selected);
+
+        // Hover and selection are read from the model when the pointer moves,
+        // never from the value captured at build time: a row that became the
+        // selected one after the sidebar was built must not keep a hover tint,
+        // and one that stopped being selected must not keep the selection blue.
+        control.PointerEntered += (_, _) =>
+        {
+            if (!IsSelected(key))
+            {
+                control.Background = Ui.Brush(RowHover);
+            }
+        };
+        control.PointerExited += (_, _) =>
+            control.Background = IsSelected(key)
+                ? Ui.Brush(Palette.Selection)
+                : Brushes.Transparent;
+        control.PointerPressed += (_, e) =>
+        {
+            if (!e.GetCurrentPoint(control).Properties.IsLeftButtonPressed)
+            {
+                return;
+            }
+            e.Handled = true;
+            Ui.Act(() => _shell.SelectMainPage(key));
+        };
+
+        _navItems.Add(control);
+        _sidebarList.Children.Add(control);
+    }
+
+    /// <summary>
+    /// One action row in the nav list: same look as a page row, but no
+    /// selection — it runs the same action the Settings expander used to
+    /// (R-030 fix 5). Restart, Manual and About are the three callers.
+    /// </summary>
+    private void AddAction(IconName icon, string label, string action)
+    {
+        Border control = NavRowControl(icon, label, selected: false);
+        control.PointerEntered += (_, _) => control.Background = Ui.Brush(RowHover);
+        control.PointerExited += (_, _) => control.Background = Brushes.Transparent;
+        control.PointerPressed += (_, e) =>
+        {
+            if (!e.GetCurrentPoint(control).Properties.IsLeftButtonPressed)
+            {
+                return;
+            }
+            e.Handled = true;
+            Ui.Act(() => _dispatch(action));
+        };
+
+        _sidebarList.Children.Add(control);
+    }
+
+    /// <summary>The shared nav row: icon plus label, tinted when selected.</summary>
+    private Border NavRowControl(IconName icon, string label, bool selected)
+    {
         var control = new Border
         {
             Padding = new Thickness(6, 5, 6, 5),
@@ -284,34 +358,12 @@ internal sealed class MainView : UserControl
         Grid.SetColumn(text, 1);
         row.Children.Add(text);
         control.Child = row;
-
-        control.PointerEntered += (_, _) =>
-        {
-            if (!selected)
-            {
-                control.Background = Ui.Brush(Colour.FromHex("#22808080"));
-            }
-        };
-        control.PointerExited += (_, _) =>
-        {
-            if (!selected)
-            {
-                control.Background = Brushes.Transparent;
-            }
-        };
-        control.PointerPressed += (_, e) =>
-        {
-            if (!e.GetCurrentPoint(control).Properties.IsLeftButtonPressed)
-            {
-                return;
-            }
-            e.Handled = true;
-            Ui.Act(() => _shell.SelectMainPage(key));
-        };
-
-        _navItems.Add(control);
-        _sidebarList.Children.Add(control);
+        return control;
     }
+
+    /// <summary>True while <paramref name="key"/> is the page Main is showing.</summary>
+    private bool IsSelected(string key) =>
+        string.Equals(key, _shell.Main.Page, StringComparison.Ordinal);
 
     /// <summary>The Settings expander: a row with a chevron and the remembered state.</summary>
     private Control SettingsHeader(Palette palette, TypeRamp ramp)
@@ -354,7 +406,7 @@ internal sealed class MainView : UserControl
         control.Child = row;
 
         control.PointerEntered += (_, _) =>
-            control.Background = Ui.Brush(Colour.FromHex("#22808080"));
+            control.Background = Ui.Brush(RowHover);
         control.PointerExited += (_, _) => control.Background = Brushes.Transparent;
         control.PointerPressed += (_, e) =>
         {
@@ -501,6 +553,8 @@ internal sealed class MainView : UserControl
         private readonly TextBlock _device;
         private readonly Sparkline? _sparkline;
         private readonly Border _border;
+        private readonly Border _badgeSlot;
+        private bool _selected;
 
         public ModuleItem(ShellModel shell, SidebarItem item, Action onClick)
         {
@@ -521,8 +575,19 @@ internal sealed class MainView : UserControl
             top.Children.Add(_title);
             _value = Ui.Text(
                 item.Value, ramp.Small, palette.Text, FontWeight.SemiBold, ellipsis: true);
-            Grid.SetColumn(_value, 1);
-            top.Children.Add(_value);
+            // The value and its badge share the right-hand column, so the
+            // battery's power icon sits beside "100%" (R-030 fix 4).
+            var valueRow = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 5,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            valueRow.Children.Add(_value);
+            _badgeSlot = new Border { VerticalAlignment = VerticalAlignment.Center };
+            valueRow.Children.Add(_badgeSlot);
+            Grid.SetColumn(valueRow, 1);
+            top.Children.Add(valueRow);
 
             _device = Ui.Text(Ui.Thai(item.Device), ramp.Tiny, palette.Label, ellipsis: true);
             _sparkline = item.ShowSparkline
@@ -554,18 +619,15 @@ internal sealed class MainView : UserControl
             _border.Classes.Add("nodrag");
             _border.PointerEntered += (_, _) =>
             {
-                if (!string.Equals(item.Key, shell.Main.Page, StringComparison.Ordinal))
+                if (!_selected)
                 {
-                    _border.Background = Ui.Brush(Colour.FromHex("#22808080"));
+                    _border.Background = Ui.Brush(RowHover);
                 }
             };
             _border.PointerExited += (_, _) =>
-            {
-                if (!string.Equals(item.Key, shell.Main.Page, StringComparison.Ordinal))
-                {
-                    _border.Background = Brushes.Transparent;
-                }
-            };
+                _border.Background = _selected
+                    ? Ui.Brush(Palette.Selection)
+                    : Brushes.Transparent;
             _border.PointerPressed += (_, e) =>
             {
                 if (!e.GetCurrentPoint(_border).Properties.IsLeftButtonPressed)
@@ -585,16 +647,24 @@ internal sealed class MainView : UserControl
         {
             bool selected = string.Equals(item.Key, shell.Main.Page, StringComparison.Ordinal);
             Palette palette = shell.Palette;
-            Colour foreground = selected ? Colour.FromHex("#ffffff") : palette.Text;
 
             _title.Text = Ui.Thai(item.Title);
-            _title.Foreground = Ui.Brush(foreground);
             _value.Text = Ui.Thai(item.Value);
-            _value.Foreground = Ui.Brush(foreground);
             _device.Text = Ui.Thai(item.Device);
-            _device.Foreground = Ui.Brush(selected ? Colour.FromHex("#e2e8f0") : palette.Label);
+            Ui.FillBadge(_badgeSlot, item.Badge, shell.Ramp);
             _sparkline?.SetSeries(item.Primary, item.Secondary);
-            _border.Background = selected ? Ui.Brush(Palette.Selection) : Brushes.Transparent;
+
+            // Only a change of selection repaints the row: a data tick must not
+            // wipe the hover tint while the pointer is still on the item.
+            if (selected != _selected)
+            {
+                _selected = selected;
+                Colour foreground = selected ? Colour.FromHex("#ffffff") : palette.Text;
+                _title.Foreground = Ui.Brush(foreground);
+                _value.Foreground = Ui.Brush(foreground);
+                _device.Foreground = Ui.Brush(selected ? Colour.FromHex("#e2e8f0") : palette.Label);
+                _border.Background = selected ? Ui.Brush(Palette.Selection) : Brushes.Transparent;
+            }
         }
     }
 

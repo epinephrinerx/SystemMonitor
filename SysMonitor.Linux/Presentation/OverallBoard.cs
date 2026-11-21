@@ -5,8 +5,8 @@ namespace SysMonitor.Linux.Presentation;
 /// <summary>
 /// Builds the Overall view's section cards (spec section 4).
 ///
-/// Sections come in a fixed order -- CPU, RAM, disk, GPU, network -- with the
-/// module switches deciding what appears at all. Every adapter in
+/// Sections come in a fixed order -- CPU, RAM, disk, GPU, network, battery --
+/// with the module switches deciding what appears at all. Every adapter in
 /// <see cref="Snapshot.Gpus"/> gets its own GPU card, titled with its name.
 /// Rows are the same meter model the widget uses, so a bar behaves the same in
 /// both views.
@@ -45,6 +45,10 @@ public static class OverallBoard
             if (config.ShowNetwork && snapshot.Adapters.Count > 0)
             {
                 sections.Add(NetworkSection(snapshot, config, lang));
+            }
+            if (config.ShowBattery && snapshot.Batteries.Count > 0)
+            {
+                sections.Add(BatterySection(snapshot, lang, palette));
             }
         }
 
@@ -331,6 +335,52 @@ public static class OverallBoard
                     Detail = Format.NetworkSpeedText(down, up),
                 },
             },
+        };
+    }
+
+    private static SectionModel BatterySection(Snapshot snapshot, Lang lang, Palette palette)
+    {
+        var rows = new List<MeterRow>(snapshot.Batteries.Count + snapshot.Peripherals.Count);
+
+        foreach (Battery battery in snapshot.Batteries)
+        {
+            rows.Add(new MeterRow
+            {
+                // The model names the cell when the driver knows it; otherwise
+                // the module name is all there is to say.
+                Title = battery.Model is { Length: > 0 } model ? model : lang["battery"],
+                Percent = battery.Percent ?? 0,
+                // A full cell is not a hot one, so the bar keeps the battery
+                // accent at every level; LoadColour's 70/90 thresholds would
+                // paint a healthy 100% red.
+                BarColour = Accents.Battery,
+                ValueText = BatteryText.Charge(battery, lang),
+                Badge = BatteryText.AcBadge(battery, snapshot, palette),
+                Detail = BatteryText.Detail(battery, snapshot, lang),
+            });
+        }
+
+        // Peripheral cells are a footnote to the machine's own battery: one
+        // small row each, kind first, the model under it and the charge on the
+        // bar. They only appear when the section does.
+        foreach (PeripheralBattery peripheral in snapshot.Peripherals)
+        {
+            rows.Add(new MeterRow
+            {
+                Title = BatteryText.PeripheralName(peripheral.Kind, lang),
+                Percent = peripheral.Percent ?? 0,
+                BarColour = Accents.Battery,
+                ValueText = peripheral.Percent is int level ? Format.Percent(level) : lang["na"],
+                Detail = peripheral.Model ?? string.Empty,
+            });
+        }
+
+        return new SectionModel
+        {
+            Key = "battery",
+            Title = lang["battery"],
+            Columns = 1,
+            Rows = rows,
         };
     }
 

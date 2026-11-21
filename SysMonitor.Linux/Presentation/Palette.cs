@@ -173,8 +173,24 @@ public sealed class Palette
     }
 }
 
-/// <summary>One rendered temperature badge.</summary>
-public readonly record struct TempBadge(Colour Fore, Colour Back, string Text, bool Hot, bool Estimated);
+/// <summary>What a badge stands for, so the view can choose its glyph.</summary>
+public enum BadgeKind
+{
+    /// <summary>A temperature reading: thermometer glyph plus "42°C".</summary>
+    Temperature,
+
+    /// <summary>A power source: lightning glyph, no text.</summary>
+    Power,
+}
+
+/// <summary>One rendered badge.</summary>
+public readonly record struct TempBadge(
+    Colour Fore,
+    Colour Back,
+    string Text,
+    bool Hot,
+    bool Estimated,
+    BadgeKind Kind = BadgeKind.Temperature);
 
 /// <summary>The module accents. They do not change with the theme.</summary>
 public static class Accents

@@ -176,6 +176,7 @@ internal static class Ui
         IconName.Restart => ("M20,12 A8,8 0 1 1 12,4 M12,4 L8,1 M12,4 L8,7", false),
         IconName.Stop => ("M6,6 H18 V18 H6 Z", true),
         IconName.Link => ("M10,14 L14,10 M8,12 L5,15 A3.5,3.5 0 0 0 10,20 L13,17 M16,12 L19,9 A3.5,3.5 0 0 0 14,4 L11,7", false),
+        IconName.Power => ("M13,2 L5,14 H11 L10,22 L19,10 H13 Z", true),
         _ => ("", false),
     };
 
@@ -442,8 +443,39 @@ internal static class Ui
         };
     }
 
+    /// <summary>
+    /// One badge pill. Temperature badges carry the thermometer glyph and their
+    /// reading; power badges carry the lightning icon and no text, so the
+    /// charging marker never grows a thermometer (R-030 fix 3).
+    /// </summary>
+    public static Control Badge(TempBadge badge, TypeRamp ramp) =>
+        badge.Kind == BadgeKind.Power
+            ? PowerBadge(badge)
+            : TemperatureBadge(badge, ramp);
+
+    /// <summary>
+    /// Fill a badge slot (an empty border) and keep it in step with the model.
+    /// A data tick hands the views a fresh model four times a second, so the
+    /// pill is rebuilt only when the badge itself changes — the battery's
+    /// power icon then follows the AC state without rebuilding the row it
+    /// sits in (R-030 fix 4).
+    /// </summary>
+    public static void FillBadge(Border slot, TempBadge? badge, TypeRamp ramp)
+    {
+        // An empty slot must take no space at all: a StackPanel still applies
+        // its spacing to a visible child of zero width.
+        slot.IsVisible = badge is not null;
+        TempBadge? current = slot.Tag is TempBadge tag ? tag : null;
+        if (Nullable.Equals(current, badge))
+        {
+            return;
+        }
+        slot.Tag = badge;
+        slot.Child = badge is { } value ? Badge(value, ramp) : null;
+    }
+
     /// <summary>The temperature badge, with the spec's pulse when it is hot.</summary>
-    public static Control TemperatureBadge(TempBadge badge, TypeRamp ramp)
+    private static Control TemperatureBadge(TempBadge badge, TypeRamp ramp)
     {
         var row = new StackPanel
         {
@@ -494,5 +526,22 @@ internal static class Ui
         }
 
         return border;
+    }
+
+    /// <summary>
+    /// The power badge: the pill's fill and the lightning glyph in the badge
+    /// foreground, with no text at all. Slightly tighter padding than the
+    /// temperature pill because there is no label beside the icon.
+    /// </summary>
+    private static Control PowerBadge(TempBadge badge)
+    {
+        return new Border
+        {
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(4, 2, 4, 3),
+            Background = Brush(badge.Back),
+            Child = Icon(IconName.Power, 10, badge.Fore),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
     }
 }

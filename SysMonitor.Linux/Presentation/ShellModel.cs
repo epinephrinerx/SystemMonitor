@@ -1037,7 +1037,10 @@ public sealed class ShellModel
 
             // Phase 2a has no extensions, so the extensions heading and its
             // checks have nothing to list and are left out (spec section 4).
-            new NavRow(IconName.Settings, Language["settings"], ActionKeys.OpenSettings, TopMargin: 12),
+            // The expander itself is already called "Settings", so this row —
+            // the one that opens the Settings window — must not repeat it
+            // (R-030 fix 4).
+            new NavRow(IconName.Settings, Language["settings_more"], ActionKeys.OpenSettings, TopMargin: 12),
 
             new HeadingRow(Language["updates"]),
             new CheckRow(SettingKeys.AutoCheckUpdates, Language["auto_check_updates"], Config.AutoCheckUpdates),
@@ -1055,9 +1058,8 @@ public sealed class ShellModel
             rows.Add(new TextRow(status));
         }
 
-        rows.Add(new ActionRow(Language["restart"], ActionKeys.Restart));
-        rows.Add(new NavRow(IconName.Manual, Language["manual"], ActionKeys.OpenManual));
-        rows.Add(new NavRow(IconName.About, Language["about"], ActionKeys.OpenAbout));
+        // Restart, Manual and About are nav rows in the sidebar itself now, not
+        // rows inside this expander (R-030 fix 5).
         return rows;
     }
 

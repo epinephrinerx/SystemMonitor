@@ -183,34 +183,27 @@ internal sealed class SmallCardView
         Palette palette = shell.Palette;
         TypeRamp ramp = shell.Ramp;
 
-        var header = new Grid
-        {
-            ColumnDefinitions =
-            {
-                new ColumnDefinition(new GridLength(1, GridUnitType.Star)),
-                new ColumnDefinition(GridLength.Auto),
-            },
-            Margin = new Thickness(0, 0, 0, 4),
-        };
+        // R-030 fix 6: the title keeps the first line and the value takes its
+        // own, because "C7" beside "100% · 105°C · 1.2 GHz" stopped fitting on
+        // one line once the font scale reached 110 % (fix 4 measured that line
+        // at 100 % only). Both lines are left-aligned and single-line, with the
+        // ellipsis kept as the last resort for a long disk label.
         _title = Ui.Text(string.Empty, ramp.Small, palette.Label, ellipsis: true);
-        header.Children.Add(_title);
         _value = Ui.Text(string.Empty, ramp.Small, palette.Text, FontWeight.SemiBold, ellipsis: true);
-        Grid.SetColumn(_value, 1);
-        header.Children.Add(_value);
 
         _chart = new ChartControl(card.History, card.Accent, card.Maximum, palette)
         {
             Height = 60,
+            Margin = new Thickness(0, 4, 0, 0),
         };
 
         var body = new StackPanel();
-        body.Children.Add(header);
+        body.Children.Add(_title);
+        body.Children.Add(_value);
         body.Children.Add(_chart);
 
         _border = new Border
         {
-            Width = 89,
-            Height = 89,
             Background = Ui.Brush(palette.Control),
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(7, 5, 7, 6),
@@ -218,12 +211,45 @@ internal sealed class SmallCardView
             Child = body,
         };
 
+        // R-030 fix 6 + Amendment 1: size the card from the scale it was built
+        // at, and again from the live scale when the font dial moves.
+        Rescale(ramp);
+
         Update(card, shell);
     }
 
     public string Key { get; private set; } = string.Empty;
 
     public Control Control => _border;
+
+    /// <summary>
+    /// Amendment 1: follow a live font-size change. The page is not rebuilt
+    /// for a tick of the font dial, so the card re-derives its own box from
+    /// the current ramp instead of keeping the constructor's size. The two
+    /// text lines grow with the type, the 60 px graph does not, and the
+    /// surrounding wrap panel reflows to fewer columns on its own.
+    /// </summary>
+    public void Rescale(TypeRamp ramp)
+    {
+        // The 89 px of fix 4 held one text line (1.36 em), the 4 px gap and the
+        // 60 px graph between the 11 px of padding; the second line adds its
+        // own height, which grows with the scale like the type. Rounding up
+        // leaves the graph clear of the bottom padding at every scale.
+        double lineHeight = Math.Round(ramp.Small * Ui.LineHeightEm, 2);
+
+        // Amendment 2: the height below counts these two text lines, so their
+        // line boxes must follow the live scale too. Ui.Text set the height at
+        // construction and ScaleText rewrites only FontSize, which left a card
+        // built at 160 % with 160 % line boxes inside a 100 % card.
+        _title.LineHeight = lineHeight;
+        _value.LineHeight = lineHeight;
+
+        // R-030 fix 6: 146 px at the 100 % font size, growing with the font
+        // scale so the value line keeps the slack fix 4 measured (132 px
+        // inner width) — the wrap panel reflows to fewer columns instead.
+        _border.Width = Math.Ceiling(146 * ramp.Scale);
+        _border.Height = Math.Ceiling(5 + (2 * lineHeight) + 4 + 60 + 6);
+    }
 
     public void Update(FullCard card, ShellModel shell)
     {

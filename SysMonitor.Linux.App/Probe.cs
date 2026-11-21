@@ -51,7 +51,8 @@ internal static class Probe
         text.AppendLine(
             $"cores={snapshot.Cores.Count}  ram={snapshot.Ram.TotalGb:F1} GB  " +
             $"disks={snapshot.Disks.Count}  adapters={snapshot.Adapters.Count}  " +
-            $"gpus={snapshot.Gpus.Count}  cpu={snapshot.CpuTotal}%  " +
+            $"gpus={snapshot.Gpus.Count}  batteries={snapshot.Batteries.Count}  " +
+            $"peripherals={snapshot.Peripherals.Count}  cpu={snapshot.CpuTotal}%  " +
             $"cpu_temp={(snapshot.CpuTemp is { } t ? t + "°C" : "n/a")}  " +
             $"processes={snapshot.Processes.Count}  services={snapshot.Services.Count}");
         text.AppendLine();
@@ -79,10 +80,7 @@ internal static class Probe
             }
             if (page.Badge is { } badge)
             {
-                text.AppendLine(
-                    $"     temp     {badge.Text}" +
-                    (badge.Hot ? " (hot, pulses)" : string.Empty) +
-                    (badge.Estimated ? " (estimated)" : string.Empty));
+                text.AppendLine($"     badge    {Describe(badge)}");
             }
             if (page.Alert is { } alert)
             {
@@ -193,6 +191,8 @@ internal static class Probe
     /// the arrows and separators in the readouts, the tilde of an estimated
     /// temperature, the warning sign on a disk alert, and Thai letters with a
     /// mark. Anything the bundled face lacks must come from the fallback list.
+    /// The on-AC marker is not here: it is the power icon, not a text glyph
+    /// (R-030 fix 4).
     /// </summary>
     private const string Glyphs = "↓↑°·…≈~⚠▲ก์";
 
@@ -215,7 +215,8 @@ internal static class Probe
             text.AppendLine(
                 $"  [{MaskKey(tab.Key)}] label=\"{tab.Label}\" " +
                 $"title=\"{Privacy.MaskInterface(tab.Title)}\"" +
-                (tab.IsDisk ? "  (disk)" : string.Empty));
+                (tab.IsDisk ? "  (disk)" : string.Empty) +
+                (tab.Badge is { } tabBadge ? $"  badge={Describe(tabBadge)}" : string.Empty));
             text.AppendLine($"     rail detail  \"{tab.Detail}\"");
             text.AppendLine($"     rail summary \"{tab.Summary}\"");
             text.AppendLine($"     hardware     \"{tab.Hardware}\"");
@@ -260,15 +261,20 @@ internal static class Probe
             $"page={MaskKey(page)}  full_screen={shell.MainFullScreen}");
 
         text.AppendLine("  nav:");
-        foreach ((string key, string label) in new[]
+        // The real sidebar order: the three pages, then the three actions that
+        // sit under Processes and before the Settings expander (R-030 fix 5).
+        foreach ((string key, string label, bool action) in new[]
                  {
-                     (PageKeys.Overall, shell.Language["overall"]),
-                     (PageKeys.Apps, shell.Language["apps"]),
-                     (PageKeys.Processes, shell.Language["processes"]),
+                     (PageKeys.Overall, shell.Language["overall"], false),
+                     (PageKeys.Apps, shell.Language["apps"], false),
+                     (PageKeys.Processes, shell.Language["processes"], false),
+                     (ActionKeys.Restart, shell.Language["restart"], true),
+                     (ActionKeys.OpenManual, shell.Language["manual"], true),
+                     (ActionKeys.OpenAbout, shell.Language["about"], true),
                  })
         {
-            text.AppendLine(
-                $"    [{key}] \"{label}\"" + (key == page ? "  (selected)" : string.Empty));
+            string state = action ? "  (action)" : key == page ? "  (selected)" : string.Empty;
+            text.AppendLine($"    [{key}] \"{label}\"" + state);
         }
 
         text.AppendLine($"  module items ({shell.MainSidebar.Count}):");
@@ -366,7 +372,8 @@ internal static class Probe
                 $"  [{MaskKey(item.Key)}] title=\"{MaskName(item.Title)}\"  value=\"{item.Value}\"  " +
                 $"device=\"{Privacy.MaskInterface(item.Device)}\"  accent={item.Accent.ToHex()}  " +
                 $"points={item.Primary.Count}" +
-                (item.Secondary is null ? string.Empty : $" +{item.Secondary.Count}"));
+                (item.Secondary is null ? string.Empty : $" +{item.Secondary.Count}") +
+                (item.Badge is { } badge ? $"  badge={Describe(badge)}" : string.Empty));
         }
         text.AppendLine();
     }
@@ -563,6 +570,18 @@ internal static class Probe
         $"ceiling=\"{card.Ceiling}\"  accent={card.Accent.ToHex()}  max={card.Maximum}  " +
         $"points={card.History.Count}";
 
+    /// <summary>
+    /// One badge: its kind first, because a power badge deliberately has no text
+    /// and must not be mistaken for an empty temperature badge.
+    /// </summary>
+    private static string Describe(TempBadge badge) => badge.Kind switch
+    {
+        BadgeKind.Power => "Power (icon only)",
+        _ => $"Temperature {badge.Text}" +
+             (badge.Hot ? " (hot, pulses)" : string.Empty) +
+             (badge.Estimated ? " (estimated)" : string.Empty),
+    };
+
     /// <summary>One meter row, with every field the view renders.</summary>
     private static string Describe(MeterRow row)
     {
@@ -588,7 +607,7 @@ internal static class Probe
         }
         if (row.Badge is { } badge)
         {
-            text.Append("  badge=").Append(badge.Text);
+            text.Append("  badge=").Append(Describe(badge));
         }
         if (row.Alert is { } alert)
         {

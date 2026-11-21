@@ -140,9 +140,19 @@ internal sealed class ShellWindow : Window
         _widget = new WidgetView(shell);
         _mainView = new MainView(shell, Dispatch);
 
+        // The Widget's close and pause buttons live inside the panel, just in
+        // from its rounded top-right corner: the shadow pad stays empty, and a
+        // change to the panel's margin (full screen drops it) carries them
+        // along. The widget's title row keeps the same room clear.
+        _widgetCorner.HorizontalAlignment = HorizontalAlignment.Right;
+        _widgetCorner.VerticalAlignment = VerticalAlignment.Top;
+        _widgetCorner.Margin = new Thickness(
+            0, WidgetView.CornerInset, WidgetView.CornerInset, 0);
+
         var views = new Grid();
         views.Children.Add(_widget);
         views.Children.Add(_mainView);
+        views.Children.Add(_widgetCorner);
         _panel.Child = views;
 
         _grip = new Path
@@ -166,13 +176,6 @@ internal sealed class ShellWindow : Window
         root.ContextMenu = _mainMenu;
         root.Children.Add(_panel);
         root.Children.Add(_grip);
-
-        // The Widget's close and pause buttons sit in the shadow pad, above the
-        // panel. A Border clips its child to its rounded corner, so they live in
-        // the window rather than inside the widget view.
-        _widgetCorner.HorizontalAlignment = HorizontalAlignment.Right;
-        _widgetCorner.VerticalAlignment = VerticalAlignment.Top;
-        root.Children.Add(_widgetCorner);
         Content = root;
 
         _tick = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
@@ -621,8 +624,9 @@ internal sealed class ShellWindow : Window
             _shell.Language["close"]);
         close.HorizontalAlignment = HorizontalAlignment.Right;
         close.VerticalAlignment = VerticalAlignment.Top;
-        // Panel edge is 12 in; the button's right edge is 8 from the window.
-        close.Margin = new Thickness(0, 0, 8, 0);
+        // The container is already inside the panel edge; the two icons keep
+        // the same 18 px boxes (and hit areas) a 4 px gap apart.
+        close.Margin = new Thickness(0);
         close.Opacity = _pointerOver ? 1.0 : 0.35;
         _widgetCorner.Children.Add(close);
 
@@ -634,7 +638,7 @@ internal sealed class ShellWindow : Window
             _shell.PauseTooltip);
         pause.HorizontalAlignment = HorizontalAlignment.Right;
         pause.VerticalAlignment = VerticalAlignment.Top;
-        pause.Margin = new Thickness(0, 0, 30, 0);
+        pause.Margin = new Thickness(0, 0, WidgetView.CornerStep, 0);
         pause.Opacity = _pointerOver ? 1.0 : 0.35;
         _widgetCorner.Children.Add(pause);
     }
@@ -675,6 +679,9 @@ internal sealed class ShellWindow : Window
         double ratio = scale / _appliedFontScale;
         _appliedFontScale = scale;
         ScaleText(_panel, ratio);
+        // Amendment 1: the small module cards size from the font scale, so a
+        // live dial change must resize them in place as well as their text.
+        _mainView.RescaleCards();
         foreach (PanelWindow panel in _panels.Values)
         {
             if (panel.Content is Visual content)

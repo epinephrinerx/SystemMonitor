@@ -81,7 +81,7 @@ internal static class Rows
 
             if (row.Badge is { } badge)
             {
-                Control badgeView = Ui.TemperatureBadge(badge, ramp);
+                Control badgeView = Ui.Badge(badge, ramp);
                 badgeView.Margin = new Thickness(8, 0, 0, 0);
                 Grid.SetColumn(badgeView, 3);
                 grid.Children.Add(badgeView);

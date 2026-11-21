@@ -31,6 +31,7 @@ internal sealed class ModulePageView : UserControl
 
     private FullTab? _tab;
     private string _shownKey = string.Empty;
+    private Border? _headerBadge;
 
     public ModulePageView(ShellModel shell, Action<string> dispatch)
     {
@@ -49,6 +50,19 @@ internal sealed class ModulePageView : UserControl
 
     /// <summary>"Usage", "Sensors" and "Properties", as the page actually shows them.</summary>
     public IReadOnlyList<string> SectionTitles => _sections;
+
+    /// <summary>
+    /// Amendment 1: a live font-scale change rescales the type in place
+    /// without rebuilding the page, so the small cards re-derive their boxes
+    /// from the current ramp too (the graph and padding stay fixed).
+    /// </summary>
+    public void RescaleCards()
+    {
+        foreach (SmallCardView view in _small.Values)
+        {
+            view.Rescale(_shell.Ramp);
+        }
+    }
 
     /// <summary>A structural render: the page, its palette and its language.</summary>
     public void Render(FullTab? tab)
@@ -108,6 +122,12 @@ internal sealed class ModulePageView : UserControl
         {
             PageParts.UpdateProperty(_properties[i], tab.Properties[i], _shell);
         }
+        if (_headerBadge is not null)
+        {
+            // The battery's power icon follows the AC state on a data tick,
+            // without rebuilding the page (R-030 fix 4).
+            Ui.FillBadge(_headerBadge, tab.Badge, _shell.Ramp);
+        }
     }
 
     // ------------------------------------------------------------- pieces
@@ -122,6 +142,7 @@ internal sealed class ModulePageView : UserControl
         _propertyTitles.Clear();
         _sections.Clear();
         _shownKey = _tab?.Key ?? string.Empty;
+        _headerBadge = null;
 
         FullTab? tab = _tab;
         if (tab is null)
@@ -209,9 +230,23 @@ internal sealed class ModulePageView : UserControl
             Ui.Thai(device), ramp.Heading, palette.Text, FontWeight.Bold, ellipsis: true);
         TextBlock label = Ui.Text(Ui.Thai(tab.Label), ramp.Small, palette.Label, ellipsis: true);
 
+        // The module label shares its line with the page's badge, so the
+        // battery shows the fix-3 power icon while it charges or a power
+        // source feeds the machine (R-030 fix 4).
+        var labelRow = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        labelRow.Children.Add(label);
+        _headerBadge = new Border { VerticalAlignment = VerticalAlignment.Center };
+        Ui.FillBadge(_headerBadge, tab.Badge, ramp);
+        labelRow.Children.Add(_headerBadge);
+
         var body = new StackPanel { Margin = new Thickness(0, 0, 0, 10) };
         body.Children.Add(title);
-        body.Children.Add(label);
+        body.Children.Add(labelRow);
 
         if (!tab.IsDisk)
         {

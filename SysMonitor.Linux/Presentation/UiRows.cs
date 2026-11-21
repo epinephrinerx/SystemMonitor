@@ -27,6 +27,7 @@ public enum IconName
     Restart,
     Stop,
     Link,
+    Power,
 }
 
 /// <summary>

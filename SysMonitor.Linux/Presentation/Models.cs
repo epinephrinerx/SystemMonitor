@@ -44,6 +44,7 @@ public enum WidgetPageKind
     DiskOne,
     NetworkTotal,
     NetworkOne,
+    Battery,
     Empty,
 }
 

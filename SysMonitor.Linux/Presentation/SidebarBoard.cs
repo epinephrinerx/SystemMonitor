@@ -20,6 +20,13 @@ public sealed class SidebarItem
     /// <summary>The full device name, in small type under the title.</summary>
     public string Device { get; init; } = string.Empty;
 
+    /// <summary>
+    /// The item's badge, drawn after the value: the battery's power pill while
+    /// it charges or a power source feeds the machine (R-030 fix 4). Null on
+    /// every other module.
+    /// </summary>
+    public TempBadge? Badge { get; init; }
+
     public Colour Accent { get; init; } = Accents.Cpu;
 
     /// <summary>The sparkline: usage, or the module's primary rate.</summary>
@@ -150,6 +157,7 @@ public static class SidebarBoard
                 Title = $"{lang["battery"]} · {id}",
                 Value = tab.Summary,
                 Device = tab.Hardware,
+                Badge = tab.Badge,
                 Accent = Accents.Battery,
                 Primary = history.BatteryCharge(id),
             };

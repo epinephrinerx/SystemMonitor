@@ -11,14 +11,58 @@ namespace SysMonitor.Linux.App;
 /// <summary>
 /// The Widget (spec section 3): one page at a time, rotating every five
 /// seconds. The content sits inside a host scaled by min(panel/270, panel/104);
-/// the step buttons stay fixed size and the corner buttons live in the window's
-/// shadow pad (a Border clips to its rounded corner).
+/// the step buttons stay fixed size just inside the panel's edges, and the
+/// corner buttons (built by the window) sit in the panel's top-right corner,
+/// with the title row keeping their room clear.
 /// </summary>
 internal sealed class WidgetView : UserControl
 {
+    /// <summary>The step chips sit this far inside the panel edge.</summary>
+    internal const double ArrowInset = 2;
+
+    /// <summary>The step chip's box (Ui.StepButton); it is not scaled.</summary>
+    internal const double ArrowBox = 20;
+
+    /// <summary>
+    /// The content's left/right inset: a chip plus a 4 px gap, so a chip never
+    /// covers a label, a bar or the title.
+    /// </summary>
+    internal const double ContentInset = ArrowInset + ArrowBox + 4;
+
+    /// <summary>The corner buttons sit this far inside the panel edge.</summary>
+    internal const double CornerInset = 6;
+
+    /// <summary>The corner button's box; its hit area does not scale.</summary>
+    internal const double CornerBox = 18;
+
+    /// <summary>
+    /// The gap between the two corner buttons, measured edge to edge: 18 px box
+    /// plus 4 px.
+    /// </summary>
+    internal const double CornerStep = CornerBox + 4;
+
+    /// <summary>
+    /// The title row's right pad in panel pixels: the corner buttons' 46 px,
+    /// less the content's own 26 px inset, plus a 4 px gap. The content is
+    /// scaled, so the row's margin is this value divided by the scale.
+    /// </summary>
+    internal const double CornerReserve =
+        CornerInset + CornerStep + CornerBox + 4 - ContentInset;
+
+    /// <summary>The screen-space room the paused badge takes before the title.</summary>
+    internal const double PausedBadgeRoom = 72;
+
     private readonly ShellModel _shell;
     private readonly LayoutTransformControl _scale;
     private double _factor = 1;
+
+    // The title row is built once per render but the scale changes on every
+    // resize, so the controls whose margins are measured in panel pixels are
+    // kept and updated by ApplyTitleScale.
+    private TextBlock? _title;
+    private LayoutTransformControl? _pausedHost;
+    private StackPanel? _titleRight;
+    private bool _titlePaused;
 
     public WidgetView(ShellModel shell)
     {
@@ -26,11 +70,12 @@ internal sealed class WidgetView : UserControl
 
         _scale = new LayoutTransformControl
         {
-            // Spec section 1: 16 px all round. The old vertical budget applies
-            // again now that every text block has a 1.36 em line box (see
-            // Ui.LineHeightEm), so the amendment's temporary 8 px top and
-            // bottom margin is gone.
-            Margin = new Thickness(16),
+            // Spec section 1: 16 px top and bottom. The sides give the step
+            // chips their own strip so they stay inside the panel and cover no
+            // content. The old vertical budget applies again now that every
+            // text block has a 1.36 em line box (see Ui.LineHeightEm), so the
+            // amendment's temporary 8 px top and bottom margin is gone.
+            Margin = new Thickness(ContentInset, 16, ContentInset, 16),
             LayoutTransform = new ScaleTransform(1, 1),
         };
 
@@ -42,7 +87,7 @@ internal sealed class WidgetView : UserControl
             () => _shell.PrevPage(), string.Empty);
         prev.HorizontalAlignment = HorizontalAlignment.Left;
         prev.VerticalAlignment = VerticalAlignment.Center;
-        prev.Margin = new Thickness(-6, 0, 0, 0);
+        prev.Margin = new Thickness(ArrowInset, 0, 0, 0);
         root.Children.Add(prev);
 
         Border next = Ui.StepButton(
@@ -50,7 +95,7 @@ internal sealed class WidgetView : UserControl
             () => _shell.NextPage(), string.Empty);
         next.HorizontalAlignment = HorizontalAlignment.Right;
         next.VerticalAlignment = VerticalAlignment.Center;
-        next.Margin = new Thickness(0, 0, -6, 0);
+        next.Margin = new Thickness(0, 0, ArrowInset, 0);
         root.Children.Add(next);
 
         Content = root;
@@ -62,6 +107,12 @@ internal sealed class WidgetView : UserControl
         Palette palette = _shell.Palette;
         TypeRamp ramp = _shell.Ramp;
         WidgetPage? page = _shell.CurrentPage;
+
+        // A render replaces the content, so any reference to the previous
+        // title row is dropped with it.
+        _title = null;
+        _pausedHost = null;
+        _titleRight = null;
 
         var content = new Grid
         {
@@ -148,7 +199,33 @@ internal sealed class WidgetView : UserControl
     {
         _factor = Math.Max(0.01, scale);
         _scale.LayoutTransform = new ScaleTransform(_factor, _factor);
+        // The title row's margins are panel pixels divided by the scale (the
+        // corner buttons' room and the paused badge), so a scale change has to
+        // rewrite them; the row itself is not rebuilt on every resize.
+        ApplyTitleScale();
         InvalidateMeasure();
+    }
+
+    /// <summary>
+    /// Re-apply the title row's scale-dependent margins and counter-scales: the
+    /// corner buttons' reserve and the paused badge's fixed screen size.
+    /// </summary>
+    private void ApplyTitleScale()
+    {
+        double inverse = 1 / _factor;
+        if (_pausedHost is not null)
+        {
+            _pausedHost.LayoutTransform = new ScaleTransform(inverse, inverse);
+        }
+        if (_title is not null)
+        {
+            _title.Margin = new Thickness(
+                _titlePaused ? PausedBadgeRoom * inverse : 0, 0, 8, 0);
+        }
+        if (_titleRight is not null)
+        {
+            _titleRight.Margin = new Thickness(0, 0, CornerReserve * inverse, 0);
+        }
     }
 
     private Control TitleRow(WidgetPage page, Palette palette, TypeRamp ramp)
@@ -164,6 +241,7 @@ internal sealed class WidgetView : UserControl
 
         var titleHost = new Grid();
         bool paused = _shell.Paused;
+        _titlePaused = paused;
         if (paused)
         {
             TextBlock badge = Ui.Text(
@@ -178,6 +256,7 @@ internal sealed class WidgetView : UserControl
                 HorizontalAlignment = HorizontalAlignment.Left,
                 VerticalAlignment = VerticalAlignment.Center,
             };
+            _pausedHost = counter;
             titleHost.Children.Add(counter);
         }
 
@@ -187,9 +266,11 @@ internal sealed class WidgetView : UserControl
             palette.Label,
             FontWeight.SemiBold,
             ellipsis: true);
-        // 72 screen px of room when the paused badge is shown.
-        title.Margin = new Thickness(paused ? 72 / _factor : 0, 0, 8, 0);
+        // The paused badge's room is a screen width, so it is divided by the
+        // scale; ApplyTitleScale rewrites it when the scale changes.
+        title.Margin = new Thickness(paused ? PausedBadgeRoom / _factor : 0, 0, 8, 0);
         title.VerticalAlignment = VerticalAlignment.Center;
+        _title = title;
         titleHost.Children.Add(title);
         grid.Children.Add(titleHost);
 
@@ -197,10 +278,14 @@ internal sealed class WidgetView : UserControl
         {
             Orientation = Orientation.Horizontal,
             VerticalAlignment = VerticalAlignment.Center,
+            // See CornerReserve: panel pixels turned into the row's units, and
+            // rewritten by ApplyTitleScale on a resize.
+            Margin = new Thickness(0, 0, CornerReserve / _factor, 0),
         };
+        _titleRight = right;
         if (page.Badge is { } badgeModel)
         {
-            Control badge = Ui.TemperatureBadge(badgeModel, ramp);
+            Control badge = Ui.Badge(badgeModel, ramp);
             badge.Margin = new Thickness(0, 0, 6, 0);
             right.Children.Add(badge);
         }

@@ -5,10 +5,10 @@ namespace SysMonitor.Linux.Presentation;
 /// <summary>
 /// Builds the widget's rotation pages from one snapshot (spec section 3).
 ///
-/// The page list is CPU, RAM, disk and network in that order; the modes
-/// (separated/total) decide how many pages each group contributes. There is no
-/// GPU page in the widget. An empty list becomes one "no data" page so the
-/// view always has something to show.
+/// The page list is CPU, RAM, disk, network and battery in that order; the
+/// modes (separated/total) decide how many pages each group contributes. There
+/// is no GPU page in the widget. An empty list becomes one "no data" page so
+/// the view always has something to show.
 /// </summary>
 public static class WidgetBoard
 {
@@ -79,6 +79,15 @@ public static class WidgetBoard
             else if (adapters.Count > 0)
             {
                 pages.Add(NetworkTotalPage(snapshot, lang));
+            }
+        }
+
+        if (config.ShowBattery)
+        {
+            // One page per battery, like a drive: no battery, no page.
+            foreach (Battery battery in snapshot.Batteries)
+            {
+                pages.Add(BatteryPage(battery, snapshot, lang, palette));
             }
         }
 
@@ -297,6 +306,32 @@ public static class WidgetBoard
                     Title = string.Empty,
                     Percent = percent,
                     BarColour = Palette.LoadColour(percent, Accents.Net),
+                    Compact = true,
+                },
+            },
+        };
+    }
+
+    private static WidgetPage BatteryPage(
+        Battery battery, Snapshot snapshot, Lang lang, Palette palette)
+    {
+        return new WidgetPage
+        {
+            Key = PageKeys.Battery(battery.Id),
+            Kind = WidgetPageKind.Battery,
+            Title = lang["battery"],
+            Value = BatteryText.Charge(battery, lang),
+            Detail = BatteryText.Detail(battery, snapshot, lang),
+            Badge = BatteryText.AcBadge(battery, snapshot, palette),
+            Rows = new[]
+            {
+                new MeterRow
+                {
+                    Title = string.Empty,
+                    Percent = battery.Percent ?? 0,
+                    // Battery charge is not load: the accent stays at every
+                    // level rather than turning red at 90%.
+                    BarColour = Accents.Battery,
                     Compact = true,
                 },
             },

@@ -60,6 +60,14 @@ public sealed class FullTab
 
     public string Detail { get; init; } = string.Empty;
     public string Summary { get; init; } = string.Empty;
+
+    /// <summary>
+    /// The page's one badge: the battery's power pill while the cell charges or
+    /// a power source feeds the machine. The sidebar item and the page header
+    /// draw it, so the icon follows the AC state on both (R-030 fix 4). Null on
+    /// every other page.
+    /// </summary>
+    public TempBadge? Badge { get; init; }
     public string Hardware { get; init; } = string.Empty;
 
     /// <summary>The options bar: empty for a module with no options.</summary>
