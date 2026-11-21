@@ -17,6 +17,7 @@ public sealed class Snapshot
     private readonly IReadOnlyList<Battery> _batteries = Array.Empty<Battery>();
     private readonly IReadOnlyList<PowerSource> _powerSources = Array.Empty<PowerSource>();
     private readonly IReadOnlyList<PeripheralBattery> _peripherals = Array.Empty<PeripheralBattery>();
+    private readonly IReadOnlyList<SwapDevice> _swapDevices = Array.Empty<SwapDevice>();
 
     public IReadOnlyList<Core> Cores
     {
@@ -84,6 +85,16 @@ public sealed class Snapshot
         get => _peripherals;
         init => _peripherals = Seal(value);
     }
+
+    /// <summary>The swap devices and files from <c>/proc/swaps</c>.</summary>
+    public IReadOnlyList<SwapDevice> SwapDevices
+    {
+        get => _swapDevices;
+        init => _swapDevices = Seal(value);
+    }
+
+    /// <summary>Slots and modules read once from systemd-udev's DMI data.</summary>
+    public MemoryLayout MemoryLayout { get; init; } = MemoryLayout.Empty;
 
     /// <summary>
     /// True while any power source says it is supplying the machine. Derived
@@ -160,6 +171,15 @@ public sealed class Ram
     public int Usage { get; init; }
     public double UsedGb { get; init; }
     public double TotalGb { get; init; }
+
+    /// <summary>Swap capacity in bytes, from <c>SwapTotal</c>.</summary>
+    public long SwapTotalBytes { get; init; }
+
+    /// <summary>Swap in use in bytes: <c>SwapTotal − SwapFree</c>, never negative.</summary>
+    public long SwapUsedBytes { get; init; }
+
+    /// <summary>Whole percent of swap in use, 0 when the machine has no swap.</summary>
+    public int SwapUsage { get; init; }
 
     /// <summary>No consumer board exposes a DIMM sensor, so this stays null.</summary>
     public int? Temp => null;

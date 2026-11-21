@@ -17,6 +17,8 @@ public static class MemInfo
         long freeKb = 0;
         long buffersKb = 0;
         long cachedKb = 0;
+        long swapTotalKb = 0;
+        long swapFreeKb = 0;
 
         foreach (string line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
@@ -47,6 +49,12 @@ public static class MemInfo
                 case "Cached":
                     cachedKb = kb;
                     break;
+                case "SwapTotal":
+                    swapTotalKb = kb;
+                    break;
+                case "SwapFree":
+                    swapFreeKb = kb;
+                    break;
             }
         }
 
@@ -60,11 +68,21 @@ public static class MemInfo
         int usage = (int)Math.Clamp(
             Math.Round(usedKb * 100.0 / totalKb, MidpointRounding.AwayFromZero), 0, 100);
 
+        long swapTotalBytes = Math.Max(0, swapTotalKb) * 1024;
+        long swapUsedBytes = Math.Clamp(swapTotalKb - swapFreeKb, 0, Math.Max(0, swapTotalKb)) * 1024;
+        int swapUsage = swapTotalKb > 0
+            ? (int)Math.Clamp(
+                Math.Round(swapUsedBytes * 100.0 / swapTotalBytes, MidpointRounding.AwayFromZero), 0, 100)
+            : 0;
+
         return new Ram
         {
             Usage = usage,
             UsedGb = usedKb / 1024.0 / 1024.0,
             TotalGb = totalKb / 1024.0 / 1024.0,
+            SwapTotalBytes = swapTotalBytes,
+            SwapUsedBytes = swapUsedBytes,
+            SwapUsage = swapUsage,
         };
     }
 

@@ -11,6 +11,19 @@ public sealed class DrmClient
     /// <summary>Cumulative engine time in nanoseconds, keyed by engine name.</summary>
     public IReadOnlyDictionary<string, long> Engines { get; init; } =
         new Dictionary<string, long>(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Video memory this client holds, in bytes. Old kernels write
+    /// <c>drm-memory-&lt;region&gt;</c>; newer ones write
+    /// <c>drm-total-&lt;region&gt;</c>. Null when neither line is present.
+    /// </summary>
+    public long? MemoryBytes { get; init; }
+
+    /// <summary>
+    /// Resident part of the video memory, when the kernel reports it. Kept
+    /// apart from <see cref="MemoryBytes"/> so the two are never added twice.
+    /// </summary>
+    public long? ResidentBytes { get; init; }
 }
 
 /// <summary>
@@ -24,6 +37,12 @@ public static class DrmFdinfo
         long clientId = 0;
         string pci = string.Empty;
         var engines = new Dictionary<string, long>(StringComparer.Ordinal);
+        long memoryBytes = 0;
+        bool hasMemory = false;
+        long totalBytes = 0;
+        bool hasTotal = false;
+        long residentBytes = 0;
+        bool hasResident = false;
 
         foreach (string raw in text.Split('\n'))
         {
@@ -56,6 +75,30 @@ public static class DrmFdinfo
                     engines[engine] = ns;
                 }
             }
+            else if (key.StartsWith("drm-memory-", StringComparison.Ordinal))
+            {
+                if (TryMemoryBytes(value, out long bytes))
+                {
+                    memoryBytes += bytes;
+                    hasMemory = true;
+                }
+            }
+            else if (key.StartsWith("drm-total-", StringComparison.Ordinal))
+            {
+                if (TryMemoryBytes(value, out long bytes))
+                {
+                    totalBytes += bytes;
+                    hasTotal = true;
+                }
+            }
+            else if (key.StartsWith("drm-resident-", StringComparison.Ordinal))
+            {
+                if (TryMemoryBytes(value, out long bytes))
+                {
+                    residentBytes += bytes;
+                    hasResident = true;
+                }
+            }
         }
 
         if (pci.Length == 0 || clientId <= 0)
@@ -63,6 +106,53 @@ public static class DrmFdinfo
             return null;
         }
 
-        return new DrmClient { ClientId = clientId, PciDevice = pci, Engines = engines };
+        return new DrmClient
+        {
+            ClientId = clientId,
+            PciDevice = pci,
+            Engines = engines,
+            // Every reported region adds to the client's total. A newer kernel
+            // writes drm-total-* instead of drm-memory-*; a fixture that has
+            // both is summed as the handoff says, and a real kernel never emits
+            // both for the same region.
+            MemoryBytes = hasMemory || hasTotal ? memoryBytes + totalBytes : null,
+            ResidentBytes = hasResident ? residentBytes : null,
+        };
+    }
+
+    /// <summary>
+    /// A memory line is a number and an optional unit: <c>KiB</c>, <c>MiB</c>
+    /// or nothing (bytes).
+    /// </summary>
+    private static bool TryMemoryBytes(string value, out long bytes)
+    {
+        bytes = 0;
+        string[] fields = SysFs.Fields(value);
+        if (fields.Length == 0
+            || !long.TryParse(fields[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out long number)
+            || number < 0)
+        {
+            return false;
+        }
+
+        long multiplier = fields.Length > 1
+            ? fields[1] switch
+            {
+                "KiB" => 1024L,
+                "MiB" => 1024L * 1024L,
+                "GiB" => 1024L * 1024L * 1024L,
+                _ => 1L,
+            }
+            : 1L;
+
+        try
+        {
+            bytes = checked(number * multiplier);
+            return true;
+        }
+        catch (OverflowException)
+        {
+            return false;
+        }
     }
 }

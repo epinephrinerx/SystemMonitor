@@ -1,6 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using SysMonitor.Linux.Presentation;
 using SysMonitor.Linux.Sampling;
+using SysMonitor.Linux.Sensors;
 using SysMonitor.Model;
 
 namespace SysMonitor.Linux.Probe;
@@ -19,11 +21,20 @@ namespace SysMonitor.Linux.Probe;
 internal static class Program
 {
     private const int ProcessLines = 20;
+    private const int AppTop = 15;
+    private const int ProcessTop = 15;
 
     private static int Main(string[] args)
     {
         bool json = Has(args, "--json");
         bool includeProcesses = Has(args, "--processes");
+        bool apps = Has(args, "--apps");
+
+        if (apps)
+        {
+            PrintApps("/");
+            return 0;
+        }
 
         var sampler = new LinuxSampler();
         sampler.Sample(includeProcesses);
@@ -65,6 +76,8 @@ internal static class Program
 
         PrintCpu(snapshot);
         PrintRam(snapshot);
+        PrintSwap(snapshot);
+        PrintMemoryLayout(snapshot.MemoryLayout);
         PrintDisks(snapshot);
         PrintAdapters(snapshot);
         PrintGpus(snapshot);
@@ -109,6 +122,168 @@ internal static class Program
         Console.WriteLine($"  Modules        : {(snapshot.Modules.Count > 0 ? Module.Summarise(snapshot.Modules) : "N/A")} ({Number(snapshot.MemorySlots)} slots)");
         Console.WriteLine();
     }
+
+    private static void PrintSwap(Snapshot snapshot)
+    {
+        Ram ram = snapshot.Ram;
+        Console.WriteLine("Swap");
+        if (ram.SwapTotalBytes <= 0)
+        {
+            Console.WriteLine("  N/A (no swap)");
+            Console.WriteLine();
+            return;
+        }
+
+        Console.WriteLine($"  Used / total   : {Gb2(ram.SwapUsedBytes)} / {Gb2(ram.SwapTotalBytes)} ({Number(ram.SwapUsage)} %)");
+        foreach (SwapDevice device in snapshot.SwapDevices)
+        {
+            Console.WriteLine(
+                $"  {device.Name} ({device.Type}) : {Gb2(device.UsedBytes)} used of {Gb2(device.SizeBytes)}, priority {device.Priority}");
+        }
+        Console.WriteLine();
+    }
+
+    private static void PrintMemoryLayout(MemoryLayout layout)
+    {
+        Console.WriteLine("RAM modules");
+        if (layout.Modules.Count == 0 && layout.SlotsTotal is null)
+        {
+            Console.WriteLine("  N/A (hardware details not available)");
+            Console.WriteLine();
+            return;
+        }
+
+        Console.WriteLine(
+            $"  Slots          : {(layout.SlotsUsed is int used ? Number(used) : "N/A")} of {(layout.SlotsTotal is int total ? Number(total) : "N/A")}");
+        Console.WriteLine($"  Max capacity   : {Gb2(layout.MaxCapacityBytes)}");
+
+        foreach (MemoryModule module in layout.Modules)
+        {
+            var parts = new List<string>();
+            if (module.SizeBytes is long size)
+            {
+                parts.Add(Gb2(size));
+            }
+            if (module.Type.Length > 0)
+            {
+                parts.Add(module.Type);
+            }
+            if (module.TypeDetail.Length > 0)
+            {
+                parts.Add(module.TypeDetail);
+            }
+            if (module.FormFactor.Length > 0)
+            {
+                parts.Add(module.FormFactor);
+            }
+            if (module.ConfiguredSpeedMts is int configured)
+            {
+                parts.Add(module.SpeedMts is int rated
+                    ? $"{configured} MT/s (rated {rated})"
+                    : $"{configured} MT/s");
+            }
+            if (module.Manufacturer.Length > 0)
+            {
+                parts.Add(module.Manufacturer);
+            }
+            if (module.Rank is int rank)
+            {
+                parts.Add($"rank {rank}");
+            }
+            if (module.ConfiguredVoltage is double volts)
+            {
+                parts.Add($"{volts:F2} V");
+            }
+
+            string slot = module.Slot.Length > 0 ? module.Slot : "module";
+            Console.WriteLine($"  {slot,-22} : {string.Join(" · ", parts)}");
+        }
+        Console.WriteLine();
+    }
+
+    /// <summary>
+    /// The top apps and processes by memory, from two samples <b>4.5 s apart</b>
+    /// so the CPU deltas are real and the second sample is also a real GPU scan
+    /// (<see cref="ProcessGpu.IntervalMs"/> is 4 s), which is what lets a GPU
+    /// percentage appear at all. No command line is printed and no serial number
+    /// exists in these models; the output is meant to be pasted into a report.
+    /// </summary>
+    private static void PrintApps(string root)
+    {
+        const int sampleGapMs = 4500;
+
+        var stats = new ProcessStats(root, Environment.ProcessorCount, 100);
+        long first = Environment.TickCount64;
+        stats.Read(first);
+
+        Console.WriteLine("System Monitor - Linux probe (apps)");
+        Console.WriteLine($"  Root    : {root}");
+        Console.WriteLine(
+            $"  Waiting {sampleGapMs / 1000.0:0.0} s for the second sample, so CPU and GPU deltas are real…");
+        Console.WriteLine();
+
+        Thread.Sleep(sampleGapMs);
+        IReadOnlyList<ProcessRow> rows = stats.Read(Environment.TickCount64);
+
+        var resolver = new AppResolver(root, language: "en");
+        IReadOnlyList<AppEntry> apps = resolver.Read(rows);
+
+        Console.WriteLine($"Apps — top {Math.Min(AppTop, apps.Count)} by memory");
+        Console.WriteLine($"  {"instances",9}  {"CPU",6}  {"memory",10}  {"GPU",6}  name");
+        foreach (AppEntry app in ProcessGrid.Sort(apps, GridColumn.Memory, descending: true).Take(AppTop))
+        {
+            Console.WriteLine(
+                $"  {app.Instances.Count,9}  {Percent(app.CpuPercent),6}  {MemoryBoard.Size(app.MemoryBytes),10}  {Percent(app.GpuPercent),6}  {app.Name}");
+        }
+        if (apps.Count == 0)
+        {
+            Console.WriteLine("  N/A");
+        }
+        Console.WriteLine();
+
+        Console.WriteLine($"Processes — top {Math.Min(ProcessTop, rows.Count)} by memory");
+        Console.WriteLine($"  {"pid",7}  {"user",-14}  {"CPU",6}  {"memory",10}  {"GPU",6}  name");
+        foreach (ProcessRow row in ProcessGrid.Sort(rows, GridColumn.Memory, descending: true).Take(ProcessTop))
+        {
+            Console.WriteLine(
+                $"  {row.Pid,7}  {Short(row.User),-14}  {Percent(row.CpuPercent),6}  {MemoryBoard.Size(row.MemoryBytes),10}  {Percent(row.GpuPercent),6}  {row.Name}");
+        }
+        if (rows.Count == 0)
+        {
+            Console.WriteLine("  N/A");
+        }
+        Console.WriteLine();
+
+        string? swapText = ReadText(Path.Combine(root, "proc", "swaps"));
+        IReadOnlyList<SwapDevice> swaps = SwapsReader.Parse(swapText);
+        Ram ram = new();
+        string? meminfo = ReadText(Path.Combine(root, "proc", "meminfo"));
+        if (meminfo is not null)
+        {
+            ram = MemInfo.Parse(meminfo);
+        }
+
+        PrintSwap(new Snapshot { Ram = ram, SwapDevices = swaps });
+        PrintMemoryLayout(MemoryModules.Read(root));
+    }
+
+    private static string? ReadText(string path)
+    {
+        try
+        {
+            return File.Exists(path) ? File.ReadAllText(path) : null;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private static string Percent(double? value) =>
+        value is double percent ? $"{percent:F1} %" : "—";
+
+    private static string Short(string text) =>
+        text.Length <= 14 ? text : text[..14];
 
     private static void PrintDisks(Snapshot snapshot)
     {
@@ -409,6 +584,8 @@ internal static class Program
             Batteries = snapshot.Batteries,
             PowerSources = snapshot.PowerSources,
             Peripherals = snapshot.Peripherals,
+            SwapDevices = snapshot.SwapDevices,
+            MemoryLayout = snapshot.MemoryLayout,
             MemoryStamp = snapshot.MemoryStamp,
             CpuTotal = snapshot.CpuTotal,
             CpuInfo = snapshot.CpuInfo,
@@ -482,6 +659,11 @@ internal static class Program
     private static string Celsius(int? value) => value is int celsius ? $"{celsius} °C" : "N/A";
 
     private static string Gb(double value) => value > 0 ? $"{value:F1} GB" : "N/A";
+
+    private static string Gb2(long? bytes) =>
+        bytes is long value && value > 0
+            ? $"{value / 1073741824.0:F1} GB"
+            : "N/A";
 
     /// <summary>
     /// An integrated adapter has no dedicated memory, so it prints N/A.  With a

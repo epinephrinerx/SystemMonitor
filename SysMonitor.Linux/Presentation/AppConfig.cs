@@ -49,6 +49,13 @@ public sealed class AppConfig
     public bool Diagnostics { get; set; } = true;
     public string CloseAction { get; set; } = "tray";
 
+    // Apps / Processes grids. The column names are ProcessGrid.Key values;
+    // Normalise turns an unknown value back into the default.
+    public string AppsSort { get; set; } = "memory";
+    public bool AppsSortDesc { get; set; } = true;
+    public string ProcsSort { get; set; } = "memory";
+    public bool ProcsSortDesc { get; set; } = true;
+
     /// <summary>Legacy key only: read for migration, never written again.</summary>
     public bool? ShowSmart { get; set; }
 
@@ -199,6 +206,8 @@ public sealed class AppConfig
         CpuMode = Text(CpuMode, "separated", "total", "separated");
         DiskMode = Text(DiskMode, "separated", "total", "separated");
         LastView = Text(LastView, "widget", "overall", "full", "widget");
+        AppsSort = ProcessGrid.Key(ProcessGrid.ParseColumn(AppsSort, GridColumn.Memory));
+        ProcsSort = ProcessGrid.Key(ProcessGrid.ParseColumn(ProcsSort, GridColumn.Memory));
 
         Opacity = double.IsFinite(Opacity) ? Math.Clamp(Opacity, 0.35, 1.0) : 1.0;
         FontScale = TypeRamp.ClampScale(FontScale);
@@ -312,6 +321,10 @@ public sealed class AppConfig
         IncludeNetwork = Bool(root, "include_network") ?? IncludeNetwork;
         Diagnostics = Bool(root, "diagnostics") ?? Diagnostics;
         CloseAction = String(root, "close_action") ?? CloseAction;
+        AppsSort = String(root, "apps_sort") ?? AppsSort;
+        AppsSortDesc = Bool(root, "apps_sort_desc") ?? AppsSortDesc;
+        ProcsSort = String(root, "procs_sort") ?? ProcsSort;
+        ProcsSortDesc = Bool(root, "procs_sort_desc") ?? ProcsSortDesc;
         ShowSmart = Bool(root, "show_smart") ?? ShowSmart;
 
         PosX = Number(root, "pos_x") ?? PosX;
@@ -372,6 +385,10 @@ public sealed class AppConfig
         writer.WriteBoolean("include_network", IncludeNetwork);
         writer.WriteBoolean("diagnostics", Diagnostics);
         writer.WriteString("close_action", CloseAction);
+        writer.WriteString("apps_sort", AppsSort);
+        writer.WriteBoolean("apps_sort_desc", AppsSortDesc);
+        writer.WriteString("procs_sort", ProcsSort);
+        writer.WriteBoolean("procs_sort_desc", ProcsSortDesc);
 
         WriteNumber(writer, "pos_x", PosX);
         WriteNumber(writer, "pos_y", PosY);

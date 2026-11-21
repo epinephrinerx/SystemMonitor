@@ -261,6 +261,24 @@ public sealed class ServiceReader
             : ParseShow(text);
     }
 
+    /// <summary>
+    /// The user units that have a MainPID, keyed by PID. The Processes page
+    /// marks a row whose PID is here; the map comes from the existing services
+    /// read, so no extra systemctl call is made per row.
+    /// </summary>
+    public static IReadOnlyDictionary<int, string> MainPids(IEnumerable<ServiceEntry> services)
+    {
+        var result = new Dictionary<int, string>();
+        foreach (ServiceEntry service in services)
+        {
+            if (service.UserUnit && service.Pid > 0 && !result.ContainsKey(service.Pid))
+            {
+                result[service.Pid] = service.Name;
+            }
+        }
+        return result;
+    }
+
     /// <summary>"cups.service" becomes "cups"; the UI shows the short name.</summary>
     public static string UnitName(string unit) =>
         unit.EndsWith(".service", StringComparison.Ordinal)

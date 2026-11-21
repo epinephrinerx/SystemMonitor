@@ -260,4 +260,30 @@ internal static class StringData
         ("update_deb_opened", "เปิดตัวติดตั้งแพ็กเกจแล้ว ยืนยันในตัวจัดการแพ็กเกจ", "Opened the package installer; confirm there"),
         ("update_deb_saved", "บันทึกแพ็กเกจไว้ที่ {0} เปิดไฟล์นี้เพื่อติดตั้งเอง", "Saved the package to {0}; open it to install"),
     };
+
+    /// <summary>
+    /// Keys for the Apps and Processes pages (R-030 phase A1). A fifth table so
+    /// the pinned key counts of the earlier tables stay untouched. Lang reads
+    /// all five.
+    /// </summary>
+    internal static readonly (string Key, string Thai, string English)[] GridKeys =
+    {
+        ("app_close", "ปิดแอป", "Close app"),
+        ("app_restart", "รีสตาร์ตแอป", "Restart app"),
+        ("app_close_confirm", "ปิด {0} ?\nข้อมูลที่ยังไม่บันทึกในโปรแกรมนั้นจะหายไป", "Close {0}?\nUnsaved data in that program will be lost."),
+        ("app_restart_confirm", "รีสตาร์ต {0} ?\nแอปจะถูกปิดทุกหน้าต่างแล้วเปิดใหม่", "Restart {0}?\nEvery window will be closed and the app started again."),
+        ("app_restart_unavailable", "รีสตาร์ตไม่ได้: ไฟล์ .desktop ไม่มีคำสั่งที่ใช้ได้", "Cannot restart: the .desktop file has no usable command"),
+        ("app_restart_still_running", "แอปยังทำงานอยู่ จึงยังไม่เปิดใหม่", "The app is still running, so it was not started again"),
+        ("proc_restart_service", "รีสตาร์ตเซอร์วิส", "Restart service"),
+        ("col_name", "ชื่อ", "Name"),
+        ("col_pid", "PID", "PID"),
+        ("col_user", "ผู้ใช้", "User"),
+        ("col_cpu", "CPU %", "CPU %"),
+        ("col_memory", "หน่วยความจำ", "Memory"),
+        ("col_gpu", "GPU %", "GPU %"),
+        ("col_gpu_memory", "หน่วยความจำ GPU", "GPU memory"),
+        ("col_instances", "อินสแตนซ์", "Instances"),
+        ("col_command", "คำสั่ง", "Command"),
+        ("apps_autostart", "เริ่มเมื่อเข้าสู่ระบบ", "Starts at login"),
+    };
 }

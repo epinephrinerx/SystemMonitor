@@ -172,6 +172,73 @@ public static class ProcessReader
                 : null;
     }
 
+    /// <summary>
+    /// Fields 14 (<c>utime</c>) and 15 (<c>stime</c>) of
+    /// <c>/proc/&lt;pid&gt;/stat</c>, in clock ticks. Parsed after the last
+    /// <c>)</c> for the same reason <see cref="ParseStartTime"/> is. Null when
+    /// the file holds no stat line, so an unknown reading never becomes a delta.
+    /// </summary>
+    public static long? ParseCpuTicks(string stat)
+    {
+        int close = stat.LastIndexOf(')');
+        if (close < 0 || close + 1 >= stat.Length)
+        {
+            return null;
+        }
+
+        // fields[0] is field 3 (state), so utime (14) is fields[11] and
+        // stime (15) is fields[12].
+        string[] fields = SysFs.Fields(stat[(close + 1)..]);
+        if (fields.Length <= 12
+            || !SysFs.TryParseLong(fields[11], out long utime)
+            || !SysFs.TryParseLong(fields[12], out long stime)
+            || utime < 0
+            || stime < 0)
+        {
+            return null;
+        }
+        return utime + stime;
+    }
+
+    /// <summary>
+    /// The command line with NUL separators turned into spaces and the whole
+    /// line trimmed, cut at 4096 characters. Empty when the file cannot be read.
+    /// </summary>
+    public static string CommandLine(string processDirectory)
+    {
+        string? text = SysFs.ReadText(Path.Combine(processDirectory, "cmdline"));
+        if (string.IsNullOrEmpty(text))
+        {
+            return string.Empty;
+        }
+
+        string command = text.Replace('\0', ' ').Trim();
+        return command.Length > 4096 ? command[..4096] : command;
+    }
+
+    /// <summary>
+    /// The unified hierarchy path from the <c>0::</c> line of
+    /// <c>/proc/&lt;pid&gt;/cgroup</c>, or empty on a cgroup v1-only system.
+    /// </summary>
+    public static string CgroupPath(string processDirectory)
+    {
+        string? text = SysFs.ReadText(Path.Combine(processDirectory, "cgroup"));
+        if (text is null)
+        {
+            return string.Empty;
+        }
+
+        foreach (string raw in text.Split('\n'))
+        {
+            string line = raw.TrimEnd('\r');
+            if (line.StartsWith("0::", StringComparison.Ordinal))
+            {
+                return line[3..].Trim();
+            }
+        }
+        return string.Empty;
+    }
+
     private static ulong? StartTimeOf(string processDirectory)
     {
         string? stat = SysFs.ReadText(Path.Combine(processDirectory, "stat"));
@@ -191,6 +258,12 @@ public static class ProcessReader
             ? uid
             : null;
     }
+
+    /// <summary>The parent PID from a status file, zero when it is not there.</summary>
+    public static int ParentPid(string status) => IntField(status, "PPid");
+
+    /// <summary>Resident memory in bytes from <c>VmRSS</c>; zero when hidden.</summary>
+    public static long ResidentBytes(string status) => KiloBytes(status, "VmRSS");
 
     private static int IntField(string status, string key)
     {

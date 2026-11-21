@@ -23,6 +23,7 @@ public sealed class LinuxSampler
     private readonly CpuInfo _cpuInfo;
     private readonly BatteryReader _battery;
     private readonly UPowerReader _upower;
+    private readonly MemoryLayout _memoryLayout;
 
     private ProcStatReading? _previousCpu;
     private bool _ready;
@@ -52,6 +53,7 @@ public sealed class LinuxSampler
         _services = new ServiceReader(commands);
         _battery = new BatteryReader(_root);
         _upower = new UPowerReader(commands, diagnostics);
+        _memoryLayout = ReadMemoryLayout();
     }
 
     public string Root => _root;
@@ -71,6 +73,7 @@ public sealed class LinuxSampler
 
         (IReadOnlyList<Core> Cores, int Total) cpu = ReadCpu();
         Ram ram = ReadRam();
+        IReadOnlyList<SwapDevice> swaps = ReadSwaps();
         CpuThermalReading thermal = ReadThermal(cpu.Cores.Count);
         IReadOnlyList<Disk> disks = ReadDisks(stamp);
         IReadOnlyList<Adapter> adapters = ReadAdapters(stamp);
@@ -146,6 +149,8 @@ public sealed class LinuxSampler
             Batteries = power.Batteries,
             PowerSources = power.PowerSources,
             Peripherals = peripherals,
+            SwapDevices = swaps,
+            MemoryLayout = _memoryLayout,
             CpuTotal = cpu.Total,
             CpuInfo = _cpuInfo,
             Gpu = gpus.Count > 0 ? gpus[0] : new Gpu(),
@@ -203,6 +208,35 @@ public sealed class LinuxSampler
         catch (Exception)
         {
             return new Ram();
+        }
+    }
+
+    /// <summary>Swap devices are one small file, read every sample.</summary>
+    private IReadOnlyList<SwapDevice> ReadSwaps()
+    {
+        try
+        {
+            return SwapsReader.Parse(SysFs.ReadText(_root, "proc", "swaps"));
+        }
+        catch (Exception)
+        {
+            return Array.Empty<SwapDevice>();
+        }
+    }
+
+    /// <summary>
+    /// The board's memory layout does not change while the machine runs, so it
+    /// is read once with the sampler and carried on every snapshot.
+    /// </summary>
+    private MemoryLayout ReadMemoryLayout()
+    {
+        try
+        {
+            return MemoryModules.Read(_root);
+        }
+        catch (Exception)
+        {
+            return MemoryLayout.Empty;
         }
     }
 

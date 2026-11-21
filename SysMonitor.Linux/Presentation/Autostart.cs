@@ -261,6 +261,187 @@ public static class DesktopEntry
     private static string CollapseFieldCodes(string text) =>
         text.IndexOf('%') < 0 ? text : text.Replace("%%", "%");
 
+    /// <summary>
+    /// Parse an <c>Exec</c> value into argv, following the Desktop Entry spec:
+    /// double-quoted arguments, the string-value escapes, then field codes.
+    /// A quote may only open an argument, and a closing quote must be followed
+    /// by whitespace or the end of the value (Amendment 2 item 6), so
+    /// <c>/bin/echo "foo"bar</c> and <c>/bin/echo foo"bar"</c> are rejected.
+    /// <c>%f %F %u %U %i %c %k</c> are removed and <c>%%</c> becomes a literal
+    /// percent sign; the deprecated <c>%d %D %n %N %v %m</c> are removed
+    /// silently. Null for unbalanced quotes, a misplaced quote, or an empty
+    /// argument list.
+    /// </summary>
+    public static IReadOnlyList<string>? ParseExec(string? exec)
+    {
+        if (string.IsNullOrWhiteSpace(exec))
+        {
+            return null;
+        }
+
+        var arguments = new List<string>();
+        var current = new StringBuilder(exec.Length);
+        bool quoted = false;
+        bool argumentStarted = false;
+        bool quotedSegmentClosed = false;
+
+        for (int i = 0; i < exec.Length; i++)
+        {
+            char character = exec[i];
+            if (quoted)
+            {
+                if (character == '"')
+                {
+                    quoted = false;
+                    quotedSegmentClosed = true;
+                }
+                else if (character == '\\' && i + 1 < exec.Length)
+                {
+                    AppendEscape(current, exec[++i]);
+                }
+                else
+                {
+                    current.Append(character);
+                }
+                continue;
+            }
+
+            if (character == '"')
+            {
+                // The spec allows a quote only where an argument begins. A
+                // quote in the middle of "foo"bar, or a second segment after a
+                // closed quote ("a""b"), is not a Desktop Entry Exec value.
+                if (argumentStarted || quotedSegmentClosed)
+                {
+                    return null;
+                }
+
+                quoted = true;
+                argumentStarted = true;
+            }
+            else if (character is ' ' or '\t')
+            {
+                if (argumentStarted)
+                {
+                    arguments.Add(current.ToString());
+                    current.Clear();
+                    argumentStarted = false;
+                    quotedSegmentClosed = false;
+                }
+            }
+            else if (quotedSegmentClosed)
+            {
+                // Anything but whitespace right after the closing quote makes
+                // the value ambiguous; the spec does not allow it.
+                return null;
+            }
+            else if (character == '\\' && i + 1 < exec.Length)
+            {
+                AppendEscape(current, exec[++i]);
+                argumentStarted = true;
+            }
+            else
+            {
+                current.Append(character);
+                argumentStarted = true;
+            }
+        }
+
+        if (quoted)
+        {
+            return null;
+        }
+
+        if (argumentStarted)
+        {
+            arguments.Add(current.ToString());
+        }
+
+        var result = new List<string>(arguments.Count);
+        foreach (string argument in arguments)
+        {
+            string cleaned = RemoveFieldCodes(argument);
+            if (cleaned.Length > 0)
+            {
+                result.Add(cleaned);
+            }
+        }
+
+        return result.Count > 0 ? result : null;
+    }
+
+    /// <summary>
+    /// Decode a Desktop Entry string value: <c>\s</c>, <c>\n</c>, <c>\t</c>,
+    /// <c>\r</c> and <c>\\</c>, leaving anything else as it was written.
+    /// </summary>
+    public static string UnescapeValue(string value)
+    {
+        if (value.IndexOf('\\') < 0)
+        {
+            return value;
+        }
+
+        var result = new StringBuilder(value.Length);
+        for (int i = 0; i < value.Length; i++)
+        {
+            if (value[i] == '\\' && i + 1 < value.Length)
+            {
+                result.Append(EscapeChar(value[++i]));
+                continue;
+            }
+            result.Append(value[i]);
+        }
+        return result.ToString();
+    }
+
+    private static void AppendEscape(StringBuilder builder, char escaped) =>
+        builder.Append(EscapeChar(escaped));
+
+    private static char EscapeChar(char escaped) => escaped switch
+    {
+        's' => ' ',
+        'n' => '\n',
+        't' => '\t',
+        'r' => '\r',
+        _ => escaped,
+    };
+
+    private static string RemoveFieldCodes(string argument)
+    {
+        if (argument.IndexOf('%') < 0)
+        {
+            return argument;
+        }
+
+        var result = new StringBuilder(argument.Length);
+        for (int i = 0; i < argument.Length; i++)
+        {
+            if (argument[i] != '%' || i + 1 >= argument.Length)
+            {
+                result.Append(argument[i]);
+                continue;
+            }
+
+            char code = argument[i + 1];
+            if (code == '%')
+            {
+                result.Append('%');
+                i++;
+            }
+            else if ("fFuUickdDnNvm".IndexOf(code) >= 0)
+            {
+                // A field code, not text. %i is an icon name and is dropped
+                // with the rest; this parser never invents an argument for it.
+                i++;
+            }
+            else
+            {
+                result.Append(argument[i]);
+            }
+        }
+        return result.ToString();
+    }
+
     /// <summary>A backslash removes any special meaning from the next character.</summary>
     private static string Unescape(string text)
     {
