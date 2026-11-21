@@ -117,8 +117,12 @@ public sealed class AppConfigTests
                 OverallSized = true,
                 FullW = 1024,
                 FullH = 768,
-                LastView = "overall",
-                FullTab = "ext:smart:status",
+                MainW = 1024,
+                MainH = 768,
+                MainPage = "cpu",
+                SettingsOpen = true,
+                SidebarWidth = 260,
+                LastView = "main",
             };
             original.Extensions["smart"] = new ExtensionOption { Enabled = true };
 
@@ -161,8 +165,13 @@ public sealed class AppConfigTests
             Assert.IsTrue(loaded.OverallSized);
             Assert.AreEqual(1024.0, loaded.FullW);
             Assert.AreEqual(768.0, loaded.FullH);
-            Assert.AreEqual("overall", loaded.LastView);
-            Assert.AreEqual("ext:smart:status", loaded.FullTab);
+            Assert.AreEqual(1024.0, loaded.MainW);
+            Assert.AreEqual(768.0, loaded.MainH);
+            Assert.AreEqual("cpu", loaded.MainPage);
+            Assert.IsTrue(loaded.SettingsOpen);
+            Assert.AreEqual(260, loaded.SidebarWidth);
+            Assert.AreEqual("main", loaded.LastView);
+            Assert.AreEqual(string.Empty, loaded.FullTab);
             Assert.IsTrue(loaded.Extensions.ContainsKey("smart"));
             Assert.IsTrue(loaded.Extensions["smart"].Enabled);
         }

@@ -163,8 +163,13 @@ public sealed class DiskAlertTracker
 
 /// <summary>
 /// The 72-point graph history from spec section 5b, filled on every fresh
-/// snapshot whatever view is showing. The Full view's charts read these rings,
-/// so a chart opened later already has a past.
+/// snapshot whatever page is showing. A chart opened later already has a past.
+///
+/// R-030 adds the series its pages draw: swap, CPU and GPU temperatures, the
+/// per-physical-disk rates and activity, both directions of every adapter, and
+/// each battery's charge and power. A series that already held the same data is
+/// reused; the rest are keyed by the same page key the tab uses, so a replugged
+/// device finds its own past again.
 /// </summary>
 public sealed class HistoryBoard
 {
@@ -174,8 +179,20 @@ public sealed class HistoryBoard
     private readonly Dictionary<string, History> _adapters = new(StringComparer.Ordinal);
     private readonly Dictionary<string, History> _diskIo = new(StringComparer.Ordinal);
     private readonly Dictionary<string, History> _adapterRate = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, History> _adapterDown = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, History> _adapterUp = new(StringComparer.Ordinal);
     private readonly Dictionary<string, History> _gpuUsage = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, History> _gpuEncoder = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, History> _gpuDecoder = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, History> _gpuMemory = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, History> _gpuTemp = new(StringComparer.Ordinal);
     private readonly Dictionary<string, History> _engines = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, History> _diskActivity = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, History> _diskRead = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, History> _diskWrite = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, History> _diskTemp = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, History> _batteryCharge = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, History> _batteryPower = new(StringComparer.Ordinal);
     private readonly Dictionary<string, History> _processes = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<History> _cores = new();
     private long _lastMemoryStamp = long.MinValue;
@@ -183,6 +200,8 @@ public sealed class HistoryBoard
     public History Cpu { get; } = new(Capacity);
     public History Ram { get; } = new(Capacity);
     public History Gpu { get; } = new(Capacity);
+    public History Swap { get; } = new(Capacity);
+    public History CpuTemp { get; } = new(Capacity);
 
     public IReadOnlyDictionary<string, History> Disks => _disks;
     public IReadOnlyDictionary<string, History> Adapters => _adapters;
@@ -191,71 +210,58 @@ public sealed class HistoryBoard
     public IReadOnlyList<History> Cores => _cores;
     public IReadOnlyDictionary<string, History> ProcessGroups => _processes;
 
-    public History Disk(string letter)
-    {
-        if (!_disks.TryGetValue(letter, out History? history))
-        {
-            history = new History(Capacity);
-            _disks[letter] = history;
-        }
-        return history;
-    }
+    public History Disk(string letter) => Get(_disks, letter);
 
-    public History Adapter(string id)
-    {
-        if (!_adapters.TryGetValue(id, out History? history))
-        {
-            history = new History(Capacity);
-            _adapters[id] = history;
-        }
-        return history;
-    }
+    public History Adapter(string id) => Get(_adapters, id);
 
-    /// <summary>Throughput in MB/s, for the Full view's disk cards.</summary>
-    public History DiskThroughput(string mount)
-    {
-        if (!_diskIo.TryGetValue(mount, out History? history))
-        {
-            history = new History(Capacity);
-            _diskIo[mount] = history;
-        }
-        return history;
-    }
+    /// <summary>Throughput in MB/s, for a volume card.</summary>
+    public History DiskThroughput(string mount) => Get(_diskIo, mount);
 
-    /// <summary>Throughput in MB/s, for the Full view's network cards.</summary>
-    public History AdapterThroughput(string id)
-    {
-        if (!_adapterRate.TryGetValue(id, out History? history))
-        {
-            history = new History(Capacity);
-            _adapterRate[id] = history;
-        }
-        return history;
-    }
+    /// <summary>Throughput in MB/s, for a network card.</summary>
+    public History AdapterThroughput(string id) => Get(_adapterRate, id);
 
-    /// <summary>One GPU's overall usage, by position in <c>Snapshot.Gpus</c>.</summary>
-    public History GpuUsage(int index)
-    {
-        string key = index.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        if (!_gpuUsage.TryGetValue(key, out History? history))
-        {
-            history = new History(Capacity);
-            _gpuUsage[key] = history;
-        }
-        return history;
-    }
+    /// <summary>One adapter's download rate in MB/s.</summary>
+    public History AdapterDown(string id) => Get(_adapterDown, id);
 
-    /// <summary>One engine of one GPU, by position and engine name.</summary>
-    public History Engine(int gpuIndex, string name)
-    {
-        string key = gpuIndex.ToString(System.Globalization.CultureInfo.InvariantCulture) + "\u001f" + name;
-        if (!_engines.TryGetValue(key, out History? history))
-        {
-            history = new History(Capacity);
-            _engines[key] = history;
-        }
-        return history;
-    }
+    /// <summary>One adapter's upload rate in MB/s.</summary>
+    public History AdapterUp(string id) => Get(_adapterUp, id);
+
+    /// <summary>One GPU's overall usage, by its page key.</summary>
+    public History GpuUsage(string key) => Get(_gpuUsage, key);
+
+    /// <summary>One GPU's video-encoder use.</summary>
+    public History GpuEncoder(string key) => Get(_gpuEncoder, key);
+
+    /// <summary>One GPU's video-decoder use.</summary>
+    public History GpuDecoder(string key) => Get(_gpuDecoder, key);
+
+    /// <summary>One GPU's dedicated video memory, as a percentage of its capacity.</summary>
+    public History GpuMemory(string key) => Get(_gpuMemory, key);
+
+    /// <summary>One GPU's temperature.</summary>
+    public History GpuTemp(string key) => Get(_gpuTemp, key);
+
+    /// <summary>One engine of one GPU, by the GPU's page key and the engine name.</summary>
+    public History Engine(string gpuKey, string name) =>
+        Get(_engines, gpuKey + "\u001f" + name);
+
+    /// <summary>One physical disk's busy share, by its page key.</summary>
+    public History DiskActivity(string key) => Get(_diskActivity, key);
+
+    /// <summary>One physical disk's read rate in MB/s.</summary>
+    public History DiskRead(string key) => Get(_diskRead, key);
+
+    /// <summary>One physical disk's write rate in MB/s.</summary>
+    public History DiskWrite(string key) => Get(_diskWrite, key);
+
+    /// <summary>One physical disk's temperature.</summary>
+    public History DiskTemp(string key) => Get(_diskTemp, key);
+
+    /// <summary>One battery's charge in percent.</summary>
+    public History BatteryCharge(string id) => Get(_batteryCharge, id);
+
+    /// <summary>One battery's power in watts.</summary>
+    public History BatteryPower(string id) => Get(_batteryPower, id);
 
     /// <summary>One core's usage, by position.</summary>
     public History Core(int index)
@@ -272,15 +278,7 @@ public sealed class HistoryBoard
     /// sampling is on, so a group that is picked for the graph already has a
     /// past and the histories do not grow while the RAM tab is closed.
     /// </summary>
-    public History ProcessGroup(string name)
-    {
-        if (!_processes.TryGetValue(name, out History? history))
-        {
-            history = new History(Capacity);
-            _processes[name] = history;
-        }
-        return history;
-    }
+    public History ProcessGroup(string name) => Get(_processes, name);
 
     /// <summary>Push one fresh snapshot into every series.</summary>
     public void Push(Snapshot snapshot)
@@ -288,32 +286,49 @@ public sealed class HistoryBoard
         Cpu.Add(snapshot.CpuTotal);
         Ram.Add(snapshot.Ram.Usage);
         Gpu.Add(snapshot.Gpu.Present ? snapshot.Gpu.Usage : 0);
+        Swap.Add(snapshot.Ram.SwapUsage);
+        CpuTemp.Add(snapshot.CpuTemp ?? 0);
 
         for (int i = 0; i < snapshot.Cores.Count; i++)
         {
             Core(i).Add(snapshot.Cores[i].Usage);
         }
 
+        var liveGpus = new HashSet<string>(StringComparer.Ordinal);
         for (int i = 0; i < snapshot.Gpus.Count; i++)
         {
             Gpu gpu = snapshot.Gpus[i];
-            GpuUsage(i).Add(gpu.Usage);
+            string key = PageKeys.Gpu(snapshot.Gpus, i);
+            liveGpus.Add(key);
+
+            GpuUsage(key).Add(gpu.Usage);
+            GpuEncoder(key).Add(gpu.EncoderUsage ?? 0);
+            GpuDecoder(key).Add(gpu.DecoderUsage ?? 0);
+            GpuMemory(key).Add(gpu.DedicatedTotalGb > 0
+                ? Math.Clamp(gpu.DedicatedGb / gpu.DedicatedTotalGb * 100, 0, 100)
+                : 0);
+            GpuTemp(key).Add(gpu.Temp ?? 0);
             foreach (GpuEngine engine in gpu.Engines)
             {
-                Engine(i, engine.Name).Add(engine.Usage);
+                Engine(key, engine.Name).Add(engine.Usage);
             }
         }
+        DropGpuSeries(liveGpus);
 
-        foreach (Disk disk in snapshot.Disks)
-        {
-            Disk(disk.Letter).Add(disk.Usage);
-            DiskThroughput(disk.Letter).Add(disk.ReadMb + disk.WriteMb);
-        }
+        PushDisks(snapshot);
 
         foreach (Adapter adapter in snapshot.Adapters)
         {
             Adapter(adapter.Id).Add(adapter.Usage);
             AdapterThroughput(adapter.Id).Add(adapter.DownMb + adapter.UpMb);
+            AdapterDown(adapter.Id).Add(adapter.DownMb);
+            AdapterUp(adapter.Id).Add(adapter.UpMb);
+        }
+
+        foreach (Battery battery in snapshot.Batteries)
+        {
+            BatteryCharge(battery.Id).Add(battery.Percent ?? 0);
+            BatteryPower(battery.Id).Add(battery.PowerW ?? 0);
         }
 
         // An empty process list means sampling is off; the old series stay as
@@ -338,5 +353,95 @@ public sealed class HistoryBoard
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// A mount's series are by mount point; the physical disk's own series are
+    /// by page key. One disk with two mounts is pushed once.
+    /// </summary>
+    private void PushDisks(Snapshot snapshot)
+    {
+        var temperatures = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (Disk disk in snapshot.Disks)
+        {
+            if (disk.Detail?.Disk is not { } hardware)
+            {
+                continue;
+            }
+            string key = PageKeys.Disk(hardware);
+            if (disk.Temp is int celsius
+                && (!temperatures.TryGetValue(key, out int highest) || celsius > highest))
+            {
+                temperatures[key] = celsius;
+            }
+        }
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (Disk disk in snapshot.Disks)
+        {
+            Disk(disk.Letter).Add(disk.Usage);
+            DiskThroughput(disk.Letter).Add(disk.ReadMb + disk.WriteMb);
+
+            if (disk.Detail?.Disk is not { } hardware)
+            {
+                continue;
+            }
+
+            string key = PageKeys.Disk(hardware);
+            if (!seen.Add(key))
+            {
+                continue;
+            }
+
+            DiskActivity(key).Add(hardware.ActivityPercent ?? 0);
+            DiskRead(key).Add(hardware.ReadBytesPerSec / 1048576.0);
+            DiskWrite(key).Add(hardware.WriteBytesPerSec / 1048576.0);
+            DiskTemp(key).Add(temperatures.TryGetValue(key, out int temp) ? temp : 0);
+        }
+    }
+
+    /// <summary>
+    /// Forget every GPU series whose card is no longer in the snapshot. A
+    /// replugged card comes back under the same PCI address, so it finds its
+    /// own past again; a card that is gone leaves no stale graph behind.
+    /// </summary>
+    private void DropGpuSeries(HashSet<string> live)
+    {
+        Prune(_gpuUsage);
+        Prune(_gpuEncoder);
+        Prune(_gpuDecoder);
+        Prune(_gpuMemory);
+        Prune(_gpuTemp);
+
+        foreach (string engineKey in _engines.Keys.ToList())
+        {
+            int separator = engineKey.IndexOf('\u001f');
+            string gpuKey = separator < 0 ? engineKey : engineKey[..separator];
+            if (!live.Contains(gpuKey))
+            {
+                _engines.Remove(engineKey);
+            }
+        }
+
+        void Prune(Dictionary<string, History> series)
+        {
+            foreach (string key in series.Keys.ToList())
+            {
+                if (!live.Contains(key))
+                {
+                    series.Remove(key);
+                }
+            }
+        }
+    }
+
+    private static History Get(Dictionary<string, History> map, string key)
+    {
+        if (!map.TryGetValue(key, out History? history))
+        {
+            history = new History(Capacity);
+            map[key] = history;
+        }
+        return history;
     }
 }

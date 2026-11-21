@@ -109,18 +109,24 @@ public sealed class RestartTests
     }
 
     [TestMethod]
-    public void StartupOptions_StartView_FullWinsOverExpanded()
+    public void StartupOptions_StartView_FullAndExpanded_BothOpenMain()
     {
         var config = new AppConfig { LastView = "widget" };
 
         StartupOptions fullAndExpanded = StartupOptions.Parse(new[] { "--full", "--expanded" });
-        Assert.AreEqual(ViewMode.Full, fullAndExpanded.StartView(config));
+        Assert.AreEqual(ViewMode.Main, fullAndExpanded.StartView(config));
+
+        StartupOptions fullOnly = StartupOptions.Parse(new[] { "--full" });
+        Assert.AreEqual(ViewMode.Main, fullOnly.StartView(config));
 
         StartupOptions expandedOnly = StartupOptions.Parse(new[] { "--expanded" });
-        Assert.AreEqual(ViewMode.Overall, expandedOnly.StartView(config));
+        Assert.AreEqual(ViewMode.Main, expandedOnly.StartView(config));
 
         StartupOptions none = StartupOptions.Parse(Array.Empty<string>());
         Assert.AreEqual(ViewMode.Widget, none.StartView(config));
+
+        var mainConfig = new AppConfig { LastView = "main" };
+        Assert.AreEqual(ViewMode.Main, none.StartView(mainConfig));
     }
 
     [TestMethod]

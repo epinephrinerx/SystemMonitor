@@ -56,6 +56,12 @@ public sealed class AppConfig
     public string ProcsSort { get; set; } = "memory";
     public bool ProcsSortDesc { get; set; } = true;
 
+    // Main window (R-030). `main_page` is the page key from PageKeys; the
+    // sidebar width is clamped 200-320 DIPs.
+    public string MainPage { get; set; } = "overall";
+    public bool SettingsOpen { get; set; }
+    public int SidebarWidth { get; set; } = 230;
+
     /// <summary>Legacy key only: read for migration, never written again.</summary>
     public bool? ShowSmart { get; set; }
 
@@ -71,7 +77,14 @@ public sealed class AppConfig
     public bool OverallSized { get; set; }
     public double FullW { get; set; }
     public double FullH { get; set; }
+
+    /// <summary>The Main window's panel size; seeded from Full's on migration.</summary>
+    public double MainW { get; set; }
+    public double MainH { get; set; }
+
     public string LastView { get; set; } = "widget";
+
+    /// <summary>Legacy key only: read for migration, never written again.</summary>
     public string FullTab { get; set; } = string.Empty;
 
     /// <summary>Case-insensitive id -> { enabled }.</summary>
@@ -205,7 +218,22 @@ public sealed class AppConfig
         NetworkMode = Text(NetworkMode, "separated", "total", "separated");
         CpuMode = Text(CpuMode, "separated", "total", "separated");
         DiskMode = Text(DiskMode, "separated", "total", "separated");
-        LastView = Text(LastView, "widget", "overall", "full", "widget");
+
+        // R-030: Overall and Full are one window now, so both legacy values
+        // read as Main. An unknown value still means the Widget.
+        LastView = string.Equals(LastView, "main", StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(LastView, "overall", StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(LastView, "full", StringComparison.OrdinalIgnoreCase)
+            ? "main"
+            : "widget";
+
+        MainPage = LegacyTab(MainPage);
+        if (!PageKeys.IsPageKey(MainPage))
+        {
+            MainPage = PageKeys.Overall;
+        }
+        SidebarWidth = MainState.ClampWidth(SidebarWidth);
+
         AppsSort = ProcessGrid.Key(ProcessGrid.ParseColumn(AppsSort, GridColumn.Memory));
         ProcsSort = ProcessGrid.Key(ProcessGrid.ParseColumn(ProcsSort, GridColumn.Memory));
 
@@ -235,6 +263,24 @@ public sealed class AppConfig
             FullH = 0;
         }
 
+        // Main's geometry works like Full's: zero means unset.
+        if (MainW > 0)
+        {
+            MainW = Math.Clamp(MainW, 640, 4000);
+        }
+        else
+        {
+            MainW = 0;
+        }
+        if (MainH > 0)
+        {
+            MainH = Math.Clamp(MainH, 480, 3000);
+        }
+        else
+        {
+            MainH = 0;
+        }
+
         if (Extensions is null)
         {
             Extensions = new Dictionary<string, ExtensionOption>(StringComparer.OrdinalIgnoreCase);
@@ -256,20 +302,31 @@ public sealed class AppConfig
         }
 
         // Old Full tab keys from before extensions.
-        if (FullTab.Equals("smart", StringComparison.OrdinalIgnoreCase))
-        {
-            FullTab = "ext:smart:status";
-        }
-        else if (FullTab.StartsWith("smart", StringComparison.OrdinalIgnoreCase)
-                 && int.TryParse(FullTab[5..], out int number))
-        {
-            FullTab = "ext:smart:disk" + number;
-        }
-
+        FullTab = LegacyTab(FullTab);
         if (string.IsNullOrWhiteSpace(FullTab))
         {
             FullTab = string.Empty;
         }
+    }
+
+    /// <summary>
+    /// The pre-extension Full tab names: "smart" was the status page and
+    /// "smart&lt;n&gt;" one disk's SMART. Kept because both the old `full_tab`
+    /// and a migrated `main_page` can still hold them.
+    /// </summary>
+    private static string LegacyTab(string? key)
+    {
+        string value = key ?? string.Empty;
+        if (value.Equals("smart", StringComparison.OrdinalIgnoreCase))
+        {
+            return "ext:smart:status";
+        }
+        if (value.StartsWith("smart", StringComparison.OrdinalIgnoreCase)
+            && int.TryParse(value[5..], out int number))
+        {
+            return "ext:smart:disk" + number;
+        }
+        return value.Trim();
     }
 
     private static double Limit(double value, double fallback, double min, double max)
@@ -342,6 +399,36 @@ public sealed class AppConfig
         LastView = String(root, "last_view") ?? LastView;
         FullTab = String(root, "full_tab") ?? FullTab;
 
+        MainW = Number(root, "main_w") ?? MainW;
+        MainH = Number(root, "main_h") ?? MainH;
+        MainPage = String(root, "main_page") ?? MainPage;
+        SettingsOpen = Bool(root, "settings_open") ?? SettingsOpen;
+        SidebarWidth = Integer(root, "sidebar_width") ?? SidebarWidth;
+
+        // R-030 migration: a file without `main_page` was written by the
+        // three-view build. Its last view, remembered tab and Full geometry
+        // seed the one main window, once; from then on main_* is the source.
+        if (!root.TryGetProperty("main_page", out _))
+        {
+            if (MainW <= 0 && FullW > 0)
+            {
+                MainW = FullW;
+            }
+            if (MainH <= 0 && FullH > 0)
+            {
+                MainH = FullH;
+            }
+            if (!string.IsNullOrWhiteSpace(FullTab))
+            {
+                MainPage = FullTab;
+            }
+            if (string.Equals(LastView, "overall", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(LastView, "full", StringComparison.OrdinalIgnoreCase))
+            {
+                LastView = "main";
+            }
+        }
+
         if (root.TryGetProperty("extensions", out JsonElement extensions)
             && extensions.ValueKind == JsonValueKind.Object)
         {
@@ -400,8 +487,12 @@ public sealed class AppConfig
         writer.WriteBoolean("overall_sized", OverallSized);
         writer.WriteNumber("full_w", FullW);
         writer.WriteNumber("full_h", FullH);
+        writer.WriteNumber("main_w", MainW);
+        writer.WriteNumber("main_h", MainH);
+        writer.WriteBoolean("settings_open", SettingsOpen);
+        writer.WriteNumber("sidebar_width", SidebarWidth);
+        writer.WriteString("main_page", MainPage);
         writer.WriteString("last_view", LastView);
-        writer.WriteString("full_tab", FullTab);
 
         writer.WriteStartObject("extensions");
         foreach (KeyValuePair<string, ExtensionOption> entry in Extensions)
@@ -440,6 +531,16 @@ public sealed class AppConfig
                 _ => null,
             }
             : null;
+
+    private static int? Integer(JsonElement root, string name)
+    {
+        double? number = Number(root, name);
+        if (number is not double value || !double.IsFinite(value))
+        {
+            return null;
+        }
+        return (int)Math.Round(Math.Clamp(value, int.MinValue, int.MaxValue));
+    }
 
     private static double? Number(JsonElement root, string name)
     {

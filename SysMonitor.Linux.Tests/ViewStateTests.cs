@@ -10,65 +10,75 @@ public sealed class ViewStateTests
     public void ViewModeExtensions_ToKey_And_Parse()
     {
         Assert.AreEqual("widget", ViewMode.Widget.ToKey());
-        Assert.AreEqual("overall", ViewMode.Overall.ToKey());
-        Assert.AreEqual("full", ViewMode.Full.ToKey());
+        Assert.AreEqual("main", ViewMode.Main.ToKey());
+        Assert.AreEqual("main", ViewMode.Overall.ToKey());
+        Assert.AreEqual("main", ViewMode.Full.ToKey());
 
-        Assert.AreEqual(ViewMode.Widget, ViewModeExtensions.Parse("widget", ViewMode.Full));
-        Assert.AreEqual(ViewMode.Overall, ViewModeExtensions.Parse("overall", ViewMode.Widget));
-        Assert.AreEqual(ViewMode.Full, ViewModeExtensions.Parse("full", ViewMode.Overall));
+        Assert.AreEqual(ViewMode.Widget, ViewModeExtensions.Parse("widget", ViewMode.Main));
+        Assert.AreEqual(ViewMode.Main, ViewModeExtensions.Parse("main", ViewMode.Widget));
+        Assert.AreEqual(ViewMode.Main, ViewModeExtensions.Parse("overall", ViewMode.Widget));
+        Assert.AreEqual(ViewMode.Main, ViewModeExtensions.Parse("full", ViewMode.Widget));
         Assert.AreEqual(ViewMode.Widget, ViewModeExtensions.Parse("unknown", ViewMode.Widget));
     }
 
     [TestMethod]
-    public void DoubleClick_FollowsSpecSwitchingCycle()
+    public void DoubleClick_TogglesWidgetAndMain()
     {
         var state = new ViewState(ViewMode.Widget);
 
-        // Widget -> Overall
+        // Widget -> Main
         Assert.IsTrue(state.DoubleClick());
-        Assert.AreEqual(ViewMode.Overall, state.Mode);
+        Assert.AreEqual(ViewMode.Main, state.Mode);
 
-        // Overall -> Full
-        Assert.IsTrue(state.DoubleClick());
-        Assert.AreEqual(ViewMode.Full, state.Mode);
-
-        // Full -> Widget
+        // Main -> Widget
         Assert.IsTrue(state.DoubleClick());
         Assert.AreEqual(ViewMode.Widget, state.Mode);
+
+        // Widget -> Main
+        Assert.IsTrue(state.DoubleClick());
+        Assert.AreEqual(ViewMode.Main, state.Mode);
     }
 
     [TestMethod]
-    public void F11_StepsToFull_AndBackToOverall()
+    public void F11_TogglesMainFullScreen_AndOpensMainFromWidget()
     {
         var state = new ViewState(ViewMode.Widget);
 
-        // Widget -> Full
+        // Widget -> Main + full screen
         Assert.IsTrue(state.F11());
-        Assert.AreEqual(ViewMode.Full, state.Mode);
+        Assert.AreEqual(ViewMode.Main, state.Mode);
+        Assert.IsTrue(state.MainFullScreen);
 
-        // Full -> Overall
+        // Main -> full screen off
         Assert.IsTrue(state.F11());
-        Assert.AreEqual(ViewMode.Overall, state.Mode);
+        Assert.AreEqual(ViewMode.Main, state.Mode);
+        Assert.IsFalse(state.MainFullScreen);
 
-        // Overall -> Full
+        // Main -> full screen on
         Assert.IsTrue(state.F11());
-        Assert.AreEqual(ViewMode.Full, state.Mode);
+        Assert.AreEqual(ViewMode.Main, state.Mode);
+        Assert.IsTrue(state.MainFullScreen);
     }
 
     [TestMethod]
-    public void Escape_StepsBackOneLevel_AndIsNoOpInWidget()
+    public void Escape_LeavesFullScreenThenStepsToWidget_AndIsNoOpInWidget()
     {
-        var state = new ViewState(ViewMode.Full);
+        var state = new ViewState(ViewMode.Widget);
+        state.F11(); // Now Main + full screen
+        Assert.AreEqual(ViewMode.Main, state.Mode);
+        Assert.IsTrue(state.MainFullScreen);
 
-        // Full -> Overall
+        // Esc leaves full screen first (stays in Main)
         Assert.IsTrue(state.Escape());
-        Assert.AreEqual(ViewMode.Overall, state.Mode);
+        Assert.AreEqual(ViewMode.Main, state.Mode);
+        Assert.IsFalse(state.MainFullScreen);
 
-        // Overall -> Widget
+        // Esc in Main steps back to Widget
         Assert.IsTrue(state.Escape());
         Assert.AreEqual(ViewMode.Widget, state.Mode);
+        Assert.IsFalse(state.MainFullScreen);
 
-        // Widget -> no-op
+        // Esc in Widget is no-op
         Assert.IsFalse(state.Escape());
         Assert.AreEqual(ViewMode.Widget, state.Mode);
     }
@@ -78,31 +88,23 @@ public sealed class ViewStateTests
     {
         var state = new ViewState(ViewMode.Widget);
 
-        // ContextExpand: Widget -> Overall
+        // ContextExpand: Widget -> Main
         Assert.IsTrue(state.ContextExpand());
-        Assert.AreEqual(ViewMode.Overall, state.Mode);
+        Assert.AreEqual(ViewMode.Main, state.Mode);
 
-        // ContextExpand: Overall -> Widget
+        // ContextExpand: Main -> Widget
         Assert.IsTrue(state.ContextExpand());
         Assert.AreEqual(ViewMode.Widget, state.Mode);
 
-        // ContextExpand: Full -> Overall
-        state.Move(ViewMode.Full);
-        Assert.IsTrue(state.ContextExpand());
-        Assert.AreEqual(ViewMode.Overall, state.Mode);
-
-        // ContextFullScreen: Widget -> Full
-        state.Move(ViewMode.Widget);
+        // ContextFullScreen: Widget -> Main + full screen
         Assert.IsTrue(state.ContextFullScreen());
-        Assert.AreEqual(ViewMode.Full, state.Mode);
+        Assert.AreEqual(ViewMode.Main, state.Mode);
+        Assert.IsTrue(state.MainFullScreen);
 
-        // ContextFullScreen: Full -> Overall
+        // ContextFullScreen: Main -> toggles full screen off
         Assert.IsTrue(state.ContextFullScreen());
-        Assert.AreEqual(ViewMode.Overall, state.Mode);
-
-        // ContextFullScreen: Overall -> Full
-        Assert.IsTrue(state.ContextFullScreen());
-        Assert.AreEqual(ViewMode.Full, state.Mode);
+        Assert.AreEqual(ViewMode.Main, state.Mode);
+        Assert.IsFalse(state.MainFullScreen);
     }
 
     [TestMethod]
@@ -111,26 +113,26 @@ public sealed class ViewStateTests
         var state = new ViewState(ViewMode.Widget);
 
         Assert.IsTrue(state.OverallHeaderFull());
-        Assert.AreEqual(ViewMode.Full, state.Mode);
+        Assert.AreEqual(ViewMode.Main, state.Mode);
         Assert.IsFalse(state.OverallHeaderFull(), "Moving to current mode should return false");
 
         Assert.IsTrue(state.OverallHeaderWidget());
         Assert.AreEqual(ViewMode.Widget, state.Mode);
 
         Assert.IsTrue(state.SidebarFullData());
-        Assert.AreEqual(ViewMode.Full, state.Mode);
+        Assert.AreEqual(ViewMode.Main, state.Mode);
 
         Assert.IsTrue(state.SidebarOpenWidget());
         Assert.AreEqual(ViewMode.Widget, state.Mode);
 
         Assert.IsTrue(state.FullHeaderOverall());
-        Assert.AreEqual(ViewMode.Overall, state.Mode);
+        Assert.AreEqual(ViewMode.Main, state.Mode);
 
         Assert.IsTrue(state.FullHeaderWidget());
         Assert.AreEqual(ViewMode.Widget, state.Mode);
 
         Assert.IsTrue(state.FullRailOverall());
-        Assert.AreEqual(ViewMode.Overall, state.Mode);
+        Assert.AreEqual(ViewMode.Main, state.Mode);
 
         Assert.IsTrue(state.FullRailWidget());
         Assert.AreEqual(ViewMode.Widget, state.Mode);
@@ -141,18 +143,27 @@ public sealed class ViewStateTests
     {
         var state = new ViewState(ViewMode.Widget);
         Assert.IsTrue(state.IsWidget);
+        Assert.IsFalse(state.MainFullScreen);
         Assert.AreEqual("expand_hint", state.FirstMenuItemKey);
         Assert.AreEqual("fullscreen", state.FullScreenItemKey);
 
-        state.Move(ViewMode.Overall);
+        state.Move(ViewMode.Main);
         Assert.IsFalse(state.IsWidget);
+        Assert.IsFalse(state.MainFullScreen);
         Assert.AreEqual("collapse", state.FirstMenuItemKey);
         Assert.AreEqual("fullscreen", state.FullScreenItemKey);
 
-        state.Move(ViewMode.Full);
+        state.F11();
         Assert.IsFalse(state.IsWidget);
-        Assert.AreEqual("expand_hint", state.FirstMenuItemKey);
+        Assert.IsTrue(state.MainFullScreen);
+        Assert.AreEqual("collapse", state.FirstMenuItemKey);
         Assert.AreEqual("exit_fullscreen", state.FullScreenItemKey);
+
+        state.Escape();
+        Assert.IsFalse(state.IsWidget);
+        Assert.IsFalse(state.MainFullScreen);
+        Assert.AreEqual("collapse", state.FirstMenuItemKey);
+        Assert.AreEqual("fullscreen", state.FullScreenItemKey);
     }
 
     [TestMethod]

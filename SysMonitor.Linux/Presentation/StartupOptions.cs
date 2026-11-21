@@ -76,18 +76,15 @@ public sealed class StartupOptions
     }
 
     /// <summary>
-    /// <c>--full</c> wins over <c>--expanded</c>; otherwise the remembered view
-    /// decides. An unknown stored value means Widget.
+    /// <c>--full</c> and <c>--expanded</c> both open the one main window now,
+    /// the switches kept for desktop entries that still pass them. Otherwise
+    /// the remembered view decides; an unknown stored value means Widget.
     /// </summary>
     public ViewMode StartView(AppConfig config)
     {
-        if (Full)
+        if (Full || Expanded)
         {
-            return ViewMode.Full;
-        }
-        if (Expanded)
-        {
-            return ViewMode.Overall;
+            return ViewMode.Main;
         }
         return ViewModeExtensions.Parse(config.LastView, ViewMode.Widget);
     }

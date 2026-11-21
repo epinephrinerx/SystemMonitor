@@ -1,6 +1,7 @@
 using System.Text;
 using Avalonia.Platform;
 using SkiaSharp;
+using SysMonitor.Linux;
 using SysMonitor.Linux.Presentation;
 using SysMonitor.Linux.Sampling;
 using SysMonitor.Linux.Sensors;
@@ -60,7 +61,9 @@ internal static class Probe
         for (int i = 0; i < shell.WidgetPages.Count; i++)
         {
             WidgetPage page = shell.WidgetPages[i];
-            text.AppendLine($"  {i + 1}. [{page.Key}] {page.Kind}  title=\"{page.Title}\"");
+            text.AppendLine(
+                $"  {i + 1}. [{MaskKey(page.Key)}] {page.Kind}  " +
+                $"title=\"{Privacy.MaskInterface(page.Title)}\"");
             if (page.Message.Length > 0)
             {
                 text.AppendLine($"     message  \"{page.Message}\"");
@@ -117,7 +120,7 @@ internal static class Probe
             text.AppendLine($"Overall message: \"{shell.Overall.Message}\"");
         }
 
-        DescribeFull(text, shell);
+        DescribeMain(text, shell);
         DescribeMemory(text, shell, snapshot);
         DescribeIntegrations(text, shell, snapshot);
 
@@ -191,33 +194,114 @@ internal static class Probe
     /// </summary>
     private const string Glyphs = "↓↑°·…≈~⚠▲ก์";
 
-    /// <summary>Every Full tab: rail text, facts and every card's numbers.</summary>
-    private static void DescribeFull(StringBuilder text, ShellModel shell)
+    /// <summary>
+    /// The Main window's models: the sidebar's module items and, for every
+    /// module page, its label, options, Usage charts with their peaks, Sensors
+    /// and Properties. No window is created.
+    /// </summary>
+    private static void DescribeMain(StringBuilder text, ShellModel shell)
     {
         FullModel full = shell.Full;
-        text.AppendLine($"Full tabs ({full.Tabs.Count})  selected={full.SelectedKey ?? "(none)"}");
+        text.AppendLine(
+            $"Main page={shell.Main.Page}  settings_open={shell.Main.SettingsOpen}  " +
+            $"sidebar_width={shell.Main.SidebarWidth}  full_screen={shell.MainFullScreen}");
+        DescribeSidebar(text, shell);
+
+        text.AppendLine($"Module pages ({full.Tabs.Count})  selected={full.SelectedKey ?? "(none)"}");
         foreach (FullTab tab in full.Tabs)
         {
             text.AppendLine(
-                $"  [{tab.Key}] title=\"{tab.Title}\"" +
+                $"  [{MaskKey(tab.Key)}] label=\"{tab.Label}\" " +
+                $"title=\"{Privacy.MaskInterface(tab.Title)}\"" +
                 (tab.IsDisk ? "  (disk)" : string.Empty));
             text.AppendLine($"     rail detail  \"{tab.Detail}\"");
             text.AppendLine($"     rail summary \"{tab.Summary}\"");
             text.AppendLine($"     hardware     \"{tab.Hardware}\"");
-            foreach (FullFact fact in tab.Facts)
+            if (tab.Options.Count > 0)
             {
-                text.AppendLine($"     fact  {fact.Title} = \"{fact.Value}\"");
+                text.AppendLine(
+                    "     options  " + string.Join("  ", tab.Options.Select(option =>
+                        $"{option.ConfigKey}={option.LabelKey}:{(option.Value ? "on" : "off")}")));
             }
             foreach (FullCard card in tab.BigCards)
             {
-                text.AppendLine("     BIG   " + Describe(card));
+                text.AppendLine("     usage  " + Describe(card));
             }
             foreach (FullCard card in tab.SmallCards)
             {
-                text.AppendLine("     small " + Describe(card));
+                text.AppendLine("     small  " + Describe(card));
+            }
+            foreach (FullCard card in tab.Sensors)
+            {
+                text.AppendLine("     sensor " + Describe(card));
+            }
+            foreach (FullFact fact in tab.Properties)
+            {
+                text.AppendLine($"     property  {fact.Title} = \"{FactValue(fact, shell)}\"");
             }
             text.AppendLine();
         }
+    }
+
+    /// <summary>The sidebar's items, with the probe's privacy mask on names.</summary>
+    private static void DescribeSidebar(StringBuilder text, ShellModel shell)
+    {
+        text.AppendLine($"Main sidebar ({shell.MainSidebar.Count})");
+        foreach (SidebarItem item in shell.MainSidebar)
+        {
+            text.AppendLine(
+                $"  [{MaskKey(item.Key)}] title=\"{MaskName(item.Title)}\"  value=\"{item.Value}\"  " +
+                $"device=\"{Privacy.MaskInterface(item.Device)}\"  accent={item.Accent.ToHex()}  " +
+                $"points={item.Primary.Count}" +
+                (item.Secondary is null ? string.Empty : $" +{item.Secondary.Count}"));
+        }
+        text.AppendLine();
+    }
+
+    /// <summary>
+    /// A value the probe must not print: the Wi-Fi network name is kept in the
+    /// model and shown in the window, but a report must not carry it. An
+    /// interface named after its MAC address is masked wherever it appears.
+    /// </summary>
+    private static string FactValue(FullFact fact, ShellModel shell)
+    {
+        if (fact.Private
+            && fact.Value.Length > 0
+            && !string.Equals(fact.Value, shell.Language["na"], StringComparison.Ordinal))
+        {
+            return "(hidden)";
+        }
+        return Privacy.MaskInterface(fact.Value);
+    }
+
+    /// <summary>Mask the device part of "Wi-Fi · enx&lt;MAC&gt;".</summary>
+    private static string MaskName(string text)
+    {
+        int separator = text.LastIndexOf(" · ", StringComparison.Ordinal);
+        return separator < 0
+            ? Privacy.MaskInterface(text)
+            : text[..(separator + 3)] + Privacy.MaskInterface(text[(separator + 3)..]);
+    }
+
+    /// <summary>
+    /// A page or card key whose device part is an <c>enx&lt;MAC&gt;</c> name:
+    /// "net&lt;name&gt;" and "net&lt;name&gt;:down" keep their shape, the name is
+    /// masked.
+    /// </summary>
+    private static string MaskKey(string key)
+    {
+        if (key.StartsWith("net:", StringComparison.Ordinal))
+        {
+            return "net:" + Privacy.MaskInterface(key[4..]);
+        }
+        if (!key.StartsWith("net", StringComparison.Ordinal))
+        {
+            return key;
+        }
+        int colon = key.IndexOf(':', 3);
+        string id = colon < 0 ? key[3..] : key[3..colon];
+        string suffix = colon < 0 ? string.Empty : key[colon..];
+        return "net" + Privacy.MaskInterface(id) + suffix;
     }
 
     /// <summary>The top process groups and the first services of each scope.</summary>
@@ -361,15 +445,16 @@ internal static class Probe
         $"scope={(service.UserUnit ? "user" : "system")}";
 
     private static string Describe(FullCard card) =>
-        $"key={card.Key}  title=\"{card.Title}\"  value=\"{card.Value}\"  " +
-        $"detail=\"{card.Detail}\"  unit=\"{card.Unit}\"  ceiling=\"{card.Ceiling}\"  " +
-        $"accent={card.Accent.ToHex()}  max={card.Maximum}  points={card.History.Count}";
+        $"key={MaskKey(card.Key)}  title=\"{card.Title}\"  value=\"{card.Value}\"  " +
+        $"peak=\"{card.Peak}\"  detail=\"{card.Detail}\"  unit=\"{card.Unit}\"  " +
+        $"ceiling=\"{card.Ceiling}\"  accent={card.Accent.ToHex()}  max={card.Maximum}  " +
+        $"points={card.History.Count}";
 
     /// <summary>One meter row, with every field the view renders.</summary>
     private static string Describe(MeterRow row)
     {
         var text = new StringBuilder();
-        text.Append(row.Title.Length > 0 ? row.Title : "(no label)");
+        text.Append(row.Title.Length > 0 ? Privacy.MaskInterface(row.Title) : "(no label)");
         text.Append("  ").Append(row.Percent).Append('%');
         if (!string.IsNullOrEmpty(row.ValueText))
         {

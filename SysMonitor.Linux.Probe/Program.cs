@@ -134,8 +134,50 @@ internal static class Program
         Console.WriteLine("RAM");
         Console.WriteLine($"  Used / total   : {Gb(ram.UsedGb)} / {Gb(ram.TotalGb)} ({Number(ram.Usage)} %)");
         Console.WriteLine($"  Temperature    : {Celsius(ram.Temp)}");
-        Console.WriteLine($"  Modules        : {(snapshot.Modules.Count > 0 ? Module.Summarise(snapshot.Modules) : "N/A")} ({Number(snapshot.MemorySlots)} slots)");
+        Console.WriteLine($"  Modules        : {MemorySummary(snapshot)}");
         Console.WriteLine();
+    }
+
+    /// <summary>
+    /// The module line from the layout the udev data gave, which is what this
+    /// machine actually reports: "2 x 4 GB LPDDR4 2667 MT/s (2 of 2 slots)".
+    /// The old line read the Windows-style module list, which is always empty on
+    /// Linux, and so printed "N/A (0 slots)" on a machine with two DIMMs.
+    /// </summary>
+    private static string MemorySummary(Snapshot snapshot)
+    {
+        MemoryLayout layout = snapshot.MemoryLayout;
+        string slots = layout.SlotsTotal is int total
+            ? $"{(layout.SlotsUsed ?? layout.Modules.Count)} of {Number(total)}"
+            : Number(snapshot.MemorySlots);
+
+        if (layout.Modules.Count == 0)
+        {
+            string fallback = snapshot.Modules.Count > 0 ? Module.Summarise(snapshot.Modules) : "N/A";
+            return $"{fallback} ({slots} slots)";
+        }
+
+        var sizes = layout.Modules
+            .GroupBy(module => module.SizeBytes is long bytes ? Math.Round(bytes / 1073741824.0) : 0)
+            .OrderByDescending(group => group.Key)
+            .Select(group => group.Count() > 1
+                ? $"{group.Count()} x {group.Key:F0} GB"
+                : $"{group.Key:F0} GB");
+        var parts = new List<string> { string.Join(" + ", sizes) };
+
+        string kind = layout.Modules[0].Type;
+        if (kind.Length > 0 && layout.Modules.All(module => module.Type == kind))
+        {
+            parts.Add(kind);
+        }
+        int? speed = layout.Modules[0].ConfiguredSpeedMts;
+        if (speed is int mts && mts > 0
+            && layout.Modules.All(module => module.ConfiguredSpeedMts == mts))
+        {
+            parts.Add($"{mts} MT/s");
+        }
+
+        return $"{string.Join(" ", parts)} ({slots} slots)";
     }
 
     private static void PrintSwap(Snapshot snapshot)

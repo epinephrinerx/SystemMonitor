@@ -84,6 +84,56 @@ public static class Format
     public static string Kilobytes(int kilobytes) =>
         kilobytes >= 1024 ? Decimal(kilobytes / 1024.0, 1) + " MB" : Number(kilobytes) + " KB";
 
+    /// <summary>"3 KB/s", "12.4 MB/s", "1.1 GB/s": a device's live byte rate.</summary>
+    public static string ByteRate(double bytesPerSecond)
+    {
+        double kilobytes = Math.Max(0, bytesPerSecond) / 1024.0;
+        if (kilobytes >= 1048576)
+        {
+            return Decimal(kilobytes / 1048576.0, 1) + " GB/s";
+        }
+        return kilobytes >= 1024
+            ? Decimal(kilobytes / 1024.0, 1) + " MB/s"
+            : Decimal(kilobytes, 0) + " KB/s";
+    }
+
+    /// <summary>"512 B", "128 KB", "4.0 GB": a count that is already on disk.</summary>
+    public static string Bytes(long bytes)
+    {
+        double value = Math.Max(0, bytes);
+        if (value >= 1073741824)
+        {
+            return Decimal(value / 1073741824.0, 1) + " GB";
+        }
+        if (value >= 1048576)
+        {
+            return Decimal(value / 1048576.0, 1) + " MB";
+        }
+        return value >= 1024 ? Decimal(value / 1024.0, 0) + " KB" : Number((int)value) + " B";
+    }
+
+    /// <summary>"0.6 V": a voltage with the two digits SMBIOS reports.</summary>
+    public static string Volts(double value) => Decimal(value, 2) + " V";
+
+    /// <summary>"65.3 W": power draw.</summary>
+    public static string Watts(double value) => Decimal(value, 1) + " W";
+
+    /// <summary>"2d 4h", "3h 12m", "45m": a duration in the shortest useful form.</summary>
+    public static string Duration(TimeSpan span)
+    {
+        if (span < TimeSpan.Zero)
+        {
+            span = TimeSpan.Zero;
+        }
+        if (span.TotalDays >= 1)
+        {
+            return $"{(int)span.TotalDays}d {span.Hours}h";
+        }
+        return span.TotalHours >= 1
+            ? $"{(int)span.TotalHours}h {span.Minutes}m"
+            : $"{span.Minutes}m";
+    }
+
     /// <summary>Join the non-empty parts with the UI's middle dot.</summary>
     public static string Join(params string?[] parts) =>
         string.Join(" · ", parts.Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => p!));

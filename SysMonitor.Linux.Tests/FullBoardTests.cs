@@ -177,6 +177,7 @@ public sealed class FullBoardTests
             {
                 Present = true,
                 Name = "Intel Iris Plus Graphics G1 (Ice Lake)",
+                PciSlot = "0000:00:02.0",
                 Driver = "i915",
                 Usage = 25,
                 DedicatedGb = 0,
@@ -196,6 +197,7 @@ public sealed class FullBoardTests
             {
                 Present = true,
                 Name = "NVIDIA GeForce MX250",
+                PciSlot = "0000:01:00.0",
                 Driver = "nvidia",
                 Usage = 65,
                 DedicatedGb = 1.2,
@@ -277,14 +279,14 @@ public sealed class FullBoardTests
         FullModel model = FullBoard.Build(
             snapshot, config, lang, palette, history, selection, rememberedTab: "");
 
-        // Expected tabs:
+        // Expected tabs order (R-030: CPU, RAM, GPUs, Disks, Networks):
         // 0: cpu
         // 1: ram
-        // 2: disk:nvme0n1 (holds "/" -> root disk first!)
-        // 3: disk:sda     (internal disk, sorted by kernel name)
-        // 4: disk:sdb     (removable USB disk)
-        // 5: gpu0         (Intel)
-        // 6: gpu1         (NVIDIA)
+        // 2: gpu0         (Intel)
+        // 3: gpu1         (NVIDIA)
+        // 4: disk:nvme0n1 (holds "/" -> root disk first!)
+        // 5: disk:sda     (internal disk, sorted by kernel name)
+        // 6: disk:sdb     (removable USB disk)
         // 7: netwlp0s20f3 (Wi-Fi)
         // 8: neteth0      (Ethernet)
         Assert.AreEqual(9, model.Tabs.Count);
@@ -292,28 +294,28 @@ public sealed class FullBoardTests
         Assert.AreEqual("cpu", model.Tabs[0].Key);
         Assert.AreEqual("ram", model.Tabs[1].Key);
 
+        // GPUs: one tab per GPU (before Disks)
+        Assert.AreEqual("gpu:0000:00:02.0", model.Tabs[2].Key);
+        Assert.AreEqual("Intel Iris Plus Graphics G1 (Ice Lake)", model.Tabs[2].Title);
+        Assert.AreEqual("gpu:0000:01:00.0", model.Tabs[3].Key);
+        Assert.AreEqual("NVIDIA GeForce MX250", model.Tabs[3].Title);
+
         // Disks: root disk nvme0n1 first
-        Assert.AreEqual("disk:nvme0n1", model.Tabs[2].Key);
-        Assert.AreEqual("Disk 0", model.Tabs[2].Title);
-        Assert.IsTrue(model.Tabs[2].IsDisk);
-        CollectionAssert.AreEqual(new[] { "/", "/boot/efi" }, (System.Collections.ICollection)model.Tabs[2].Mounts);
+        Assert.AreEqual("disk:nvme0n1", model.Tabs[4].Key);
+        Assert.AreEqual("Disk 0", model.Tabs[4].Title);
+        Assert.IsTrue(model.Tabs[4].IsDisk);
+        CollectionAssert.AreEqual(new[] { "/", "/boot/efi" }, (System.Collections.ICollection)model.Tabs[4].Mounts);
 
         // Internal disk sda second
-        Assert.AreEqual("disk:sda", model.Tabs[3].Key);
-        Assert.AreEqual("Disk 1", model.Tabs[3].Title);
-        Assert.IsTrue(model.Tabs[3].IsDisk);
-        CollectionAssert.AreEqual(new[] { "/data" }, (System.Collections.ICollection)model.Tabs[3].Mounts);
+        Assert.AreEqual("disk:sda", model.Tabs[5].Key);
+        Assert.AreEqual("Disk 1", model.Tabs[5].Title);
+        Assert.IsTrue(model.Tabs[5].IsDisk);
+        CollectionAssert.AreEqual(new[] { "/data" }, (System.Collections.ICollection)model.Tabs[5].Mounts);
 
         // Removable disk sdb third
-        Assert.AreEqual("disk:sdb", model.Tabs[4].Key);
-        Assert.AreEqual("Disk 2", model.Tabs[4].Title);
-        Assert.IsTrue(model.Tabs[4].IsDisk);
-
-        // GPUs: one tab per GPU
-        Assert.AreEqual("gpu0", model.Tabs[5].Key);
-        Assert.AreEqual("Intel Iris Plus Graphics G1 (Ice Lake)", model.Tabs[5].Title);
-        Assert.AreEqual("gpu1", model.Tabs[6].Key);
-        Assert.AreEqual("NVIDIA GeForce MX250", model.Tabs[6].Title);
+        Assert.AreEqual("disk:sdb", model.Tabs[6].Key);
+        Assert.AreEqual("Disk 2", model.Tabs[6].Title);
+        Assert.IsTrue(model.Tabs[6].IsDisk);
 
         // Network: one tab per adapter
         Assert.AreEqual("netwlp0s20f3", model.Tabs[7].Key);
@@ -393,7 +395,7 @@ public sealed class FullBoardTests
             snapshot, config, lang, palette, history, selection, rememberedTab: "");
 
         // Intel GPU (gpu0): 2 engines, no temp, shared memory
-        FullTab intelTab = model.Tabs.First(t => t.Key == "gpu0");
+        FullTab intelTab = model.Tabs.First(t => t.Key == "gpu:0000:00:02.0");
         Assert.IsTrue(intelTab.Facts.Any(f => f.Title == "Driver" && f.Value == "i915"));
         Assert.IsFalse(intelTab.Facts.Any(f => f.Title == "Temp"));
         Assert.AreEqual(2, intelTab.SmallCards.Count);
@@ -401,7 +403,7 @@ public sealed class FullBoardTests
         Assert.AreEqual("25%", intelTab.SmallCards[0].Value);
 
         // NVIDIA GPU (gpu1): Dedicated 1.2 / 2.0 GB, Temp 60 C, no engines -> SmallCards empty
-        FullTab nvidiaTab = model.Tabs.First(t => t.Key == "gpu1");
+        FullTab nvidiaTab = model.Tabs.First(t => t.Key == "gpu:0000:01:00.0");
         Assert.IsTrue(nvidiaTab.Facts.Any(f => f.Title == "Driver" && f.Value == "nvidia"));
         Assert.IsTrue(nvidiaTab.Facts.Any(f => f.Title == "Dedicated" && f.Value == "1.2 / 2.0 GB"));
         Assert.IsTrue(nvidiaTab.Facts.Any(f => f.Title == "Temp" && f.Value == "60°C"));
@@ -466,17 +468,17 @@ public sealed class FullBoardTests
         {
             new FullTab { Key = "cpu", Title = "CPU" },
             new FullTab { Key = "ram", Title = "RAM" },
-            new FullTab { Key = "gpu0", Title = "GPU" },
+            new FullTab { Key = "gpu:0000:00:02.0", Title = "GPU" },
         };
 
-        // User explicitly picked "gpu0"
-        selection.Select("gpu0");
-        Assert.AreEqual("gpu0", selection.Current);
+        // User explicitly picked "gpu:0000:00:02.0"
+        selection.Select("gpu:0000:00:02.0");
+        Assert.AreEqual("gpu:0000:00:02.0", selection.Current);
         Assert.IsFalse(selection.UsedFallback);
 
         // Even if config remembers "ram", the user choice wins
         string? active = selection.Reconcile(tabList, remembered: "ram");
-        Assert.AreEqual("gpu0", active);
+        Assert.AreEqual("gpu:0000:00:02.0", active);
         Assert.IsFalse(selection.UsedFallback);
 
         // If "gpu0" disappears from tabList, it falls back

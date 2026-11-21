@@ -106,8 +106,8 @@ public sealed class GpuReader
     }
 
     /// <summary>
-    /// The card's fixed properties: maker, slot and maximum link.  Read once
-    /// per card; the values cannot change while the machine runs.
+    /// The card's fixed properties: maker, slot, device name and maximum link.
+    /// Read once per card; the values cannot change while the machine runs.
     /// </summary>
     private CardStatic Statics(CardScan card)
     {
@@ -133,6 +133,10 @@ public sealed class GpuReader
         var statics = new CardStatic(
             manufacturer,
             PciSlot(UeventValue(card.Uevent, "PCI_SLOT_NAME")),
+            // The basename of the resolved device link is the kernel's own name
+            // for the card: a PCI address, or a platform device such as
+            // fde60000.gpu that has no PCI slot at all.
+            SysFs.LinkTargetName(Path.Combine(card.Dir, "device")),
             LinkText(
                 SysFs.ReadTrimmed(card.Dir, "device", "max_link_speed"),
                 SysFs.ReadTrimmed(card.Dir, "device", "max_link_width")));
@@ -214,6 +218,7 @@ public sealed class GpuReader
             Driver = card.Driver,
             Manufacturer = statics.Manufacturer,
             PciSlot = statics.Slot,
+            DeviceId = statics.DeviceId,
             Usage = usage,
             Engines = engines,
             DedicatedGb = dedicatedGb,
@@ -790,7 +795,8 @@ public sealed class GpuReader
         int Vendor);
 
     /// <summary>What a card is: these cannot change while the machine runs.</summary>
-    private sealed record CardStatic(string Manufacturer, string Slot, string MaxLink);
+    private sealed record CardStatic(
+        string Manufacturer, string Slot, string DeviceId, string MaxLink);
 
     private sealed record NvidiaReading(
         int? Temperature,

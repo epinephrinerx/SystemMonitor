@@ -717,9 +717,13 @@ internal sealed class ShellWindow : Window
     {
         _widget.IsVisible = mode == ViewMode.Widget;
         _overall.IsVisible = mode == ViewMode.Overall;
-        _full.IsVisible = mode == ViewMode.Full;
-        _panel.CornerRadius = mode == ViewMode.Full ? new CornerRadius(0) : new CornerRadius(14);
-        _grip.IsVisible = mode != ViewMode.Full;
+        // Phase B2 replaces the old Full view with the real Main window; until
+        // then Main shows it, so a build of this phase still draws something.
+        _full.IsVisible = mode is ViewMode.Main or ViewMode.Full;
+        _panel.CornerRadius = mode is ViewMode.Main or ViewMode.Full
+            ? new CornerRadius(0)
+            : new CornerRadius(14);
+        _grip.IsVisible = mode is not (ViewMode.Main or ViewMode.Full);
         _widgetCorner.IsVisible = mode == ViewMode.Widget;
     }
 
@@ -730,10 +734,8 @@ internal sealed class ShellWindow : Window
         switch (action)
         {
             case ActionKeys.OpenFull:
-                _shell.SwitchTo(ViewMode.Full);
-                break;
             case ActionKeys.OpenOverall:
-                _shell.SwitchTo(ViewMode.Overall);
+                _shell.SwitchTo(ViewMode.Main);
                 break;
             case ActionKeys.OpenWidget:
                 _shell.SwitchTo(ViewMode.Widget);
@@ -1101,14 +1103,9 @@ internal sealed class ShellWindow : Window
                 _shell.Config.WidgetW = panel.Width;
                 _shell.Config.WidgetH = panel.Height;
                 break;
-            case ViewMode.Overall:
-                _shell.Config.OverallW = panel.Width;
-                _shell.Config.OverallH = panel.Height;
-                _shell.Config.OverallSized = true;
-                break;
             default:
-                _shell.Config.FullW = panel.Width;
-                _shell.Config.FullH = panel.Height;
+                _shell.Config.MainW = panel.Width;
+                _shell.Config.MainH = panel.Height;
                 break;
         }
     }

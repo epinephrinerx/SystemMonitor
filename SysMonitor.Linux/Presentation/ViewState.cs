@@ -1,89 +1,130 @@
 namespace SysMonitor.Linux.Presentation;
 
-/// <summary>The three stacked views. Only one is visible at a time.</summary>
+/// <summary>
+/// The two windows R-030 keeps. The Widget stays a small window of its own; the
+/// old Overall and Full views become pages inside one Main window, selected in
+/// <see cref="MainState"/>.
+/// </summary>
 public enum ViewMode
 {
     Widget,
-    Overall,
-    Full,
+    Main,
+
+    /// <summary>
+    /// Removed in R-030: the old Overall view is Main's "overall" page. Kept as
+    /// a value nothing produces, so code and tests written against the
+    /// three-view build still compile.
+    /// </summary>
+    Overall = 100,
+
+    /// <summary>Removed in R-030: the old Full view is a page per module now.</summary>
+    Full = 101,
 }
 
 public static class ViewModeExtensions
 {
-    public static string ToKey(this ViewMode mode) => mode switch
-    {
-        ViewMode.Overall => "overall",
-        ViewMode.Full => "full",
-        _ => "widget",
-    };
+    /// <summary>The config key: "widget" or "main". Legacy values read as main.</summary>
+    public static string ToKey(this ViewMode mode) => mode == ViewMode.Widget ? "widget" : "main";
 
+    /// <summary>
+    /// "main" is the new key; "overall" and "full" are the two views it
+    /// replaced, and both mean Main now.
+    /// </summary>
     public static ViewMode Parse(string? value, ViewMode fallback) => value switch
     {
-        "overall" => ViewMode.Overall,
-        "full" => ViewMode.Full,
+        "main" => ViewMode.Main,
+        "overall" => ViewMode.Main,
+        "full" => ViewMode.Main,
         "widget" => ViewMode.Widget,
         _ => fallback,
     };
 }
 
 /// <summary>
-/// Which input leads where. Kept apart from the window so every row of the
-/// spec's switching table can be exercised without a pointer.
+/// Which input leads where, kept apart from the window so every switching rule
+/// can be exercised without a pointer.
+///
+/// R-030: Double-click is Widget &lt;-&gt; Main, F11 is full screen (from the
+/// Widget it opens Main full screen first), Esc leaves full screen and then
+/// steps back to the Widget, and Esc in the Widget does nothing.
 /// </summary>
 public sealed class ViewState
 {
     public ViewState(ViewMode mode)
     {
-        Mode = mode;
+        Mode = mode == ViewMode.Main ? ViewMode.Main
+            : mode == ViewMode.Widget ? ViewMode.Widget
+            : mode;
     }
 
     public ViewMode Mode { get; private set; }
 
-    /// <summary>Double-click anywhere the child did not handle it.</summary>
-    public bool DoubleClick() => Move(Mode switch
-    {
-        ViewMode.Widget => ViewMode.Overall,
-        ViewMode.Overall => ViewMode.Full,
-        _ => ViewMode.Widget,
-    });
+    /// <summary>True while Main covers the screen (F11). Separate from the mode.</summary>
+    public bool MainFullScreen { get; private set; }
 
-    public bool F11() => Move(Mode switch
+    /// <summary>Double-click anywhere the child did not handle it.</summary>
+    public bool DoubleClick() => Mode == ViewMode.Widget ? Move(ViewMode.Main) : Move(ViewMode.Widget);
+
+    /// <summary>
+    /// From the Widget: Main, full screen. In Main: toggle full screen. A
+    /// legacy mode is treated as Main.
+    /// </summary>
+    public bool F11()
     {
-        ViewMode.Full => ViewMode.Overall,
-        _ => ViewMode.Full,
-    });
+        if (Mode == ViewMode.Widget)
+        {
+            SetFullScreen(true);
+            return Move(ViewMode.Main);
+        }
+        SetFullScreen(!MainFullScreen);
+        return true;
+    }
 
     /// <summary>Esc steps back; in Widget it is a no-op.</summary>
-    public bool Escape() => Mode == ViewMode.Widget ? false : Move(Mode == ViewMode.Full ? ViewMode.Overall : ViewMode.Widget);
-
-    /// <summary>The context menu's "collapse" in Overall, "expand" elsewhere.</summary>
-    public bool ContextExpand() => Move(Mode switch
+    public bool Escape()
     {
-        ViewMode.Widget => ViewMode.Overall,
-        ViewMode.Overall => ViewMode.Widget,
-        _ => ViewMode.Overall,
-    });
+        if (Mode == ViewMode.Widget)
+        {
+            return false;
+        }
+        if (MainFullScreen)
+        {
+            SetFullScreen(false);
+            return true;
+        }
+        return Move(ViewMode.Widget);
+    }
+
+    /// <summary>The context menu's "expand"/"collapse": Widget &lt;-&gt; Main.</summary>
+    public bool ContextExpand() => Mode == ViewMode.Widget ? Move(ViewMode.Main) : Move(ViewMode.Widget);
 
     /// <summary>The context menu's full-screen item.</summary>
-    public bool ContextFullScreen() => Move(Mode == ViewMode.Full ? ViewMode.Overall : ViewMode.Full);
+    public bool ContextFullScreen() => F11();
 
-    // Overall header: Full (E740), Widget (E745) and close, which is separate.
-    public bool OverallHeaderFull() => Move(ViewMode.Full);
+    /// <summary>The header's full-screen button.</summary>
+    public bool ToggleFullScreen() => F11();
+
+    // ------------------------------------------------------------- legacy
+    // The Overall and Full views are replaced in phase B2. These stand-ins keep
+    // the old buttons compiling until then; each one lands on the view that
+    // still exists.
+
+    public bool OverallHeaderFull() => Move(ViewMode.Main);
     public bool OverallHeaderWidget() => Move(ViewMode.Widget);
-
-    // Overall sidebar navigation.
-    public bool SidebarFullData() => Move(ViewMode.Full);
+    public bool SidebarFullData() => Move(ViewMode.Main);
     public bool SidebarOpenWidget() => Move(ViewMode.Widget);
-
-    // Full header: Overall (E80F), Widget (E745) and close.
-    public bool FullHeaderOverall() => Move(ViewMode.Overall);
+    public bool FullHeaderOverall() => Move(ViewMode.Main);
     public bool FullHeaderWidget() => Move(ViewMode.Widget);
-    public bool FullRailOverall() => Move(ViewMode.Overall);
+    public bool FullRailOverall() => Move(ViewMode.Main);
     public bool FullRailWidget() => Move(ViewMode.Widget);
 
     /// <summary>True when the mode actually changed.</summary>
     public bool Move(ViewMode mode)
     {
+        if (mode == ViewMode.Widget && Mode != ViewMode.Widget)
+        {
+            SetFullScreen(false);
+        }
         if (mode == Mode)
         {
             return false;
@@ -94,13 +135,18 @@ public sealed class ViewState
 
     public bool IsWidget => Mode == ViewMode.Widget;
 
-    /// <summary>
-    /// What the main context menu calls the first item: collapse in Overall,
-    /// the expand hint everywhere else.
-    /// </summary>
-    public string FirstMenuItemKey => Mode == ViewMode.Overall ? "collapse" : "expand_hint";
+    /// <summary>What the main context menu calls the first item.</summary>
+    public string FirstMenuItemKey => Mode == ViewMode.Main ? "collapse" : "expand_hint";
 
-    public string FullScreenItemKey => Mode == ViewMode.Full ? "exit_fullscreen" : "fullscreen";
+    public string FullScreenItemKey => MainFullScreen ? "exit_fullscreen" : "fullscreen";
+
+    private void SetFullScreen(bool full)
+    {
+        if (MainFullScreen != full)
+        {
+            MainFullScreen = full;
+        }
+    }
 }
 
 /// <summary>

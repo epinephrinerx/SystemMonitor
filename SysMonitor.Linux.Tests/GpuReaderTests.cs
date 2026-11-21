@@ -1,4 +1,5 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using SysMonitor.Linux.Presentation;
 using SysMonitor.Linux.Sensors;
 using SysMonitor.Model;
 
@@ -383,5 +384,36 @@ public sealed class GpuReaderTests
         Assert.IsTrue(renderEngine.Usage > 0);
         Assert.AreEqual(40, renderEngine.Usage);
         Assert.AreEqual(40, gpu.Usage);
+    }
+
+    [TestMethod]
+    public void Read_WithDeviceSymlink_ResolvesDeviceIdFromTargetBasename()
+    {
+        using var fake = new FakeRoot();
+
+        // Platform device directory: sys/devices/platform/fde60000.gpu
+        fake.CreateDirectory("sys/devices/platform/fde60000.gpu");
+        fake.WriteFile("sys/devices/platform/fde60000.gpu/uevent", "DRIVER=panfrost\n");
+
+        // sys/class/drm/card0/device is a directory symlink pointing to the platform device
+        fake.CreateDirectory("sys/class/drm/card0");
+        fake.CreateDirectorySymlink("sys/class/drm/card0/device", "../../../devices/platform/fde60000.gpu");
+
+        var runner = new FakeCommandRunner();
+        var reader = new GpuReader(fake.Root, runner);
+
+        IReadOnlyList<Gpu> gpus = reader.Read(stamp: 1000);
+
+        Assert.AreEqual(1, gpus.Count);
+        Gpu gpu = gpus[0];
+        Assert.IsTrue(gpu.Present);
+        Assert.AreEqual("fde60000.gpu", gpu.DeviceId);
+        Assert.AreEqual("panfrost", gpu.Driver);
+        Assert.AreEqual(string.Empty, gpu.PciSlot);
+
+        // PageKey for this GPU derives from DeviceId
+        string pageKey = PageKeys.Gpu(gpus, 0);
+        Assert.AreEqual("gpu:dev:fde60000.gpu", pageKey);
+        Assert.IsTrue(PageKeys.IsGpuKey(pageKey));
     }
 }

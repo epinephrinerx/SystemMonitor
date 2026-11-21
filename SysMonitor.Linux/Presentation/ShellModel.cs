@@ -30,8 +30,11 @@ public sealed class ShellModel
     private IReadOnlyList<UiRow> _about = Array.Empty<UiRow>();
     private IReadOnlyList<UiRow> _contextMenu = Array.Empty<UiRow>();
     private FullModel _full = new();
+    private IReadOnlyList<SidebarItem> _mainSidebar = Array.Empty<SidebarItem>();
     private MemoryTabModel _memory = new();
+    private readonly MainState _main;
     private readonly FullSelection _fullSelection = new();
+    private string _lastReconciledPage = string.Empty;
     private readonly ServiceControl _serviceControl;
     private readonly IProcessSignals _signals;
     private readonly int _ownPid;
@@ -103,6 +106,7 @@ public sealed class ShellModel
 
         _ramp = new TypeRamp(Config.FontScale);
         View = new ViewState(ViewModeExtensions.Parse(Config.LastView, ViewMode.Widget));
+        _main = new MainState(Config.MainPage, Config.SettingsOpen, Config.SidebarWidth);
         Rotation = new RotationState();
         Alerts = new DiskAlertTracker();
         History = new HistoryBoard();
@@ -156,6 +160,13 @@ public sealed class ShellModel
     public IReadOnlyList<WidgetPage> WidgetPages => _widgetPages;
     public OverallModel Overall => _overall;
     public FullModel Full => _full;
+
+    /// <summary>What the Main window is showing: page, Settings, sidebar width.</summary>
+    public MainState Main => _main;
+
+    /// <summary>The sidebar's module items, in page order (§5).</summary>
+    public IReadOnlyList<SidebarItem> MainSidebar => _mainSidebar;
+
     public MemoryTabModel Memory => _memory;
     public IReadOnlyList<UiRow> Sidebar => _sidebar;
     public IReadOnlyList<UiRow> Settings => _settings;
@@ -170,10 +181,26 @@ public sealed class ShellModel
     public bool IsWidget => View.IsWidget;
     public string FullTitle => Language["full_data"];
 
-    /// <summary>True only while the Full view is showing the RAM tab.</summary>
+    /// <summary>True only while the Main window is showing the memory page.</summary>
     public bool FullRamVisible =>
-        View.Mode == ViewMode.Full
-        && string.Equals(_full.SelectedKey, "ram", StringComparison.Ordinal);
+        View.Mode == ViewMode.Main
+        && string.Equals(_main.Page, PageKeys.Ram, StringComparison.Ordinal);
+
+    /// <summary>True while Main covers the screen (F11).</summary>
+    public bool MainFullScreen => View.MainFullScreen;
+
+    /// <summary>The page keys Main can show now: the fixed pages, then the module pages.</summary>
+    public IReadOnlyList<string> MainPages()
+    {
+        var pages = new List<string>(3 + _full.Tabs.Count)
+        {
+            PageKeys.Overall,
+            PageKeys.Apps,
+            PageKeys.Processes,
+        };
+        pages.AddRange(_full.Tabs.Select(tab => tab.Key));
+        return pages;
+    }
 
     /// <summary>The result of the last memory operation: empty, cancelled or failed.</summary>
     public string MemoryStatus => _memoryStatus ?? string.Empty;
@@ -258,6 +285,28 @@ public sealed class ShellModel
     public bool Escape() => Apply(View.Escape);
     public bool ContextExpand() => Apply(View.ContextExpand);
     public bool ContextFullScreen() => Apply(View.ContextFullScreen);
+
+    /// <summary>Show the one main window (R-030).</summary>
+    public bool ShowMain() => SwitchTo(ViewMode.Main);
+
+    /// <summary>Show the small Widget.</summary>
+    public bool ShowWidget() => SwitchTo(ViewMode.Widget);
+
+    /// <summary>The header's full-screen button.</summary>
+    public bool ToggleFullScreen()
+    {
+        if (!View.ToggleFullScreen())
+        {
+            return false;
+        }
+        RouteChanged?.Invoke();
+        return true;
+    }
+
+    // ------------------------------------------------------------- legacy
+    // The Overall and Full views are replaced in phase B2. These wrappers keep
+    // the old buttons compiling until then.
+
     public bool OverallHeaderFull() => Apply(View.OverallHeaderFull);
     public bool OverallHeaderWidget() => Apply(View.OverallHeaderWidget);
     public bool SidebarFullData() => Apply(View.SidebarFullData);
@@ -280,9 +329,9 @@ public sealed class ShellModel
     {
         Config.LastView = View.Mode.ToKey();
         Save();
-        if (View.Mode == ViewMode.Full)
+        if (View.Mode != ViewMode.Widget)
         {
-            // The Full view opened: a previous CancelAll (window closed) may
+            // The Main window opened: a previous CancelAll (window closed) may
             // have sealed the one flow, so clear its closed flag. Amendment 5
             // allows either a new flow or Reopen; the flow is eager, so it is
             // this call.
@@ -322,20 +371,58 @@ public sealed class ShellModel
     // ------------------------------------------------------------- full view
 
     /// <summary>
-    /// Show a Full tab and remember it in the config. The tab must be one the
-    /// current snapshot offers; a stale key is ignored rather than saved.
+    /// Show one of Main's pages and remember it as <c>main_page</c>. A key the
+    /// snapshot no longer offers is ignored rather than saved. Selecting a page
+    /// starts its "Highest" figures again.
     /// </summary>
-    public bool SelectFullTab(string key)
+    public bool SelectMainPage(string key)
     {
-        if (_full.Tabs.All(t => !string.Equals(t.Key, key, StringComparison.Ordinal)))
+        if (!MainPages().Contains(key, StringComparer.Ordinal))
         {
             return false;
         }
 
         _fullSelection.Select(key);
-        Config.FullTab = key;
+        _main.Select(key);
+        _lastReconciledPage = key;
+        Config.MainPage = key;
         Save();
-        RebuildData();
+        RebuildFull();
+        RebuildMainSidebar();
+        StructureChanged?.Invoke();
+        return true;
+    }
+
+    /// <summary>The old Full view's tab click: it shows the same page.</summary>
+    public bool SelectFullTab(string key) => SelectMainPage(key);
+
+    /// <summary>Expand or collapse Settings in the sidebar; the state is remembered.</summary>
+    public bool SetSettingsOpen(bool open)
+    {
+        if (_main.SettingsOpen == open)
+        {
+            return true;
+        }
+        _main.SetSettingsOpen(open);
+        Config.SettingsOpen = open;
+        Save();
+        StructureChanged?.Invoke();
+        return true;
+    }
+
+    public bool ToggleSettings() => SetSettingsOpen(!_main.SettingsOpen);
+
+    /// <summary>Resize the sidebar; the width is clamped 200-320 and remembered.</summary>
+    public bool SetSidebarWidth(int width)
+    {
+        int clamped = MainState.ClampWidth(width);
+        if (_main.SidebarWidth == clamped)
+        {
+            return true;
+        }
+        _main.SetSidebarWidth(clamped);
+        Config.SidebarWidth = clamped;
+        Save();
         StructureChanged?.Invoke();
         return true;
     }
@@ -538,6 +625,22 @@ public sealed class ShellModel
                 changed = IsSeparated(Config.NetworkMode) != value;
                 Config.NetworkMode = value ? "separated" : "total";
                 break;
+            case SettingKeys.TempEstimate:
+                changed = Config.TempEstimate != value;
+                Config.TempEstimate = value;
+                if (changed)
+                {
+                    NudgeRequested?.Invoke();
+                }
+                break;
+            case SettingKeys.IncludeRemovable:
+                changed = Config.IncludeRemovable != value;
+                Config.IncludeRemovable = value;
+                break;
+            case SettingKeys.IncludeWireless:
+                changed = Config.IncludeWireless != value;
+                Config.IncludeWireless = value;
+                break;
             case SettingKeys.AutoCheckUpdates:
                 changed = Config.AutoCheckUpdates != value;
                 Config.AutoCheckUpdates = value;
@@ -576,6 +679,24 @@ public sealed class ShellModel
         StructureChanged?.Invoke();
         return true;
     }
+
+    /// <summary>
+    /// Apply a module page's option (§2). The keys are the config keys, so the
+    /// page and the stored file agree; each one takes the old sidebar check's
+    /// path, which saves and refreshes every view at once.
+    /// </summary>
+    public bool SetOption(string configKey, bool value) => configKey switch
+    {
+        "cpu_mode" => SetBool(SettingKeys.PerCore, value),
+        "cpu_temperature" => SetBool(SettingKeys.CpuTemp, value),
+        "temp_estimate" => SetBool(SettingKeys.TempEstimate, value),
+        "disk_mode" => SetBool(SettingKeys.PerDrive, value),
+        "include_removable" => SetBool(SettingKeys.IncludeRemovable, value),
+        "include_network" => SetBool(SettingKeys.ShowNetworkDrives, value),
+        "network_mode" => SetBool(SettingKeys.PerAdapter, value),
+        "include_wireless" => SetBool(SettingKeys.IncludeWireless, value),
+        _ => false,
+    };
 
     /// <summary>
     /// Apply a slider. Opacity and font size are live: pass
@@ -685,6 +806,8 @@ public sealed class ShellModel
         Config.OverallSized = false;
         Config.FullW = 0;
         Config.FullH = 0;
+        Config.MainW = 0;
+        Config.MainH = 0;
         Config.WidgetW = 270;
         Config.WidgetH = 104;
         Config.OverallW = 630;
@@ -834,7 +957,29 @@ public sealed class ShellModel
         _overall = OverallBoard.Build(_snapshot, Config, Language, Palette, Alerts);
         RebuildMemory();
         RebuildFull();
+        ReconcileMain();
+        RebuildMainSidebar();
     }
+
+    /// <summary>
+    /// Keep <see cref="MainState"/> in step with the pages that exist now. A
+    /// device that was unplugged falls back to Overall; the remembered key
+    /// stays, so plugging it back in shows its page again.
+    /// </summary>
+    private void ReconcileMain()
+    {
+        string page = _main.Reconcile(MainPages(), Config.MainPage);
+        if (!string.Equals(page, _lastReconciledPage, StringComparison.Ordinal))
+        {
+            // Reconcile reset the peaks for the new page; rebuild the cards so
+            // each "Highest" seeds from the history already on screen.
+            _lastReconciledPage = page;
+            RebuildFull();
+        }
+    }
+
+    private void RebuildMainSidebar() =>
+        _mainSidebar = SidebarBoard.Build(_full, _snapshot, History, Language);
 
     /// <summary>
     /// Build both memory tables, clearing a graphed group that is no longer
@@ -860,15 +1005,25 @@ public sealed class ShellModel
 
     private void RebuildFull()
     {
-        _full = FullBoard.Build(
+        FullModel built = FullBoard.Build(
             _snapshot,
             Config,
             Language,
             Palette,
             History,
             _fullSelection,
-            Config.FullTab,
-            _memory);
+            _main.Page,
+            _main.Peaks);
+
+        // The page in Main is the selection. The fixed pages (Overall, Apps,
+        // Processes) are not module pages, so nothing is selected then rather
+        // than the first device pretending to be it.
+        _full = new FullModel
+        {
+            Tabs = built.Tabs,
+            SelectedKey = built.Tabs.FirstOrDefault(
+                tab => string.Equals(tab.Key, _main.Page, StringComparison.Ordinal))?.Key,
+        };
     }
 
     private IReadOnlyList<UiRow> BuildSidebar()

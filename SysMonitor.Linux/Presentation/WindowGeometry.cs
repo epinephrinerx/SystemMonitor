@@ -58,32 +58,28 @@ public static class WindowGeometry
     public static SizeD ReferenceSize(ViewMode mode) => mode switch
     {
         ViewMode.Widget => new SizeD(270, 104),
-        ViewMode.Overall => new SizeD(630, 480),
         _ => new SizeD(640, 480),
     };
 
     public static SizeD MinPanelSize(ViewMode mode) => mode switch
     {
         ViewMode.Widget => new SizeD(200, 64),
-        ViewMode.Overall => new SizeD(470, 300),
         _ => new SizeD(640, 480),
     };
 
     public static SizeD MaxPanelSize(ViewMode mode) => mode switch
     {
         ViewMode.Widget => new SizeD(900, 400),
-        ViewMode.Overall => new SizeD(4000, 3000),
         _ => new SizeD(4000, 3000),
     };
 
-    /// <summary>The stored panel size for a view; Full's zeros mean its minimum.</summary>
+    /// <summary>The stored panel size for a view; Main's zeros mean its minimum.</summary>
     public static SizeD PanelSize(ViewMode mode, AppConfig config) => mode switch
     {
         ViewMode.Widget => new SizeD(config.WidgetW, config.WidgetH),
-        ViewMode.Overall => new SizeD(config.OverallW, config.OverallH),
         _ => new SizeD(
-            config.FullW > 0 ? config.FullW : 640,
-            config.FullH > 0 ? config.FullH : 480),
+            config.MainW > 0 ? config.MainW : 640,
+            config.MainH > 0 ? config.MainH : 480),
     };
 
     public static SizeD WindowSize(SizeD panel) =>
@@ -405,9 +401,9 @@ public static class WindowGeometry
 }
 
 /// <summary>
-/// Position and size memory. One position is shared by every view (R-024);
-/// leaving Full returns to the pre-Full position unless the window was moved
-/// while Full was showing.
+/// Position and size memory. One position is shared by both windows (R-024);
+/// leaving Main returns to the pre-Main position unless the window was moved
+/// while Main was showing.
 /// </summary>
 public sealed class Placement
 {
@@ -417,12 +413,12 @@ public sealed class Placement
     public bool InFull { get; private set; }
 
     /// <summary>
-    /// The top-left to use after a mode switch. Entering Full remembers the
+    /// The top-left to use after a mode switch. Entering Main remembers the
     /// current rect; leaving it may restore the remembered one.
     /// </summary>
     public PointD ApplySwitch(ViewMode from, ViewMode to, RectD current)
     {
-        if (to == ViewMode.Full)
+        if (IsMain(to))
         {
             BeforeFull = current;
             MovedWhileFull = false;
@@ -430,7 +426,7 @@ public sealed class Placement
             return current.TopLeft;
         }
 
-        if (from == ViewMode.Full && !MovedWhileFull && BeforeFull is { } before)
+        if (IsMain(from) && !MovedWhileFull && BeforeFull is { } before)
         {
             InFull = false;
             return before.TopLeft;
@@ -439,6 +435,10 @@ public sealed class Placement
         InFull = false;
         return current.TopLeft;
     }
+
+    /// <summary>The two views R-030 removed count as Main for placement.</summary>
+    private static bool IsMain(ViewMode mode) =>
+        mode is ViewMode.Main or ViewMode.Overall or ViewMode.Full;
 
     /// <summary>A drag or resize while Full is showing makes the return position stale.</summary>
     public void NoteMoved()

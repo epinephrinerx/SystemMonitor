@@ -184,4 +184,5 @@ public static class Accents
     public static Colour Disk => Colour.FromHex("#10b981");
     public static Colour Net => Colour.FromHex("#06b6d4");
     public static Colour Gpu => Colour.FromHex("#f59e0b");
+    public static Colour Battery => Colour.FromHex("#22c55e");
 }

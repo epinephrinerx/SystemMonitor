@@ -13,16 +13,19 @@ public sealed class WindowGeometryTests
     {
         // Reference sizes (panel)
         Assert.AreEqual(new SizeD(270, 104), WindowGeometry.ReferenceSize(ViewMode.Widget));
-        Assert.AreEqual(new SizeD(630, 480), WindowGeometry.ReferenceSize(ViewMode.Overall));
+        Assert.AreEqual(new SizeD(640, 480), WindowGeometry.ReferenceSize(ViewMode.Main));
+        Assert.AreEqual(new SizeD(640, 480), WindowGeometry.ReferenceSize(ViewMode.Overall));
         Assert.AreEqual(new SizeD(640, 480), WindowGeometry.ReferenceSize(ViewMode.Full));
 
         // Min panel sizes
         Assert.AreEqual(new SizeD(200, 64), WindowGeometry.MinPanelSize(ViewMode.Widget));
-        Assert.AreEqual(new SizeD(470, 300), WindowGeometry.MinPanelSize(ViewMode.Overall));
+        Assert.AreEqual(new SizeD(640, 480), WindowGeometry.MinPanelSize(ViewMode.Main));
+        Assert.AreEqual(new SizeD(640, 480), WindowGeometry.MinPanelSize(ViewMode.Overall));
         Assert.AreEqual(new SizeD(640, 480), WindowGeometry.MinPanelSize(ViewMode.Full));
 
         // Max panel sizes
         Assert.AreEqual(new SizeD(900, 400), WindowGeometry.MaxPanelSize(ViewMode.Widget));
+        Assert.AreEqual(new SizeD(4000, 3000), WindowGeometry.MaxPanelSize(ViewMode.Main));
         Assert.AreEqual(new SizeD(4000, 3000), WindowGeometry.MaxPanelSize(ViewMode.Overall));
         Assert.AreEqual(new SizeD(4000, 3000), WindowGeometry.MaxPanelSize(ViewMode.Full));
 
@@ -256,5 +259,41 @@ public sealed class WindowGeometryTests
         Assert.AreEqual(88.0, directResizedWindow.Y, 0.001);
         Assert.AreEqual(348.0, directResizedWindow.Width, 0.001);
         Assert.AreEqual(148.8, directResizedWindow.Height, 0.001);
+    }
+
+    [TestMethod]
+    public void ResetWindowSize_AfterMainAndFullDimensionsSet_ClearsBothMainAndFull()
+    {
+        var config = new AppConfig
+        {
+            MainW = 1280,
+            MainH = 800,
+            FullW = 1024,
+            FullH = 768,
+            OverallSized = true,
+            WidgetW = 350,
+            WidgetH = 150,
+            OverallW = 800,
+            OverallH = 600,
+        };
+        var shell = new ShellModel(config);
+
+        Assert.AreEqual(1280.0, shell.Config.MainW);
+        Assert.AreEqual(800.0, shell.Config.MainH);
+        Assert.AreEqual(1024.0, shell.Config.FullW);
+        Assert.AreEqual(768.0, shell.Config.FullH);
+        Assert.IsTrue(shell.Config.OverallSized);
+
+        shell.ResetSize();
+
+        Assert.AreEqual(0.0, shell.Config.MainW);
+        Assert.AreEqual(0.0, shell.Config.MainH);
+        Assert.AreEqual(0.0, shell.Config.FullW);
+        Assert.AreEqual(0.0, shell.Config.FullH);
+        Assert.IsFalse(shell.Config.OverallSized);
+        Assert.AreEqual(270.0, shell.Config.WidgetW);
+        Assert.AreEqual(104.0, shell.Config.WidgetH);
+        Assert.AreEqual(630.0, shell.Config.OverallW);
+        Assert.AreEqual(480.0, shell.Config.OverallH);
     }
 }

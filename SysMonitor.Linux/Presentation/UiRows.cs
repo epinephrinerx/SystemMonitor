@@ -50,6 +50,9 @@ public static class SettingKeys
     public const string ShowGpu = "show_gpu";
     public const string ShowNetwork = "show_network";
     public const string PerAdapter = "per_adapter";
+    public const string TempEstimate = "temp_estimate";
+    public const string IncludeRemovable = "include_removable";
+    public const string IncludeWireless = "include_wireless";
     public const string AutoCheckUpdates = "auto_check_updates";
     public const string Snap = "snap";
     public const string Autostart = "autostart";

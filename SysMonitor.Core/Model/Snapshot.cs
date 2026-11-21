@@ -558,6 +558,14 @@ public sealed class Gpu
     /// <summary>The card's PCI address (<c>0000:2b:00.0</c>), or empty.</summary>
     public string PciSlot { get; init; } = string.Empty;
 
+    /// <summary>
+    /// The kernel's name for the card's device, from the basename of the
+    /// resolved <c>device</c> link: a PCI address (<c>0000:00:02.0</c>) or a
+    /// platform device (<c>fde60000.gpu</c>). Empty when the link is
+    /// unreadable, as in a fixture that writes plain directories.
+    /// </summary>
+    public string DeviceId { get; init; } = string.Empty;
+
     /// <summary>The graphics clock in MHz. Null where the driver does not report one.</summary>
     public int? CoreClockMhz { get; init; }
 
