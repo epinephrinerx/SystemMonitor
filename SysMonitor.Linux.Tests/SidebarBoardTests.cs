@@ -253,4 +253,99 @@ public sealed class SidebarBoardTests
         Assert.AreEqual("MX250", SidebarBoard.ShortName("NVIDIA GeForce MX250", "GPU 2"));
         Assert.AreEqual("Custom Device", SidebarBoard.ShortName("", "Custom Device"));
     }
+
+    [TestMethod]
+    public void Build_WithVirtualAndNetworkDrives_ItemsAppearAfterPhysicalDisks()
+    {
+        Snapshot baseSnapshot = CreateSnapshot();
+        var disks = new List<Disk>(baseSnapshot.Disks)
+        {
+            new()
+            {
+                Letter = "/mnt/virtual",
+                Usage = 15,
+                UsedGb = 1.5,
+                TotalGb = 10.0,
+                IsNetwork = false,
+                Detail = null,
+            },
+            new()
+            {
+                Letter = "/mnt/share",
+                Usage = 70,
+                UsedGb = 70.0,
+                TotalGb = 100.0,
+                IsNetwork = true,
+                Detail = new DriveDetail
+                {
+                    Letter = "/mnt/share",
+                    FileSystem = "nfs",
+                },
+            },
+        };
+
+        var snapshot = new Snapshot
+        {
+            Ready = baseSnapshot.Ready,
+            CpuTotal = baseSnapshot.CpuTotal,
+            Ram = baseSnapshot.Ram,
+            Disks = disks,
+            Gpus = baseSnapshot.Gpus,
+            Gpu = baseSnapshot.Gpu,
+            Adapters = baseSnapshot.Adapters,
+            Batteries = baseSnapshot.Batteries,
+            PowerSources = baseSnapshot.PowerSources,
+        };
+
+        var config = new AppConfig { IncludeNetwork = true };
+        var lang = new Lang("en");
+        var history = new HistoryBoard();
+        var selection = new FullSelection();
+
+        FullModel modules = FullBoard.Build(
+            snapshot, config, lang, Palette.Dark, history, selection, rememberedTab: "");
+        IReadOnlyList<SidebarItem> items = SidebarBoard.Build(modules, snapshot, history, lang);
+
+        // Order: CPU(0), Memory(1), 2 GPUs(2,3), 2 Physical Disks(4,5),
+        // Diskvirtual(6), Disknetwork(7), 2 Adapters(8,9), 1 Battery(10) -> 11 items
+        Assert.AreEqual(11, items.Count);
+
+        // Physical disks
+        Assert.AreEqual("disk:nvme0n1", items[4].Key);
+        Assert.AreEqual("disk:sda", items[5].Key);
+
+        // Group drive items appear immediately after physical disks (Amendment 1)
+        Assert.AreEqual(PageKeys.DiskVirtual, items[6].Key);
+        Assert.AreEqual("diskvirtual", items[6].Key);
+        Assert.IsTrue(items[6].Title.Contains("Virtual", StringComparison.OrdinalIgnoreCase));
+        Assert.IsFalse(items[6].ShowSparkline, "Group drive without pushed history draws no sparkline");
+
+        Assert.AreEqual(PageKeys.DiskNetwork, items[7].Key);
+        Assert.AreEqual("disknetwork", items[7].Key);
+        Assert.IsTrue(items[7].Title.Contains("Network", StringComparison.OrdinalIgnoreCase));
+        Assert.IsFalse(items[7].ShowSparkline, "Group drive without pushed history draws no sparkline");
+
+        // Subsequent items are network adapters and batteries
+        Assert.AreEqual("netwlp0s20f3", items[8].Key);
+        Assert.AreEqual("neteth0", items[9].Key);
+        Assert.AreEqual("battery:BAT0", items[10].Key);
+    }
+
+    [TestMethod]
+    public void Build_WithoutVirtualAndNetworkDrives_GroupItemsAreAbsent()
+    {
+        // Default CreateSnapshot has no virtual or network drives
+        Snapshot snapshot = CreateSnapshot();
+        var config = new AppConfig { IncludeNetwork = false };
+        var lang = new Lang("en");
+        var history = new HistoryBoard();
+        var selection = new FullSelection();
+
+        FullModel modules = FullBoard.Build(
+            snapshot, config, lang, Palette.Dark, history, selection, rememberedTab: "");
+        IReadOnlyList<SidebarItem> items = SidebarBoard.Build(modules, snapshot, history, lang);
+
+        Assert.IsFalse(items.Any(i => i.Key == PageKeys.DiskVirtual));
+        Assert.IsFalse(items.Any(i => i.Key == PageKeys.DiskNetwork));
+    }
 }

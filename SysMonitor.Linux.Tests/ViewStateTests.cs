@@ -11,8 +11,6 @@ public sealed class ViewStateTests
     {
         Assert.AreEqual("widget", ViewMode.Widget.ToKey());
         Assert.AreEqual("main", ViewMode.Main.ToKey());
-        Assert.AreEqual("main", ViewMode.Overall.ToKey());
-        Assert.AreEqual("main", ViewMode.Full.ToKey());
 
         Assert.AreEqual(ViewMode.Widget, ViewModeExtensions.Parse("widget", ViewMode.Main));
         Assert.AreEqual(ViewMode.Main, ViewModeExtensions.Parse("main", ViewMode.Widget));
@@ -110,32 +108,68 @@ public sealed class ViewStateTests
     [TestMethod]
     public void HeaderAndSidebar_DirectNavigationMethods()
     {
+        // 1. ViewState real navigation paths
         var state = new ViewState(ViewMode.Widget);
-
-        Assert.IsTrue(state.OverallHeaderFull());
+        Assert.IsTrue(state.Move(ViewMode.Main));
         Assert.AreEqual(ViewMode.Main, state.Mode);
-        Assert.IsFalse(state.OverallHeaderFull(), "Moving to current mode should return false");
+        Assert.IsFalse(state.Move(ViewMode.Main));
 
-        Assert.IsTrue(state.OverallHeaderWidget());
+        Assert.IsTrue(state.Move(ViewMode.Widget));
         Assert.AreEqual(ViewMode.Widget, state.Mode);
 
-        Assert.IsTrue(state.SidebarFullData());
+        Assert.IsTrue(state.DoubleClick());
         Assert.AreEqual(ViewMode.Main, state.Mode);
-
-        Assert.IsTrue(state.SidebarOpenWidget());
+        Assert.IsTrue(state.DoubleClick());
         Assert.AreEqual(ViewMode.Widget, state.Mode);
 
-        Assert.IsTrue(state.FullHeaderOverall());
+        Assert.IsTrue(state.F11());
         Assert.AreEqual(ViewMode.Main, state.Mode);
-
-        Assert.IsTrue(state.FullHeaderWidget());
+        Assert.IsTrue(state.MainFullScreen);
+        Assert.IsTrue(state.Escape());
+        Assert.IsFalse(state.MainFullScreen);
+        Assert.AreEqual(ViewMode.Main, state.Mode);
+        Assert.IsTrue(state.Escape());
         Assert.AreEqual(ViewMode.Widget, state.Mode);
 
-        Assert.IsTrue(state.FullRailOverall());
+        Assert.IsTrue(state.ContextExpand());
         Assert.AreEqual(ViewMode.Main, state.Mode);
+        Assert.IsTrue(state.ContextFullScreen());
+        Assert.IsTrue(state.MainFullScreen);
+        Assert.IsTrue(state.ToggleFullScreen());
+        Assert.IsFalse(state.MainFullScreen);
 
-        Assert.IsTrue(state.FullRailWidget());
-        Assert.AreEqual(ViewMode.Widget, state.Mode);
+        // 2. ShellModel real navigation paths (SwitchTo, DoubleClick, F11, Escape, context-menu)
+        var model = new ShellModel();
+        Assert.AreEqual(ViewMode.Widget, model.View.Mode);
+
+        Assert.IsTrue(model.SwitchTo(ViewMode.Main));
+        Assert.AreEqual(ViewMode.Main, model.View.Mode);
+        Assert.IsFalse(model.SwitchTo(ViewMode.Main));
+
+        Assert.IsTrue(model.SwitchTo(ViewMode.Widget));
+        Assert.AreEqual(ViewMode.Widget, model.View.Mode);
+
+        Assert.IsTrue(model.DoubleClick());
+        Assert.AreEqual(ViewMode.Main, model.View.Mode);
+
+        Assert.IsTrue(model.F11());
+        Assert.IsTrue(model.MainFullScreen);
+
+        Assert.IsTrue(model.Escape());
+        Assert.IsFalse(model.MainFullScreen);
+        Assert.AreEqual(ViewMode.Main, model.View.Mode);
+
+        Assert.IsTrue(model.Escape());
+        Assert.AreEqual(ViewMode.Widget, model.View.Mode);
+
+        Assert.IsTrue(model.ContextExpand());
+        Assert.AreEqual(ViewMode.Main, model.View.Mode);
+
+        Assert.IsTrue(model.ContextFullScreen());
+        Assert.IsTrue(model.MainFullScreen);
+
+        Assert.IsTrue(model.ToggleFullScreen());
+        Assert.IsFalse(model.MainFullScreen);
     }
 
     [TestMethod]

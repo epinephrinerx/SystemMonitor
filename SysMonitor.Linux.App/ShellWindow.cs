@@ -15,9 +15,9 @@ using Path = Avalonia.Controls.Shapes.Path;
 namespace SysMonitor.Linux.App;
 
 /// <summary>
-/// The one window (spec sections 0-3): three stacked views, a borderless
-/// transparent shell with a 12 px shadow pad, custom drag and resize, and the
-/// 400 ms redraw tick.
+/// The one window (spec sections 0-3): the Widget and the Main window, a
+/// borderless transparent shell with a 12 px shadow pad, custom drag and
+/// resize, and the 400 ms redraw tick.
 ///
 /// Placement, pointer handling and timers live here; everything the views show
 /// comes from <see cref="ShellModel"/>.
@@ -40,13 +40,18 @@ internal sealed class ShellWindow : Window
     private readonly ICommandRunner _commands;
 
     private readonly WidgetView _widget;
-    private readonly OverallView _overall;
-    private readonly FullView _full;
+    private readonly MainView _mainView;
     private readonly Border _panel;
     private readonly Path _grip;
     private readonly Grid _widgetCorner = new();
     private readonly ContextMenu _mainMenu = new();
     private bool _pointerOver;
+
+    // Full screen (R-030 §3): WindowState is the screen's business, and the
+    // state before it is restored when Main leaves full screen.
+    private bool _fullScreenApplied;
+    private WindowState _stateBeforeFullScreen = WindowState.Normal;
+    private RectD? _rectBeforeFullScreen;
 
     private readonly DispatcherTimer _tick;
     private readonly DispatcherTimer _heartbeat;
@@ -133,13 +138,11 @@ internal sealed class ShellWindow : Window
         };
 
         _widget = new WidgetView(shell);
-        _overall = new OverallView(shell, Dispatch);
-        _full = new FullView(shell, Dispatch);
+        _mainView = new MainView(shell, Dispatch);
 
         var views = new Grid();
         views.Children.Add(_widget);
-        views.Children.Add(_overall);
-        views.Children.Add(_full);
+        views.Children.Add(_mainView);
         _panel.Child = views;
 
         _grip = new Path
@@ -219,13 +222,11 @@ internal sealed class ShellWindow : Window
         };
 
         ApplyMode(_lastMode);
-        UpdateMemoryVisibility();
+        UpdateProcessesVisibility();
         UpdateBrushes();
         UpdateWidgetCorner();
         _widget.Render();
-        _overall.RenderSidebar();
-        _overall.RenderCards();
-        _full.Render();
+        _mainView.Render();
     }
 
     // ------------------------------------------------------------- startup
@@ -256,6 +257,7 @@ internal sealed class ShellWindow : Window
         _tick.Start();
         _heartbeat.Start();
         _ = Task.Run(SampleLoop);
+        UpdateProcessesVisibility();
 
         _diagnostics.Line(
             $"window opened {window.Width}x{window.Height} at {rect.X},{rect.Y} " +
@@ -353,6 +355,7 @@ internal sealed class ShellWindow : Window
         _hiddenToTray = true;
         _tick.Stop();
         Hide();
+        UpdateProcessesVisibility();
         _diagnostics.Line("hidden to tray");
     }
 
@@ -384,10 +387,24 @@ internal sealed class ShellWindow : Window
         _hiddenToTray = false;
         _tray.Hide();
         Show();
-        WindowState = WindowState.Normal;
+
+        // Amendment 3, item 1: a window hidden while Main was full screen comes
+        // back full screen, so the model and the window agree and F11 toggles
+        // from there. Everything else comes back as a normal window.
+        if (_shell.View.Mode == ViewMode.Main && _shell.MainFullScreen)
+        {
+            _fullScreenApplied = true;
+            _panel.Margin = new Thickness(0);
+            WindowState = WindowState.FullScreen;
+        }
+        else
+        {
+            WindowState = WindowState.Normal;
+        }
         Activate();
         _tick.Start();
         OnTick();
+        UpdateProcessesVisibility();
         _diagnostics.Line("restored from tray");
     }
 
@@ -399,12 +416,16 @@ internal sealed class ShellWindow : Window
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
-        if (change.Property == WindowStateProperty
-            && _fallbackInTaskbar
-            && WindowState != WindowState.Minimized)
+        if (change.Property == WindowStateProperty)
         {
-            _fallbackInTaskbar = false;
-            ShowInTaskbar = ShowInTaskbarConfigured;
+            if (_fallbackInTaskbar && WindowState != WindowState.Minimized)
+            {
+                _fallbackInTaskbar = false;
+                ShowInTaskbar = ShowInTaskbarConfigured;
+            }
+            // Minimising (including the no-tray fallback) stops the process
+            // read; restoring starts it again when Processes is showing.
+            UpdateProcessesVisibility();
         }
     }
 
@@ -500,12 +521,18 @@ internal sealed class ShellWindow : Window
     }
 
     /// <summary>
-    /// Read processes and services only while the RAM tab shows. Coming back
-    /// to it forces one read instead of waiting out the cadence.
+    /// Recompute the process read after a switch. The process and service
+    /// lists live on the Processes page now, so that page decides whether the
+    /// sampler reads them.
     /// </summary>
-    private void UpdateMemoryVisibility()
+    private void UpdateProcessesVisibility()
     {
-        bool visible = _shell.FullRamVisible;
+        // Amendment 2, item 4: the process and service samplers run only while
+        // the window is actually showing the Processes page.
+        bool visible = _shell.MainProcessesVisible
+            && !_hiddenToTray
+            && IsVisible
+            && WindowState != WindowState.Minimized;
         bool gained = visible && !_memoryVisible;
         _memoryVisible = visible;
         if (visible && (gained || _shell.Snapshot?.Processes.Count is null or 0))
@@ -541,9 +568,8 @@ internal sealed class ShellWindow : Window
             _tray.Show(TrayText.Build(_shell.Snapshot, _shell.Language));
         }
         _widget.Render();
-        _overall.RenderCards();
-        _full.RenderData();
-        UpdateMemoryVisibility();
+        _mainView.RenderData();
+        UpdateProcessesVisibility();
         UpdateWidgetCorner();
     }
 
@@ -553,12 +579,10 @@ internal sealed class ShellWindow : Window
         {
             return;
         }
-        _full.Render();
+        _mainView.Render();
         _widget.Render();
-        _overall.RenderSidebar();
-        _overall.RenderCards();
         UpdateWidgetCorner();
-        UpdateMemoryVisibility();
+        UpdateProcessesVisibility();
         _appliedFontScale = _shell.Config.FontScale;
         RequestedThemeVariant = App.ThemeFor(_shell.Config.Theme);
         UpdateBrushes();
@@ -621,12 +645,12 @@ internal sealed class ShellWindow : Window
         _panel.Background = Ui.Brush(palette.PanelBrush(_shell.Config.Opacity));
         _panel.BorderBrush = Ui.Brush(palette.Border);
         _grip.Stroke = Ui.Brush(palette.Label);
-        _overall.SetOpacity(_shell.Config.Opacity);
+        _mainView.SetOpacity(_shell.Config.Opacity);
     }
 
     private void SyncDials()
     {
-        foreach (DialView dial in _overall.Dials)
+        foreach (DialView dial in _mainView.Dials)
         {
             dial.SetValue(_shell.DialValue(dial.Key));
         }
@@ -681,30 +705,99 @@ internal sealed class ShellWindow : Window
         _applyingRoute = true;
         try
         {
-            SavePlacement();
             ViewMode from = _lastMode;
             ViewMode to = _shell.View.Mode;
+            bool enteringFull = to == ViewMode.Main
+                && _shell.MainFullScreen
+                && !_fullScreenApplied;
+            bool leavingFull = !_shell.MainFullScreen && _fullScreenApplied;
+
+            // Never write the screen-filling rect to the config; the normal
+            // rect is recorded when full screen starts and restored on exit.
+            if (!_fullScreenApplied)
+            {
+                SavePlacement();
+            }
 
             ApplyMode(to);
-            _full.Render();
+            _mainView.Render();
             _widget.Render();
-            _overall.RenderSidebar();
-            _overall.RenderCards();
             UpdateWidgetCorner();
-            UpdateMemoryVisibility();
             _appliedFontScale = _shell.Config.FontScale;
 
-            RectD current = CurrentRect();
-            PointD origin = _placement.ApplySwitch(from, to, current);
-            SizeD panel = SizeFor(to);
-            SizeD window = WindowGeometry.WindowSize(panel);
-            RectD rect = new(origin.X, origin.Y, window.Width, window.Height);
-            rect = WindowGeometry.KeepOnScreen(rect, WorkAreaAt(rect.TopLeft));
-            ApplyRect(rect);
+            if (enteringFull)
+            {
+                if (from == ViewMode.Widget)
+                {
+                    // F11 from the Widget walks the same Widget -> Main
+                    // transition as a double-click, so the Widget's origin is
+                    // remembered before the screen is filled.
+                    RectD current = CurrentRect();
+                    PointD origin = _placement.ApplySwitch(from, to, current);
+                    SizeD panel = SizeFor(to);
+                    SizeD window = WindowGeometry.WindowSize(panel);
+                    RectD normal = new(origin.X, origin.Y, window.Width, window.Height);
+                    ApplyRect(WindowGeometry.KeepOnScreen(normal, WorkAreaAt(origin)));
+                }
+                // The screen owns the size while full screen; coming back
+                // re-applies the remembered rect below.
+                ApplyFullScreen(true);
+                _lastMode = to;
+                UpdateScales();
+                UpdateBrushes();
+                UpdateProcessesVisibility();
+                return;
+            }
+
+            if (leavingFull)
+            {
+                // Restore the exact normal-window rect, and only save the
+                // placement once the window is back to its normal geometry.
+                ApplyFullScreen(false);
+                if (_rectBeforeFullScreen is { } before)
+                {
+                    ApplyRect(before);
+                }
+                if (to != ViewMode.Main)
+                {
+                    RectD current = CurrentRect();
+                    PointD origin = _placement.ApplySwitch(from, to, current);
+                    SizeD window = WindowGeometry.WindowSize(SizeFor(to));
+                    RectD rect = new(origin.X, origin.Y, window.Width, window.Height);
+                    ApplyRect(WindowGeometry.KeepOnScreen(rect, WorkAreaAt(origin)));
+                }
+                _lastMode = to;
+                UpdateScales();
+                UpdateBrushes();
+                UpdateProcessesVisibility();
+                SavePlacement();
+                return;
+            }
+
+            if (_fullScreenApplied)
+            {
+                // Still full screen (another page selected): keep the screen
+                // geometry and remember nothing new.
+                _lastMode = to;
+                UpdateScales();
+                UpdateBrushes();
+                UpdateProcessesVisibility();
+                return;
+            }
+
+            RectD currentRect = CurrentRect();
+            PointD switchOrigin = _placement.ApplySwitch(from, to, currentRect);
+            SizeD targetPanel = SizeFor(to);
+            SizeD targetWindow = WindowGeometry.WindowSize(targetPanel);
+            RectD target = new(
+                switchOrigin.X, switchOrigin.Y, targetWindow.Width, targetWindow.Height);
+            target = WindowGeometry.KeepOnScreen(target, WorkAreaAt(target.TopLeft));
+            ApplyRect(target);
 
             _lastMode = to;
             UpdateScales();
             UpdateBrushes();
+            UpdateProcessesVisibility();
             SavePlacement();
         }
         finally
@@ -713,17 +806,48 @@ internal sealed class ShellWindow : Window
         }
     }
 
+    /// <summary>
+    /// R-030 §3: Main's full screen is <see cref="WindowState.FullScreen"/>, and
+    /// leaving it restores the state it had before. The shadow pad is dropped
+    /// while the screen is filled.
+    /// </summary>
+    private void ApplyFullScreen(bool full)
+    {
+        if (full)
+        {
+            if (_fullScreenApplied)
+            {
+                return;
+            }
+            _fullScreenApplied = true;
+            _rectBeforeFullScreen = CurrentRect();
+            _stateBeforeFullScreen = WindowState == WindowState.FullScreen
+                ? WindowState.Normal
+                : WindowState;
+            _panel.Margin = new Thickness(0);
+            WindowState = WindowState.FullScreen;
+            return;
+        }
+
+        if (!_fullScreenApplied)
+        {
+            return;
+        }
+        _fullScreenApplied = false;
+        _panel.Margin = new Thickness(WindowGeometry.ShadowPad);
+        WindowState = _stateBeforeFullScreen == WindowState.FullScreen
+            ? WindowState.Normal
+            : _stateBeforeFullScreen;
+    }
+
     private void ApplyMode(ViewMode mode)
     {
         _widget.IsVisible = mode == ViewMode.Widget;
-        _overall.IsVisible = mode == ViewMode.Overall;
-        // Phase B2 replaces the old Full view with the real Main window; until
-        // then Main shows it, so a build of this phase still draws something.
-        _full.IsVisible = mode is ViewMode.Main or ViewMode.Full;
-        _panel.CornerRadius = mode is ViewMode.Main or ViewMode.Full
+        _mainView.IsVisible = mode == ViewMode.Main;
+        _panel.CornerRadius = mode == ViewMode.Main
             ? new CornerRadius(0)
             : new CornerRadius(14);
-        _grip.IsVisible = mode is not (ViewMode.Main or ViewMode.Full);
+        _grip.IsVisible = mode == ViewMode.Widget;
         _widgetCorner.IsVisible = mode == ViewMode.Widget;
     }
 
@@ -1112,7 +1236,9 @@ internal sealed class ShellWindow : Window
 
     private void SavePlacement()
     {
-        if (double.IsNaN(Width) || double.IsNaN(Height))
+        // The screen-filling rect is not a placement: only the normal window
+        // rect, remembered before full screen, may reach the config.
+        if (_fullScreenApplied || double.IsNaN(Width) || double.IsNaN(Height))
         {
             return;
         }
@@ -1122,27 +1248,8 @@ internal sealed class ShellWindow : Window
         _shell.Save();
     }
 
-    private SizeD SizeFor(ViewMode mode)
-    {
-        if (mode == ViewMode.Overall && !_shell.Config.OverallSized)
-        {
-            // Auto-fit: measure the view, divide the layout scale out (we measure
-            // at scale 1), ceil and clamp to the work area (spec section 1).
-            RectD work = WorkAreaAt(CurrentRect().TopLeft);
-            Size natural = _overall.MeasureNatural(
-                Math.Max(1, work.Width - WindowGeometry.ShadowPad * 2),
-                Math.Max(1, work.Height - WindowGeometry.ShadowPad * 2));
-            SizeD fit = WindowGeometry.AutoFit(
-                new SizeD(natural.Width, natural.Height),
-                1.0,
-                WindowGeometry.MinPanelSize(ViewMode.Overall),
-                work);
-            _shell.Config.OverallW = fit.Width;
-            _shell.Config.OverallH = fit.Height;
-            return fit;
-        }
-        return WindowGeometry.PanelSize(mode, _shell.Config);
-    }
+    private SizeD SizeFor(ViewMode mode) =>
+        WindowGeometry.PanelSize(mode, _shell.Config);
 
     private void UpdateScales()
     {
@@ -1150,8 +1257,6 @@ internal sealed class ShellWindow : Window
             new SizeD(Math.Max(1, Bounds.Width), Math.Max(1, Bounds.Height)));
         _widget.SetScale(WindowGeometry.ContentScale(
             panel, WindowGeometry.ReferenceSize(ViewMode.Widget)));
-        _overall.SetScale(WindowGeometry.ContentScale(
-            panel, WindowGeometry.ReferenceSize(ViewMode.Overall)));
     }
 
     private void ApplyRect(RectD rect)

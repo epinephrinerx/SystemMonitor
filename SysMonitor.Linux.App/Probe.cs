@@ -1,4 +1,5 @@
 using System.Text;
+using Avalonia;
 using Avalonia.Platform;
 using SkiaSharp;
 using SysMonitor.Linux;
@@ -121,6 +122,7 @@ internal static class Probe
         }
 
         DescribeMain(text, shell);
+        DescribeMainView(text, shell);
         DescribeMemory(text, shell, snapshot);
         DescribeIntegrations(text, shell, snapshot);
 
@@ -241,6 +243,117 @@ internal static class Probe
             }
             text.AppendLine();
         }
+    }
+
+    /// <summary>
+    /// The Main window's view (R-030 B2): what the sidebar and the selected
+    /// page are made of. The module items and section titles are derived from
+    /// the same models the view draws, so the report is complete even when a
+    /// control tree cannot be built without the Avalonia platform.
+    /// </summary>
+    private static void DescribeMainView(StringBuilder text, ShellModel shell)
+    {
+        string page = shell.Main.Page;
+        text.AppendLine("Main view (R-030 B2)");
+        text.AppendLine(
+            $"  sidebar_width={shell.Main.SidebarWidth}  settings_open={shell.Main.SettingsOpen}  " +
+            $"page={MaskKey(page)}  full_screen={shell.MainFullScreen}");
+
+        text.AppendLine("  nav:");
+        foreach ((string key, string label) in new[]
+                 {
+                     (PageKeys.Overall, shell.Language["overall"]),
+                     (PageKeys.Apps, shell.Language["apps"]),
+                     (PageKeys.Processes, shell.Language["processes"]),
+                 })
+        {
+            text.AppendLine(
+                $"    [{key}] \"{label}\"" + (key == page ? "  (selected)" : string.Empty));
+        }
+
+        text.AppendLine($"  module items ({shell.MainSidebar.Count}):");
+        int number = 1;
+        foreach (SidebarItem item in shell.MainSidebar)
+        {
+            text.AppendLine(
+                $"    {number}. [{MaskKey(item.Key)}] title=\"{MaskName(item.Title)}\"  " +
+                $"value=\"{item.Value}\"  device=\"{Privacy.MaskInterface(item.Device)}\"  " +
+                $"accent={item.Accent.ToHex()}  points={item.Primary.Count}" +
+                (item.Secondary is null ? string.Empty : $" +{item.Secondary.Count}"));
+            number++;
+        }
+
+        text.AppendLine("  right frame sections:");
+        foreach (string title in MainSectionTitles(shell))
+        {
+            text.AppendLine("    " + title);
+        }
+
+        // A control tree needs Avalonia's platform (fonts and cursors), and the
+        // probe runs before any application exists. It still reports what the
+        // view is made of, from the same models the view draws.
+        if (Application.Current is null)
+        {
+            text.AppendLine("  view: model only (the probe runs without an Avalonia application)");
+        }
+        else
+        {
+            try
+            {
+                var view = new MainView(shell, _ => { });
+                view.Render();
+                text.AppendLine(
+                    $"  view built: nav={view.NavCount}  module_items={view.ModuleItemCount}  " +
+                    $"settings_open={view.SettingsOpen}");
+            }
+            catch (Exception exception)
+            {
+                text.AppendLine(
+                    "  view not built: " + exception.GetType().Name + ": " + exception.Message);
+            }
+        }
+        text.AppendLine();
+    }
+
+    /// <summary>The section titles the selected page shows, in page order.</summary>
+    private static IReadOnlyList<string> MainSectionTitles(ShellModel shell)
+    {
+        var titles = new List<string>();
+        string page = shell.Main.Page;
+
+        if (string.Equals(page, PageKeys.Overall, StringComparison.Ordinal))
+        {
+            titles.AddRange(shell.Overall.Sections.Select(section => section.Title));
+            return titles;
+        }
+        if (string.Equals(page, PageKeys.Apps, StringComparison.Ordinal))
+        {
+            titles.Add(shell.Language["apps"]);
+            titles.Add(shell.Language["apps_placeholder"]);
+            return titles;
+        }
+        if (string.Equals(page, PageKeys.Processes, StringComparison.Ordinal))
+        {
+            titles.Add(shell.Language["mem_processes"]);
+            titles.Add(shell.Language["mem_services"]);
+            return titles;
+        }
+
+        FullTab? tab = shell.Full.Selected;
+        if (tab is null)
+        {
+            return titles;
+        }
+        titles.Add(shell.Language["usage"]);
+        if (tab.Sensors.Count > 0)
+        {
+            titles.Add(shell.Language["sensors"]);
+        }
+        if (tab.Properties.Count > 0)
+        {
+            titles.Add(shell.Language["properties"]);
+        }
+        return titles;
     }
 
     /// <summary>The sidebar's items, with the probe's privacy mask on names.</summary>

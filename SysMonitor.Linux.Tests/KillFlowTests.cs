@@ -1439,16 +1439,16 @@ public sealed class KillFlowTests
         Assert.IsNotNull(initialFlow, "KillFlow must be created eagerly in constructor");
 
         // Switching views must retain the exact same KillFlow instance
-        model.SwitchTo(ViewMode.Full);
-        Assert.AreSame(initialFlow, model.Kills, "Switching to Full must retain the same KillFlow instance");
+        model.SwitchTo(ViewMode.Main);
+        Assert.AreSame(initialFlow, model.Kills, "Switching to Main must retain the same KillFlow instance");
 
         model.CancelKills();
         Assert.AreSame(initialFlow, model.Kills, "CancelKills must retain the same KillFlow instance");
 
-        // Reopening Full view calls Reopen() on the SAME instance
+        // Reopening Main view calls Reopen() on the SAME instance
         model.SwitchTo(ViewMode.Widget);
-        model.SwitchTo(ViewMode.Full);
-        Assert.AreSame(initialFlow, model.Kills, "Reopening Full must retain the same KillFlow instance");
+        model.SwitchTo(ViewMode.Main);
+        Assert.AreSame(initialFlow, model.Kills, "Reopening Main must retain the same KillFlow instance");
 
         model.SetChoice(SettingKeys.Language, "th");
         Assert.AreSame(initialFlow, model.Kills, "Changing language must retain the same KillFlow instance");

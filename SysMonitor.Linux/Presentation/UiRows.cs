@@ -49,6 +49,7 @@ public static class SettingKeys
     public const string ShowNetworkDrives = "show_network_drives";
     public const string ShowGpu = "show_gpu";
     public const string ShowNetwork = "show_network";
+    public const string ShowBattery = "show_battery";
     public const string PerAdapter = "per_adapter";
     public const string TempEstimate = "temp_estimate";
     public const string IncludeRemovable = "include_removable";

@@ -436,9 +436,8 @@ public sealed class Placement
         return current.TopLeft;
     }
 
-    /// <summary>The two views R-030 removed count as Main for placement.</summary>
-    private static bool IsMain(ViewMode mode) =>
-        mode is ViewMode.Main or ViewMode.Overall or ViewMode.Full;
+    /// <summary>Main is the only window the placement logic knows besides the Widget.</summary>
+    private static bool IsMain(ViewMode mode) => mode == ViewMode.Main;
 
     /// <summary>A drag or resize while Full is showing makes the return position stale.</summary>
     public void NoteMoved()

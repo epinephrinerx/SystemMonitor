@@ -14,20 +14,14 @@ public sealed class WindowGeometryTests
         // Reference sizes (panel)
         Assert.AreEqual(new SizeD(270, 104), WindowGeometry.ReferenceSize(ViewMode.Widget));
         Assert.AreEqual(new SizeD(640, 480), WindowGeometry.ReferenceSize(ViewMode.Main));
-        Assert.AreEqual(new SizeD(640, 480), WindowGeometry.ReferenceSize(ViewMode.Overall));
-        Assert.AreEqual(new SizeD(640, 480), WindowGeometry.ReferenceSize(ViewMode.Full));
 
         // Min panel sizes
         Assert.AreEqual(new SizeD(200, 64), WindowGeometry.MinPanelSize(ViewMode.Widget));
         Assert.AreEqual(new SizeD(640, 480), WindowGeometry.MinPanelSize(ViewMode.Main));
-        Assert.AreEqual(new SizeD(640, 480), WindowGeometry.MinPanelSize(ViewMode.Overall));
-        Assert.AreEqual(new SizeD(640, 480), WindowGeometry.MinPanelSize(ViewMode.Full));
 
         // Max panel sizes
         Assert.AreEqual(new SizeD(900, 400), WindowGeometry.MaxPanelSize(ViewMode.Widget));
         Assert.AreEqual(new SizeD(4000, 3000), WindowGeometry.MaxPanelSize(ViewMode.Main));
-        Assert.AreEqual(new SizeD(4000, 3000), WindowGeometry.MaxPanelSize(ViewMode.Overall));
-        Assert.AreEqual(new SizeD(4000, 3000), WindowGeometry.MaxPanelSize(ViewMode.Full));
 
         // Shadow pad is 12 DIPs
         Assert.AreEqual(12.0, WindowGeometry.ShadowPad);
@@ -172,27 +166,27 @@ public sealed class WindowGeometryTests
         var placement = new Placement();
         RectD widgetRect = new(500, 300, 294, 128);
 
-        // Switch to Full: remembers widgetRect, returns current top-left
-        PointD fullOrigin = placement.ApplySwitch(ViewMode.Widget, ViewMode.Full, widgetRect);
-        Assert.AreEqual(widgetRect.TopLeft, fullOrigin);
+        // Switch to Main: remembers widgetRect, returns current top-left
+        PointD mainOrigin = placement.ApplySwitch(ViewMode.Widget, ViewMode.Main, widgetRect);
+        Assert.AreEqual(widgetRect.TopLeft, mainOrigin);
         Assert.IsTrue(placement.InFull);
         Assert.IsNotNull(placement.BeforeFull);
 
-        // Switch back without moving: restores pre-Full position!
-        RectD fullRect = new(100, 50, 664, 504);
-        PointD returnPos = placement.ApplySwitch(ViewMode.Full, ViewMode.Widget, fullRect);
+        // Switch back without moving: restores pre-Main position!
+        RectD mainRect = new(100, 50, 664, 504);
+        PointD returnPos = placement.ApplySwitch(ViewMode.Main, ViewMode.Widget, mainRect);
         Assert.AreEqual(widgetRect.TopLeft, returnPos);
         Assert.IsFalse(placement.InFull);
 
-        // Now enter Full again and move window while in Full
-        placement.ApplySwitch(ViewMode.Widget, ViewMode.Full, widgetRect);
+        // Now enter Main again and move window while in Main
+        placement.ApplySwitch(ViewMode.Widget, ViewMode.Main, widgetRect);
         placement.NoteMoved();
         Assert.IsTrue(placement.MovedWhileFull);
 
         // Switch back after moving: keeps current position instead of jumping back!
-        RectD movedFullRect = new(200, 150, 664, 504);
-        PointD movedReturnPos = placement.ApplySwitch(ViewMode.Full, ViewMode.Widget, movedFullRect);
-        Assert.AreEqual(movedFullRect.TopLeft, movedReturnPos);
+        RectD movedMainRect = new(200, 150, 664, 504);
+        PointD movedReturnPos = placement.ApplySwitch(ViewMode.Main, ViewMode.Widget, movedMainRect);
+        Assert.AreEqual(movedMainRect.TopLeft, movedReturnPos);
     }
 
     [TestMethod]

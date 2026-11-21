@@ -179,12 +179,11 @@ public sealed class ShellModel
     public WidgetPage? CurrentPage => Rotation.Page;
     public bool Paused => Rotation.Paused;
     public bool IsWidget => View.IsWidget;
-    public string FullTitle => Language["full_data"];
 
-    /// <summary>True only while the Main window is showing the memory page.</summary>
-    public bool FullRamVisible =>
+    /// <summary>True only while the Main window is showing the Processes page.</summary>
+    public bool MainProcessesVisible =>
         View.Mode == ViewMode.Main
-        && string.Equals(_main.Page, PageKeys.Ram, StringComparison.Ordinal);
+        && string.Equals(_main.Page, PageKeys.Processes, StringComparison.Ordinal);
 
     /// <summary>True while Main covers the screen (F11).</summary>
     public bool MainFullScreen => View.MainFullScreen;
@@ -303,19 +302,6 @@ public sealed class ShellModel
         return true;
     }
 
-    // ------------------------------------------------------------- legacy
-    // The Overall and Full views are replaced in phase B2. These wrappers keep
-    // the old buttons compiling until then.
-
-    public bool OverallHeaderFull() => Apply(View.OverallHeaderFull);
-    public bool OverallHeaderWidget() => Apply(View.OverallHeaderWidget);
-    public bool SidebarFullData() => Apply(View.SidebarFullData);
-    public bool SidebarOpenWidget() => Apply(View.SidebarOpenWidget);
-    public bool FullHeaderOverall() => Apply(View.FullHeaderOverall);
-    public bool FullHeaderWidget() => Apply(View.FullHeaderWidget);
-    public bool FullRailOverall() => Apply(View.FullRailOverall);
-    public bool FullRailWidget() => Apply(View.FullRailWidget);
-
     private bool Apply(Func<bool> move)
     {
         if (!move())
@@ -392,9 +378,6 @@ public sealed class ShellModel
         StructureChanged?.Invoke();
         return true;
     }
-
-    /// <summary>The old Full view's tab click: it shows the same page.</summary>
-    public bool SelectFullTab(string key) => SelectMainPage(key);
 
     /// <summary>Expand or collapse Settings in the sidebar; the state is remembered.</summary>
     public bool SetSettingsOpen(bool open)
@@ -620,6 +603,10 @@ public sealed class ShellModel
             case SettingKeys.ShowNetwork:
                 changed = Config.ShowNetwork != value;
                 Config.ShowNetwork = value;
+                break;
+            case SettingKeys.ShowBattery:
+                changed = Config.ShowBattery != value;
+                Config.ShowBattery = value;
                 break;
             case SettingKeys.PerAdapter:
                 changed = IsSeparated(Config.NetworkMode) != value;
@@ -1028,28 +1015,25 @@ public sealed class ShellModel
 
     private IReadOnlyList<UiRow> BuildSidebar()
     {
+        // R-030 §2: the Settings expander holds only the app-wide options. The
+        // per-module options (cpu_mode, cpu_temperature, disk_mode,
+        // include_network, network_mode) moved to the module pages, and the
+        // show_* switches stay together under "Modules".
         var rows = new List<UiRow>
         {
-            new NavRow(IconName.FullData, Language["full_data"], ActionKeys.OpenFull),
-            new NavRow(IconName.Widget, Language["open_widget"], ActionKeys.OpenWidget),
-
             new HeadingRow(Language["window_settings"]),
             new CheckRow(SettingKeys.AlwaysOnTop, Language["always_on_top"], Config.AlwaysOnTop),
             new CheckRow(SettingKeys.LightMode, Language["light_mode"], IsLight),
             Dial(SettingKeys.Opacity, "opacity", 0.35, 1.0),
             Dial(SettingKeys.FontSize, "font_size", 0.8, 1.6),
 
-            new HeadingRow(Language["display_settings"]),
+            new HeadingRow(Language["modules"]),
             new CheckRow(SettingKeys.ShowCpu, Language["show_cpu"], Config.ShowCpu),
-            new CheckRow(SettingKeys.PerCore, Language["per_core"], IsSeparated(Config.CpuMode), Indented: true),
-            new CheckRow(SettingKeys.CpuTemp, Language["cpu_temp"], Config.CpuTemperature, Indented: true),
             new CheckRow(SettingKeys.ShowRam, Language["show_ram"], Config.ShowRam),
             new CheckRow(SettingKeys.ShowDisk, Language["show_disk"], Config.ShowDisk),
-            new CheckRow(SettingKeys.PerDrive, Language["per_drive"], IsSeparated(Config.DiskMode), Indented: true),
-            new CheckRow(SettingKeys.ShowNetworkDrives, Language["show_network_drives"], Config.IncludeNetwork, Indented: true),
             new CheckRow(SettingKeys.ShowGpu, Language["show_gpu"], Config.ShowGpu),
             new CheckRow(SettingKeys.ShowNetwork, Language["show_network"], Config.ShowNetwork),
-            new CheckRow(SettingKeys.PerAdapter, Language["per_adapter"], IsSeparated(Config.NetworkMode), Indented: true),
+            new CheckRow(SettingKeys.ShowBattery, Language["show_battery"], Config.ShowBattery),
 
             // Phase 2a has no extensions, so the extensions heading and its
             // checks have nothing to list and are left out (spec section 4).

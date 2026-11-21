@@ -2,28 +2,18 @@ namespace SysMonitor.Linux.Presentation;
 
 /// <summary>
 /// The two windows R-030 keeps. The Widget stays a small window of its own; the
-/// old Overall and Full views become pages inside one Main window, selected in
+/// old Overall and Full views became pages inside one Main window, selected in
 /// <see cref="MainState"/>.
 /// </summary>
 public enum ViewMode
 {
     Widget,
     Main,
-
-    /// <summary>
-    /// Removed in R-030: the old Overall view is Main's "overall" page. Kept as
-    /// a value nothing produces, so code and tests written against the
-    /// three-view build still compile.
-    /// </summary>
-    Overall = 100,
-
-    /// <summary>Removed in R-030: the old Full view is a page per module now.</summary>
-    Full = 101,
 }
 
 public static class ViewModeExtensions
 {
-    /// <summary>The config key: "widget" or "main". Legacy values read as main.</summary>
+    /// <summary>The config key: "widget" or "main".</summary>
     public static string ToKey(this ViewMode mode) => mode == ViewMode.Widget ? "widget" : "main";
 
     /// <summary>
@@ -52,9 +42,7 @@ public sealed class ViewState
 {
     public ViewState(ViewMode mode)
     {
-        Mode = mode == ViewMode.Main ? ViewMode.Main
-            : mode == ViewMode.Widget ? ViewMode.Widget
-            : mode;
+        Mode = mode == ViewMode.Widget ? ViewMode.Widget : ViewMode.Main;
     }
 
     public ViewMode Mode { get; private set; }
@@ -66,8 +54,7 @@ public sealed class ViewState
     public bool DoubleClick() => Mode == ViewMode.Widget ? Move(ViewMode.Main) : Move(ViewMode.Widget);
 
     /// <summary>
-    /// From the Widget: Main, full screen. In Main: toggle full screen. A
-    /// legacy mode is treated as Main.
+    /// From the Widget: Main, full screen. In Main: toggle full screen.
     /// </summary>
     public bool F11()
     {
@@ -103,20 +90,6 @@ public sealed class ViewState
 
     /// <summary>The header's full-screen button.</summary>
     public bool ToggleFullScreen() => F11();
-
-    // ------------------------------------------------------------- legacy
-    // The Overall and Full views are replaced in phase B2. These stand-ins keep
-    // the old buttons compiling until then; each one lands on the view that
-    // still exists.
-
-    public bool OverallHeaderFull() => Move(ViewMode.Main);
-    public bool OverallHeaderWidget() => Move(ViewMode.Widget);
-    public bool SidebarFullData() => Move(ViewMode.Main);
-    public bool SidebarOpenWidget() => Move(ViewMode.Widget);
-    public bool FullHeaderOverall() => Move(ViewMode.Main);
-    public bool FullHeaderWidget() => Move(ViewMode.Widget);
-    public bool FullRailOverall() => Move(ViewMode.Main);
-    public bool FullRailWidget() => Move(ViewMode.Widget);
 
     /// <summary>True when the mode actually changed.</summary>
     public bool Move(ViewMode mode)

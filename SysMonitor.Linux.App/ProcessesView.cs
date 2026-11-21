@@ -11,39 +11,25 @@ using SysMonitor.Model;
 namespace SysMonitor.Linux.App;
 
 /// <summary>
-/// The Full view (spec sections 5, 5a, 5b, 5c): the header, the tab rail, the
-/// detail pane with facts and chart cards, and on the RAM tab the process and
-/// service lists.
-///
-/// Every value comes from <see cref="ShellModel"/>; this file draws and wires.
-/// The tab buttons are reconciled by key, and the memory section is a permanent
-/// control whose group rows are updated in place, so a chart, an expanded group
-/// or the search box is not thrown away by the 2.5 s redraw.
+/// The Processes page (R-030 §2): two tabs, "Processes" and "Services". The
+/// process groups and service rows are the ones the old Full view's memory tab
+/// drew, moved here unchanged — keyed, updated in place, with the same search,
+/// kill/force/confirm flow and status line. Phase C replaces the process list
+/// with the new grid; this file keeps today's behaviour until then.
 /// </summary>
-internal sealed class FullView : UserControl
+internal sealed class ProcessesView : UserControl
 {
     private const string GraphBackground = "#223b82f6";
 
     private readonly ShellModel _shell;
-    private readonly Action<string> _dispatch;
 
-    private readonly Grid _root;
-    private readonly Grid _header;
-    private readonly Grid _rail;
-    private readonly Grid _nav;
-    private readonly ScrollViewer _railScroll;
-    private readonly StackPanel _tabList;
-    private readonly Dictionary<string, TabButton> _tabButtons = new();
-    private readonly ScrollViewer _detailScroll;
-    private readonly StackPanel _detail;
-    private readonly TextBlock _detailTitle;
-    private readonly TextBlock _detailHardware;
-    private readonly Border _factsCard;
-    private readonly WrapPanel _facts;
-    private readonly StackPanel _bigCards;
-    private readonly WrapPanel _smallCards;
+    private readonly Border _processesTab;
+    private readonly TextBlock _processesTabText;
+    private readonly Border _servicesTab;
+    private readonly TextBlock _servicesTabText;
+    private readonly ScrollViewer _processesPage;
+    private readonly ScrollViewer _servicesPage;
 
-    private readonly StackPanel _memorySection;
     private readonly TextBlock _processHeading;
     private readonly TextBox _search;
     private readonly TextBlock _status;
@@ -55,102 +41,36 @@ internal sealed class FullView : UserControl
     private readonly StackPanel _userList;
     private readonly TextBlock _systemHeading;
     private readonly StackPanel _systemList;
-    private readonly Dictionary<string, GroupRow> _groupRows = new();
+    private readonly Dictionary<string, GroupRow> _groupRows = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _expanded = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ServiceRow> _userRows = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ServiceRow> _systemRows = new(StringComparer.Ordinal);
 
     private string _searchText = string.Empty;
+    private bool _services;
 
-    public FullView(ShellModel shell, Action<string> dispatch)
+    public ProcessesView(ShellModel shell)
     {
         _shell = shell;
-        _dispatch = dispatch;
 
-        // Header.
-        _header = new Grid
-        {
-            ColumnDefinitions =
-            {
-                new ColumnDefinition(new GridLength(1, GridUnitType.Star)),
-                new ColumnDefinition(GridLength.Auto),
-            },
-        };
+        _processesTabText = Ui.Text(string.Empty, shell.Ramp.Body, shell.Palette.Text, FontWeight.SemiBold);
+        _processesTab = Tab(_processesTabText, () => ShowServices(false));
+        _servicesTabText = Ui.Text(string.Empty, shell.Ramp.Body, shell.Palette.Text, FontWeight.SemiBold);
+        _servicesTab = Tab(_servicesTabText, () => ShowServices(true));
 
-        // Rail.
-        _nav = new Grid
+        var tabs = new StackPanel
         {
-            ColumnDefinitions =
-            {
-                new ColumnDefinition(new GridLength(1, GridUnitType.Star)),
-                new ColumnDefinition(new GridLength(1, GridUnitType.Star)),
-            },
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
             Margin = new Thickness(0, 0, 0, 8),
         };
+        tabs.Children.Add(_processesTab);
+        tabs.Children.Add(_servicesTab);
 
-        _tabList = new StackPanel { MinWidth = 128 };
-        _railScroll = new ScrollViewer
-        {
-            Content = _tabList,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            AllowAutoHide = false,
-        };
-        _rail = new Grid
-        {
-            Margin = new Thickness(0, 0, 12, 0),
-            RowDefinitions = new RowDefinitions("Auto,*"),
-        };
-        _rail.Children.Add(_nav);
-        Grid.SetRow(_railScroll, 1);
-        _rail.Children.Add(_railScroll);
-
-        // Detail heading.
-        _detailTitle = Ui.Text(string.Empty, shell.Ramp.Heading, shell.Palette.Text, FontWeight.Bold);
-        _detailHardware = Ui.Text(
-            string.Empty, shell.Ramp.Body, shell.Palette.Label, ellipsis: true);
-        _detailHardware.MaxWidth = 360;
-        _detailHardware.HorizontalAlignment = HorizontalAlignment.Right;
-        _detailHardware.VerticalAlignment = VerticalAlignment.Bottom;
-
-        var headingRow = new Grid
-        {
-            ColumnDefinitions =
-            {
-                new ColumnDefinition(new GridLength(1, GridUnitType.Star)),
-                new ColumnDefinition(GridLength.Auto),
-            },
-            Margin = new Thickness(0, 0, 0, 8),
-        };
-        headingRow.Children.Add(_detailTitle);
-        Grid.SetColumn(_detailHardware, 1);
-        headingRow.Children.Add(_detailHardware);
-
-        // Facts card.
-        _facts = new WrapPanel();
-        _factsCard = new Border
-        {
-            Background = Ui.Brush(shell.Palette.Control),
-            CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(12, 10, 12, 4),
-            Margin = new Thickness(0, 0, 0, 10),
-            Child = _facts,
-            IsVisible = false,
-        };
-
-        _bigCards = new StackPanel();
-        _smallCards = new WrapPanel();
-
-        _detail = new StackPanel();
-        _detail.Children.Add(headingRow);
-        _detail.Children.Add(_factsCard);
-        _detail.Children.Add(_bigCards);
-        _detail.Children.Add(_smallCards);
-
-        // RAM tab: processes and services, built once and kept alive.
+        // Processes tab.
         _processHeading = Ui.Text(
             string.Empty, shell.Ramp.Heading, shell.Palette.Text, FontWeight.SemiBold, wrap: true);
-        _processHeading.Margin = new Thickness(2, 6, 2, 8);
+        _processHeading.Margin = new Thickness(2, 2, 2, 8);
 
         _search = new TextBox
         {
@@ -174,16 +94,24 @@ internal sealed class FullView : UserControl
         };
 
         _status = Ui.Text(string.Empty, shell.Ramp.Small, shell.Palette.Label, wrap: true);
-        _status.Margin = new Thickness(2, 4, 2, 0);
+        _status.Margin = new Thickness(2, 0, 2, 4);
 
         _groupNote = Ui.Text(string.Empty, shell.Ramp.Small, shell.Palette.Label, wrap: true);
         _groupNote.Margin = new Thickness(2, 6, 2, 2);
 
         _processList = new StackPanel { Margin = new Thickness(0, 4, 0, 0) };
 
+        var processesBody = new StackPanel();
+        processesBody.Children.Add(_processHeading);
+        processesBody.Children.Add(_search);
+        processesBody.Children.Add(_groupNote);
+        processesBody.Children.Add(_processList);
+        _processesPage = Page(processesBody);
+
+        // Services tab.
         _serviceHeading = Ui.Text(
             string.Empty, shell.Ramp.Heading, shell.Palette.Text, FontWeight.SemiBold, wrap: true);
-        _serviceHeading.Margin = new Thickness(2, 16, 2, 8);
+        _serviceHeading.Margin = new Thickness(2, 2, 2, 8);
 
         _serviceNote = Ui.Text(string.Empty, shell.Ramp.Small, shell.Palette.Label, wrap: true);
         _serviceNote.Margin = new Thickness(2, 0, 2, 4);
@@ -198,135 +126,43 @@ internal sealed class FullView : UserControl
         _systemHeading.Margin = new Thickness(2, 12, 2, 4);
         _systemList = new StackPanel();
 
-        _memorySection = new StackPanel();
-        _memorySection.Children.Add(_processHeading);
-        _memorySection.Children.Add(_search);
-        _memorySection.Children.Add(_status);
-        _memorySection.Children.Add(_groupNote);
-        _memorySection.Children.Add(_processList);
-        _memorySection.Children.Add(_serviceHeading);
-        _memorySection.Children.Add(_serviceNote);
-        _memorySection.Children.Add(_userHeading);
-        _memorySection.Children.Add(_userList);
-        _memorySection.Children.Add(_systemHeading);
-        _memorySection.Children.Add(_systemList);
+        var servicesBody = new StackPanel();
+        servicesBody.Children.Add(_serviceHeading);
+        servicesBody.Children.Add(_serviceNote);
+        servicesBody.Children.Add(_userHeading);
+        servicesBody.Children.Add(_userList);
+        servicesBody.Children.Add(_systemHeading);
+        servicesBody.Children.Add(_systemList);
+        _servicesPage = Page(servicesBody);
 
-        _detailScroll = new ScrollViewer
-        {
-            Content = _detail,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            AllowAutoHide = false,
-        };
+        var body = new Grid();
+        body.Children.Add(_processesPage);
+        body.Children.Add(_servicesPage);
+        _servicesPage.IsVisible = false;
 
-        var body = new Grid
-        {
-            ColumnDefinitions =
-            {
-                new ColumnDefinition(GridLength.Auto),
-                new ColumnDefinition(new GridLength(1, GridUnitType.Star)),
-            },
-        };
-        body.Children.Add(_rail);
-        Grid.SetColumn(_detailScroll, 1);
-        body.Children.Add(_detailScroll);
-
-        _root = new Grid
-        {
-            Margin = new Thickness(14, 12, 14, 12),
-            RowDefinitions = new RowDefinitions("Auto,*"),
-        };
-        _root.Children.Add(_header);
-        Grid.SetRow(body, 1);
-        _root.Children.Add(body);
-        Content = _root;
+        // The status line belongs to both tabs: a failed service action must be
+        // visible on the Services tab, where it happens.
+        var root = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,*") };
+        root.Children.Add(tabs);
+        Grid.SetRow(_status, 1);
+        root.Children.Add(_status);
+        Grid.SetRow(body, 2);
+        root.Children.Add(body);
+        Content = root;
 
         shell.MemoryChanged += OnMemoryChanged;
         Render();
     }
 
-    /// <summary>Rebuild the frame in the current language and palette.</summary>
+    /// <summary>Re-apply text, language and palette; the rows stay keyed.</summary>
     public void Render()
     {
         Palette palette = _shell.Palette;
         TypeRamp ramp = _shell.Ramp;
 
-        _root.Margin = new Thickness(14, 12, 14, 12);
-
-        BuildHeader(palette, ramp);
-        BuildNav(palette, ramp);
-        ApplyTextStyles(palette, ramp);
-        SyncTabs();
-        RenderDetail();
-    }
-
-    /// <summary>Update the rail figures and the detail content after a snapshot.</summary>
-    public void RenderData()
-    {
-        SyncTabs();
-        RenderDetail();
-    }
-
-    private void OnMemoryChanged() =>
-        Dispatcher.UIThread.Post(() =>
-        {
-            _status.Text = Ui.Thai(_shell.MemoryStatus);
-            _status.IsVisible = _status.Text.Length > 0;
-            RenderMemory();
-        });
-
-    // ------------------------------------------------------------- header
-
-    private void BuildHeader(Palette palette, TypeRamp ramp)
-    {
-        _header.Children.Clear();
-        _header.Children.Add(Ui.Text(
-            _shell.FullTitle, ramp.Heading, palette.Text, FontWeight.Bold));
-
-        var buttons = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Spacing = 8,
-        };
-        buttons.Children.Add(Ui.IconButton(
-            IconName.Home, 26, ramp.Body, Palette.IconButton,
-            () => _shell.FullHeaderOverall(), _shell.Language["go_overall"]));
-        buttons.Children.Add(Ui.IconButton(
-            IconName.Widget, 26, ramp.Body, Palette.IconButton,
-            () => _shell.FullHeaderWidget(), _shell.Language["open_widget"]));
-        buttons.Children.Add(Ui.IconButton(
-            IconName.Close, 26, ramp.Body, Palette.IconButton,
-            () => _shell.Close(), _shell.Language["close"]));
-        Grid.SetColumn(buttons, 1);
-        _header.Children.Add(buttons);
-    }
-
-    /// <summary>The nav pair pinned above the tab list (spec section 5).</summary>
-    private void BuildNav(Palette palette, TypeRamp ramp)
-    {
-        _nav.Children.Clear();
-        Border overall = Ui.IconButton(
-            IconName.Home, 26, ramp.Body, Palette.IconButton,
-            () => _shell.FullRailOverall(), _shell.Language["go_overall"]);
-        overall.HorizontalAlignment = HorizontalAlignment.Center;
-        _nav.Children.Add(overall);
-
-        Border widget = Ui.IconButton(
-            IconName.Widget, 26, ramp.Body, Palette.IconButton,
-            () => _shell.FullRailWidget(), _shell.Language["open_widget"]);
-        widget.HorizontalAlignment = HorizontalAlignment.Center;
-        Grid.SetColumn(widget, 1);
-        _nav.Children.Add(widget);
-    }
-
-    private void ApplyTextStyles(Palette palette, TypeRamp ramp)
-    {
-        _detailTitle.Foreground = Ui.Brush(palette.Text);
-        _detailTitle.FontSize = ramp.Heading;
-        _detailHardware.Foreground = Ui.Brush(palette.Label);
-        _detailHardware.FontSize = ramp.Body;
-        _factsCard.Background = Ui.Brush(palette.Control);
+        _processesTabText.Text = Ui.Thai(_shell.Language["processes"]);
+        _servicesTabText.Text = Ui.Thai(_shell.Language["mem_services"]);
+        UpdateTabs();
 
         _processHeading.Text = Ui.Thai(_shell.Language["mem_processes"]);
         _processHeading.Foreground = Ui.Brush(palette.Text);
@@ -362,270 +198,90 @@ internal sealed class FullView : UserControl
         _systemHeading.Text = Ui.Thai(_shell.Language["mem_system_services"]);
         _systemHeading.Foreground = Ui.Brush(palette.Label);
         _systemHeading.FontSize = ramp.Small;
+
+        RenderMemory();
     }
 
-    // ---------------------------------------------------------------- rail
+    /// <summary>Update the tables after a new sample or a kill.</summary>
+    public void RenderData() => RenderMemory();
 
-    private void SyncTabs()
+    private static ScrollViewer Page(Control content) => new()
     {
-        FullModel model = _shell.Full;
-        var live = new HashSet<string>(model.Tabs.Select(t => t.Key), StringComparer.Ordinal);
+        Content = content,
+        HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+        AllowAutoHide = false,
+    };
 
-        foreach (string key in _tabButtons.Keys.Where(k => !live.Contains(k)).ToList())
+    private Border Tab(TextBlock text, Action onClick)
+    {
+        var tab = new Border
         {
-            _tabList.Children.Remove(_tabButtons[key].Control);
-            _tabButtons.Remove(key);
-        }
-
-        for (int index = 0; index < model.Tabs.Count; index++)
+            Padding = new Thickness(12, 5, 12, 5),
+            CornerRadius = new CornerRadius(7),
+            Background = Brushes.Transparent,
+            Cursor = new Cursor(StandardCursorType.Hand),
+            Child = text,
+        };
+        tab.Classes.Add("nodrag");
+        tab.PointerEntered += (_, _) =>
         {
-            FullTab tab = model.Tabs[index];
-            if (!_tabButtons.TryGetValue(tab.Key, out TabButton? button))
+            if (tab.Background is SolidColorBrush { Color.A: 0 })
             {
-                button = new TabButton(tab.Key, this);
-                _tabButtons[tab.Key] = button;
+                tab.Background = Ui.Brush(Colour.FromHex("#22808080"));
             }
-            button.Tab = tab;
-            button.Update(tab, string.Equals(tab.Key, model.SelectedKey, StringComparison.Ordinal));
-
-            if (index < _tabList.Children.Count && ReferenceEquals(_tabList.Children[index], button.Control))
+        };
+        tab.PointerExited += (_, _) => UpdateTabs();
+        tab.PointerPressed += (_, e) =>
+        {
+            if (!e.GetCurrentPoint(tab).Properties.IsLeftButtonPressed)
             {
-                continue;
+                return;
             }
-            _tabList.Children.Remove(button.Control);
-            if (index >= _tabList.Children.Count)
-            {
-                _tabList.Children.Add(button.Control);
-            }
-            else
-            {
-                _tabList.Children.Insert(index, button.Control);
-            }
-        }
+            e.Handled = true;
+            onClick();
+        };
+        return tab;
     }
 
-    private void SelectTab(string key) => _shell.SelectFullTab(key);
-
-    /// <summary>Double-click a disk tab: open it, or the menu when it has several mounts.</summary>
-    private void OpenDiskTab(FullTab tab, Control anchor)
+    private void ShowServices(bool services)
     {
-        if (tab.Mounts.Count == 1)
+        if (_services == services)
         {
-            DiskTools.OpenMount(tab.Mounts[0]);
             return;
         }
-        ShowDriveMenu(tab, anchor);
+        _services = services;
+        _processesPage.IsVisible = !services;
+        _servicesPage.IsVisible = services;
+        UpdateTabs();
     }
 
-    private void ShowDriveMenu(FullTab tab, Control anchor)
+    private void UpdateTabs()
     {
-        var menu = new ContextMenu();
-        foreach (string mount in tab.Mounts)
-        {
-            MenuItem open = MenuItemFor(
-                _shell.Language.Get("disk_open_explorer", mount),
-                () => DiskTools.OpenMount(mount));
-            menu.Items.Add(open);
-        }
-        if (tab.Mounts.Count > 0 && ToolFinder.DiskUsageTool() is not null)
-        {
-            menu.Items.Add(MenuItemFor(
-                _shell.Language.Get("disk_cleanup", tab.Mounts[0]),
-                () => DiskTools.OpenDiskUsage(tab.Mounts[0])));
-        }
-        if (ToolFinder.DiskManagerTool() is not null)
-        {
-            menu.Items.Add(MenuItemFor(
-                _shell.Language["disk_manager"], () => DiskTools.OpenDiskManager()));
-        }
-        menu.Items.Add(new Separator());
-        foreach (UiRow row in _shell.ContextMenu)
-        {
-            menu.Items.Add(row is ActionRow action
-                ? MenuItemFor(action.Label, () => _dispatch(action.Action))
-                : new Separator());
-        }
-        menu.Open(anchor);
+        Palette palette = _shell.Palette;
+        Colour selected = Colour.FromHex("#ffffff");
+        SetTab(_processesTab, _processesTabText, selected, palette, !_services);
+        SetTab(_servicesTab, _servicesTabText, selected, palette, _services);
     }
 
-    private static MenuItem MenuItemFor(string label, Action action)
+    private static void SetTab(
+        Border tab, TextBlock text, Colour selected, Palette palette, bool active)
     {
-        var item = new MenuItem { Header = Ui.Thai(label) };
-        item.Click += (_, _) => action();
-        return item;
+        tab.Background = active
+            ? Ui.Brush(Palette.Selection)
+            : Brushes.Transparent;
+        text.Foreground = Ui.Brush(active ? selected : palette.Text);
     }
 
-    // -------------------------------------------------------------- detail
-
-    private void RenderDetail()
-    {
-        FullTab? tab = _shell.Full.Selected;
-
-        _detailTitle.Text = tab is null ? string.Empty : Ui.Thai(tab.Title);
-        _detailHardware.Text = tab is null ? string.Empty : Ui.Thai(tab.Hardware);
-
-        _facts.Children.Clear();
-        _factsCard.IsVisible = tab is not null && tab.Facts.Count > 0;
-        if (tab is not null)
+    private void OnMemoryChanged() =>
+        Dispatcher.UIThread.Post(() =>
         {
-            foreach (FullFact fact in tab.Facts)
-            {
-                _facts.Children.Add(FactBlock(fact));
-            }
-        }
-
-        _bigCards.Children.Clear();
-        if (tab is not null)
-        {
-            foreach (FullCard card in tab.BigCards)
-            {
-                _bigCards.Children.Add(BigCard(card));
-            }
-        }
-
-        _smallCards.Children.Clear();
-        _smallCards.IsVisible = tab is not null && tab.SmallCards.Count > 0;
-        if (tab is not null)
-        {
-            foreach (FullCard card in tab.SmallCards)
-            {
-                _smallCards.Children.Add(SmallCard(card));
-            }
-        }
-
-        bool ram = string.Equals(tab?.Key, "ram", StringComparison.Ordinal);
-        _memorySection.IsVisible = ram;
-        if (ram)
-        {
+            _status.Text = Ui.Thai(_shell.MemoryStatus);
+            _status.IsVisible = _status.Text.Length > 0;
             RenderMemory();
-        }
-    }
+        });
 
-    private Control FactBlock(FullFact fact)
-    {
-        Palette palette = _shell.Palette;
-        TypeRamp ramp = _shell.Ramp;
-
-        var block = new StackPanel
-        {
-            MaxWidth = 280,
-            Margin = new Thickness(0, 0, 24, 8),
-        };
-        block.Children.Add(Ui.Text(Ui.Thai(fact.Title), ramp.Label, palette.Label));
-        TextBlock value = Ui.Text(Ui.Thai(fact.Value), ramp.Body, palette.Text, wrap: true);
-        value.MaxWidth = 280;
-        block.Children.Add(value);
-        return block;
-    }
-
-    private Control BigCard(FullCard card)
-    {
-        Palette palette = _shell.Palette;
-        TypeRamp ramp = _shell.Ramp;
-
-        var titleRow = new Grid
-        {
-            ColumnDefinitions =
-            {
-                new ColumnDefinition(new GridLength(1, GridUnitType.Star)),
-                new ColumnDefinition(GridLength.Auto),
-            },
-        };
-        TextBlock title = Ui.Text(
-            Ui.Thai(card.Title), ramp.Label, palette.Text, ellipsis: true);
-        title.Margin = new Thickness(0, 0, 66, 0);
-        titleRow.Children.Add(title);
-        TextBlock value = Ui.Text(
-            Ui.Thai(card.Value), ramp.Body, palette.Text, FontWeight.SemiBold);
-        value.VerticalAlignment = VerticalAlignment.Top;
-        Grid.SetColumn(value, 1);
-        titleRow.Children.Add(value);
-
-        TextBlock detail = Ui.Text(
-            Ui.Thai(card.Detail), ramp.Small, palette.Label, ellipsis: true);
-
-        var axis = new Grid
-        {
-            Margin = new Thickness(0, 6, 0, 2),
-            ColumnDefinitions =
-            {
-                new ColumnDefinition(new GridLength(1, GridUnitType.Star)),
-                new ColumnDefinition(GridLength.Auto),
-            },
-        };
-        axis.Children.Add(Ui.Text(
-            Ui.Thai(card.Unit), ramp.Tiny, palette.Label, ellipsis: true));
-        TextBlock ceiling = Ui.Text(Ui.Thai(card.Ceiling), ramp.Tiny, palette.Label);
-        Grid.SetColumn(ceiling, 1);
-        axis.Children.Add(ceiling);
-
-        var chart = new ChartControl(card.History, card.Accent, card.Maximum, palette)
-        {
-            Height = 96,
-            MinHeight = 40,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-        };
-
-        var body = new StackPanel();
-        body.Children.Add(titleRow);
-        body.Children.Add(detail);
-        body.Children.Add(axis);
-        body.Children.Add(chart);
-
-        return new Border
-        {
-            Background = Ui.Brush(palette.Control),
-            CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(12, 10, 12, 11),
-            Margin = new Thickness(0, 0, 0, 10),
-            MinHeight = 178,
-            Child = body,
-        };
-    }
-
-    private Control SmallCard(FullCard card)
-    {
-        Palette palette = _shell.Palette;
-        TypeRamp ramp = _shell.Ramp;
-
-        var header = new Grid
-        {
-            ColumnDefinitions =
-            {
-                new ColumnDefinition(new GridLength(1, GridUnitType.Star)),
-                new ColumnDefinition(GridLength.Auto),
-            },
-            Margin = new Thickness(0, 0, 0, 4),
-        };
-        header.Children.Add(Ui.Text(
-            Ui.Thai(card.Title), ramp.Small, palette.Label, ellipsis: true));
-        TextBlock value = Ui.Text(
-            Ui.Thai(card.Value), ramp.Small, palette.Text, FontWeight.SemiBold, ellipsis: true);
-        Grid.SetColumn(value, 1);
-        header.Children.Add(value);
-
-        var chart = new ChartControl(card.History, card.Accent, card.Maximum, palette)
-        {
-            Height = 60,
-        };
-
-        var body = new StackPanel();
-        body.Children.Add(header);
-        body.Children.Add(chart);
-
-        return new Border
-        {
-            Width = 89,
-            Height = 89,
-            Background = Ui.Brush(palette.Control),
-            CornerRadius = new CornerRadius(8),
-            Padding = new Thickness(7, 5, 7, 6),
-            Margin = new Thickness(0, 0, 8, 8),
-            Child = body,
-        };
-    }
-
-    // -------------------------------------------------------------- memory
+    // ------------------------------------------------------------ tables
 
     private void RenderMemory()
     {
@@ -880,117 +536,12 @@ internal sealed class FullView : UserControl
         return false;
     }
 
-    // ----------------------------------------------------------- tab button
-
-    /// <summary>One rail button: title, detail and summary, reconciled by key.</summary>
-    private sealed class TabButton
-    {
-        private readonly FullView _view;
-        private readonly TextBlock _title;
-        private readonly TextBlock _detail;
-        private readonly TextBlock _summary;
-        private bool _selected;
-
-        public TabButton(string key, FullView view)
-        {
-            _view = view;
-            Key = key;
-
-            _title = Ui.Text(string.Empty, view._shell.Ramp.Label, Palette.TabText, FontWeight.SemiBold, ellipsis: true);
-            _detail = Ui.Text(string.Empty, view._shell.Ramp.Small, Palette.TabText, ellipsis: true);
-            _detail.Opacity = 0.7;
-            _summary = Ui.Text(string.Empty, view._shell.Ramp.Small, Palette.TabText, ellipsis: true);
-            _summary.Opacity = 0.85;
-
-            var body = new StackPanel();
-            body.Children.Add(_title);
-            body.Children.Add(_detail);
-            body.Children.Add(_summary);
-
-            Control = new Border
-            {
-                CornerRadius = new CornerRadius(7),
-                BorderThickness = new Thickness(3, 0, 0, 0),
-                Padding = new Thickness(9, 6, 10, 6),
-                Margin = new Thickness(0, 0, 0, 3),
-                Background = Brushes.Transparent,
-                BorderBrush = Brushes.Transparent,
-                Cursor = new Cursor(StandardCursorType.Hand),
-                Child = body,
-            };
-            Control.Classes.Add("nodrag");
-            Control.PointerEntered += (_, _) =>
-            {
-                if (!_selected)
-                {
-                    Control.Background = Ui.Brush(Colour.FromHex("#22808080"));
-                }
-            };
-            Control.PointerExited += (_, _) =>
-            {
-                if (!_selected)
-                {
-                    Control.Background = Brushes.Transparent;
-                }
-            };
-            Control.PointerPressed += (_, e) =>
-            {
-                PointerPoint point = e.GetCurrentPoint(Control);
-                if (point.Properties.IsRightButtonPressed && Tab.IsDisk)
-                {
-                    e.Handled = true;
-                    _view.ShowDriveMenu(Tab, Control);
-                    return;
-                }
-                if (!point.Properties.IsLeftButtonPressed)
-                {
-                    return;
-                }
-                e.Handled = true;
-                if (e.ClickCount >= 2 && Tab.IsDisk)
-                {
-                    _view.OpenDiskTab(Tab, Control);
-                    return;
-                }
-                _view.SelectTab(Key);
-            };
-        }
-
-        public string Key { get; }
-
-        public FullTab Tab { get; set; } = new() { Key = string.Empty, Title = string.Empty };
-
-        public Border Control { get; }
-
-        public void Update(FullTab tab, bool selected)
-        {
-            _selected = selected;
-            TypeRamp ramp = _view._shell.Ramp;
-            _title.Text = Ui.Thai(tab.Title);
-            _title.FontSize = ramp.Label;
-            _detail.Text = Ui.Thai(tab.Detail);
-            _detail.FontSize = ramp.Small;
-            _detail.IsVisible = tab.Detail.Length > 0;
-            _summary.Text = Ui.Thai(tab.Summary);
-            _summary.FontSize = ramp.Small;
-            _summary.IsVisible = tab.Summary.Length > 0;
-
-            Colour foreground = selected ? Colour.FromHex("#ffffff") : Palette.TabText;
-            _title.Foreground = Ui.Brush(foreground);
-            _detail.Foreground = Ui.Brush(foreground);
-            _summary.Foreground = Ui.Brush(foreground);
-
-            Control.Background = selected ? Ui.Brush(Palette.Selection) : Brushes.Transparent;
-            Control.BorderBrush = selected ? Ui.Brush(Palette.Selection) : Brushes.Transparent;
-        }
-    }
-
     // ------------------------------------------------------- service rows
 
     /// <summary>One systemd unit row, updated in place.</summary>
     private sealed class ServiceRow
     {
-        private readonly FullView _view;
+        private readonly ProcessesView _view;
         private readonly Border _border;
         private readonly TextBlock _title;
         private readonly TextBlock _line;
@@ -1002,7 +553,7 @@ internal sealed class FullView : UserControl
         private readonly Border _restart;
         private readonly Border _stop;
 
-        public ServiceRow(FullView view)
+        public ServiceRow(ProcessesView view)
         {
             _view = view;
             TypeRamp ramp = view._shell.Ramp;
@@ -1185,7 +736,7 @@ internal sealed class FullView : UserControl
     /// <summary>One process group row, updated in place.</summary>
     private sealed class GroupRow
     {
-        private readonly FullView _view;
+        private readonly ProcessesView _view;
         private readonly Border _border;
         private readonly ContentControl _expandGlyph;
         private readonly TextBlock _name;
@@ -1194,7 +745,7 @@ internal sealed class FullView : UserControl
         private readonly Border _killGroup;
         private readonly StackPanel _members;
 
-        public GroupRow(FullView view)
+        public GroupRow(ProcessesView view)
         {
             _view = view;
 

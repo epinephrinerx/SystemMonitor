@@ -248,6 +248,14 @@ public sealed class HistoryBoard
     /// <summary>One physical disk's busy share, by its page key.</summary>
     public History DiskActivity(string key) => Get(_diskActivity, key);
 
+    /// <summary>
+    /// A page key's busy-share series when one already exists, or null when no
+    /// sample was ever pushed for it. A grouped drive page has no series of its
+    /// own, so asking for one must not invent an empty series.
+    /// </summary>
+    public History? DiskActivityIfAny(string key) =>
+        _diskActivity.TryGetValue(key, out History? series) ? series : null;
+
     /// <summary>One physical disk's read rate in MB/s.</summary>
     public History DiskRead(string key) => Get(_diskRead, key);
 

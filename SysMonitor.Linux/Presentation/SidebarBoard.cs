@@ -27,6 +27,12 @@ public sealed class SidebarItem
 
     /// <summary>An optional second line: the swap under RAM, upload under download.</summary>
     public History? Secondary { get; init; }
+
+    /// <summary>
+    /// Whether the item draws a sparkline. False for a grouped drive page: it
+    /// has no series of its own, so the item is text-only (Amendment 1).
+    /// </summary>
+    public bool ShowSparkline { get; init; } = true;
 }
 
 /// <summary>
@@ -35,7 +41,8 @@ public sealed class SidebarItem
 /// The pages already know their device name, their current value and their
 /// page key, so the sidebar is a projection of them rather than a second copy of
 /// the device rules: one item per page, in the pages' order — CPU, Memory, GPUs,
-/// disks, networks, batteries.
+/// physical disks, the grouped virtual and network drive pages, networks,
+/// batteries.
 /// </summary>
 public static class SidebarBoard
 {
@@ -148,10 +155,30 @@ public static class SidebarBoard
             };
         }
 
-        // Virtual and network drive groups are pages, not modules: they are not
-        // devices of their own and have no graph in the sidebar.
+        if (string.Equals(tab.Key, PageKeys.DiskVirtual, StringComparison.Ordinal)
+            || string.Equals(tab.Key, PageKeys.DiskNetwork, StringComparison.Ordinal))
+        {
+            // A grouped drive page has no device of its own. It closes the disk
+            // section with the rail title the old Full tab used, and keeps a
+            // sparkline only when a series for the page key was pushed.
+            History? series = history.DiskActivityIfAny(tab.Key);
+            return new SidebarItem
+            {
+                Key = tab.Key,
+                Title = $"{lang["module_disk"]} · {tab.Title}",
+                Value = tab.Summary,
+                Device = tab.Detail,
+                Accent = Accents.Disk,
+                Primary = series ?? NoSeries,
+                ShowSparkline = series is not null,
+            };
+        }
+
         return null;
     }
+
+    /// <summary>A stand-in series for an item that draws no sparkline.</summary>
+    private static readonly History NoSeries = new(HistoryBoard.Capacity);
 
     /// <summary>
     /// "Intel Iris Plus Graphics G1 (Ice Lake)" → "Iris Plus G1"; "NVIDIA

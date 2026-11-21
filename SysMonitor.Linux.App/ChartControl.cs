@@ -11,6 +11,9 @@ namespace SysMonitor.Linux.App;
 /// grid, the series with a 1.2 px angular stroke and a solid mixed fill, then
 /// the frame drawn last. A short series sits on the right edge; it is never
 /// stretched.
+///
+/// The series can be re-pointed between frames, so a module page updates its
+/// card in place instead of rebuilding the control.
 /// </summary>
 internal sealed class ChartControl : Control
 {
@@ -22,10 +25,13 @@ internal sealed class ChartControl : Control
     private readonly IPen _linePen;
     private readonly Colour _plotColour;
 
+    private History _history;
+    private double _maximum;
+
     public ChartControl(History history, Colour accent, double maximum, Palette palette)
     {
-        History = history;
-        Maximum = maximum;
+        _history = history;
+        _maximum = maximum;
         _plotColour = palette.Plot;
 
         _plotBrush = Ui.Brush(palette.Plot);
@@ -38,9 +44,20 @@ internal sealed class ChartControl : Control
         _fillBrush = Ui.Brush(ChartMath.FillColour(accent, palette.Plot));
     }
 
-    public History History { get; }
+    public History History => _history;
 
-    public double Maximum { get; }
+    public double Maximum => _maximum;
+
+    /// <summary>
+    /// Point the chart at a series and its ceiling. The data tick calls this so
+    /// the plot is redrawn even though the <see cref="History"/> fills in place.
+    /// </summary>
+    public void SetSeries(History history, double maximum)
+    {
+        _history = history;
+        _maximum = maximum;
+        InvalidateVisual();
+    }
 
     public override void Render(DrawingContext context)
     {
@@ -64,10 +81,10 @@ internal sealed class ChartControl : Control
             context.DrawLine(_gridPen, new Point(plot.X, y), new Point(plot.Right, y));
         }
 
-        int count = History.CopyTo(_values);
+        int count = _history.CopyTo(_values);
         if (count >= 2)
         {
-            double scale = ChartMath.Scale(History.Max, Maximum);
+            double scale = ChartMath.Scale(_history.Max, _maximum);
             var geometry = new StreamGeometry();
             using (StreamGeometryContext path = geometry.Open())
             {
