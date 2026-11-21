@@ -105,7 +105,7 @@ SystemMonitor/
 | Component | Responsibility | Public interface |
 |---|---|---|
 | `SysMonitor.Core` | models shared by sampler and UI | `Snapshot`, `Ram`, `Disk`, `IoRate`, `Battery`, `PowerSource`, `PeripheralBattery` (R-028) |
-| `SysMonitor.Linux` (sensors) | read `/proc`, `/sys`, hwmon, DRM fdinfo and the three external tools into one `Snapshot` | `LinuxSampler.Sample(bool processes, bool services, bool keepMemory)`, plus one pure reader per source (`ProcStat`, `MemInfo`, `DiskStats`, `MountInfo`, `BlockDevices`, `NetDev`, `Hwmon`, `ThermalReader`, `DrmFdinfo`, `GpuReader`, `ProcessReader`, `ServiceReader`, `BatteryReader` (`/sys/class/power_supply`), `UPowerReader` (`upower --dump` every 30 s, peripherals; ids are hashes, never MAC or serial)) |
+| `SysMonitor.Linux` (sensors) | read `/proc`, `/sys`, hwmon, DRM fdinfo and the three external tools into one `Snapshot` | `LinuxSampler.Sample(bool processes, bool services, bool keepMemory, bool grid)`, plus one pure reader per source (`ProcStat`, `MemInfo`, `DiskStats`, `MountInfo`, `BlockDevices`, `NetDev`, `Hwmon`, `ThermalReader`, `DrmFdinfo`, `GpuReader`, `ProcessReader`, `ProcessStats`, `ProcessGpu`, `AppResolver`, `ServiceReader`, `BatteryReader` (`/sys/class/power_supply`), `UPowerReader` (`upower --dump` every 30 s, peripherals; ids are hashes, never MAC or serial)) |
 | `SysMonitor.Linux` (presentation) | turn a snapshot into row models, hold settings, own the integrations | `ShellModel`, `WidgetBoard`, `OverallBoard`, `FullBoard`, `UiRows`, `AppConfig`, `Lang`, `Palette`, `ChartMath`, `Format`, `ViewState`, `WindowGeometry`, `UpdateAutoCheck`, `GitHubUpdater`, `TarExtractor`, `FileAutostart`, `DesktopEntry`, `TrayText`, `TrayHost`, `Restart`, `SingleInstanceLock`, `KillFlow`, `ServiceControl`, `Diagnostics` |
 | `SysMonitor.Linux.App` | Avalonia windows, controls, event wiring, sampling loop, tray | `Program`, `App`, `ShellWindow`, `WidgetView`, `OverallView`, `FullView`, `PanelWindow`, `ChartControl`, `DialView`, `TrayIconHost`, `Probe` |
 | `SysMonitor.Linux.Probe` | developer console view of one snapshot | `dotnet run --project SysMonitor.Linux.Probe -- [--json]` |
@@ -133,9 +133,10 @@ SystemMonitor/
 1. `App.OnFrameworkInitializationCompleted` loads `AppConfig`, creates `Diagnostics`, `ShellModel` (with `FileAutostart`, `GitHubUpdater`, `ProcessSignals`) and `ShellWindow`.
 2. `ShellWindow.SampleLoop` runs on a background thread. Every `MetricsIntervalMs` (eco 5000, balanced 2500, fast 1000) it calls `LinuxSampler.Sample(...)`; the first sample is not `Ready` because a usage percentage needs two readings.
 3. Processes and services are read on their own cadence (`MemoryCadence`: processes every 3 s, services every 10 s) and only while the RAM tab is visible; `keepMemory` republishes the last list between reads so the tab does not empty.
-4. The sampler publishes the new `Snapshot` with `Volatile.Write`. While the window is hidden to the tray, it also posts the sample to the UI thread so history and the tray tooltip keep moving.
-5. A 400 ms `DispatcherTimer` reads the snapshot and calls `ShellModel.SetSnapshot`. The shell then builds rows through `WidgetBoard`, `OverallBoard` and `FullBoard`, which are pure functions of the snapshot, the configuration and the language. History (`ChartMath`) and dial geometry are computed the same way.
-6. Views render those row models; they do not read hardware and they do not format numbers themselves.
+4. The Apps and Processes grids have a separate 2 s cadence (`MemoryCadence.GridMs`) and are read only while one of those pages is showing; `includeGrid` fills `Snapshot.ProcessRows` (one `ProcessStats`) and `Snapshot.Apps` (one `AppResolver`) and republishes the last lists between reads, so the grid does not blank. Entering either page forces one read.
+5. The sampler publishes the new `Snapshot` with `Volatile.Write`. While the window is hidden to the tray, it also posts the sample to the UI thread so history and the tray tooltip keep moving.
+6. A 400 ms `DispatcherTimer` reads the snapshot and calls `ShellModel.SetSnapshot`. The shell then builds rows through `WidgetBoard`, `OverallBoard` and `FullBoard`, which are pure functions of the snapshot, the configuration and the language. History (`ChartMath`) and dial geometry are computed the same way.
+7. Views render those row models; they do not read hardware and they do not format numbers themselves.
 
 Failure behaviour (verified in code):
 

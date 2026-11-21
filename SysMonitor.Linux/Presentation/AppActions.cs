@@ -131,6 +131,12 @@ public sealed class AppActions
     /// Close every instance, wait up to five seconds for every member to be
     /// gone, then launch the app once from its <c>.desktop</c> <c>Exec</c>. A
     /// missing or unparsable Exec is refused before anything is closed.
+    ///
+    /// Before the launch the cgroups are read again (Amendment 2): every
+    /// instance's <c>cgroup.procs</c> recursively, plus any other live instance
+    /// of the same app id under the user's <c>app.slice</c>. Nothing is started
+    /// unless all of them are empty, because the snapshot the button was clicked
+    /// on cannot prove that a process which started afterwards is absent.
     /// </summary>
     public ActionResult RestartApp(AppEntry app)
     {
@@ -178,6 +184,65 @@ public sealed class AppActions
         {
             return ActionResult.NeedsForce(
                 stillStubborn, _lang["app_restart_still_running"]);
+        }
+
+        // Amendment 2: the snapshot's members are gone, but a fresh read of the
+        // cgroups decides whether anything else of this app is still running.
+        if (!AllInstancesEmpty(app))
+        {
+            return ActionResult.Failed(_lang["app_restart_still_running"]);
+        }
+
+        string? error = _launcher(argv);
+        return error is null ? ActionResult.Done : ActionResult.Failed(error);
+    }
+
+    /// <summary>
+    /// The second half of a restart that needed force (Amendment 1): the caller
+    /// has already had its force kill confirmed, so this waits up to five
+    /// seconds for every member of the app to be gone and only then starts the
+    /// desktop entry once. It never launches beside a living process: a member
+    /// that is still there — or a missing/unparsable Exec, or no known member
+    /// at all to check — is a failed result and nothing is started.
+    ///
+    /// Like <see cref="RestartApp"/>, the last check before the launch is a
+    /// fresh cgroup read (Amendment 2), not the PIDs captured when the button
+    /// was clicked.
+    /// </summary>
+    public ActionResult CompleteRestart(AppEntry app)
+    {
+        IReadOnlyList<string>? argv = DesktopEntry.ParseExec(app.Exec);
+        if (argv is null)
+        {
+            return ActionResult.Failed(_lang["app_restart_unavailable"]);
+        }
+
+        List<ProcessTarget> targets = app.Instances
+            .SelectMany(instance => instance.Processes)
+            .Select(Target)
+            .ToList();
+
+        // Nothing to check means nothing proves the app is gone, so a launch
+        // here could sit beside a process this snapshot never saw.
+        if (targets.Count == 0)
+        {
+            return ActionResult.Failed(_lang["app_restart_unavailable"]);
+        }
+
+        long deadline = _clock() + RestartWaitMs;
+        while (targets.Any(_alive) && _clock() < deadline)
+        {
+            _sleep(RestartStepMs);
+        }
+
+        if (targets.Any(_alive))
+        {
+            return ActionResult.Failed(_lang["app_restart_still_running"]);
+        }
+
+        if (!AllInstancesEmpty(app))
+        {
+            return ActionResult.Failed(_lang["app_restart_still_running"]);
         }
 
         string? error = _launcher(argv);
@@ -332,6 +397,10 @@ public sealed class AppActions
     /// True only for the exact process the target names. A missing start time
     /// cannot prove identity, so it is treated as still there and the restart
     /// refuses to launch rather than risk replacing the wrong thing.
+    ///
+    /// The identity is the PID and the start time only (Amendment 2): a process
+    /// keeps both across an <c>exec</c> or a <c>comm</c> rename, so a changed
+    /// name is still the same process and still blocks the launch.
     /// </summary>
     private static bool Alive(string root, ProcessTarget target)
     {
@@ -341,10 +410,271 @@ public sealed class AppActions
         }
 
         ProcessFacts? facts = ProcessReader.FactsOf(root, target.Pid);
-        return facts is not null
-            && facts.StartTime == target.StartTime
-            && string.Equals(facts.Name, target.Name, StringComparison.Ordinal);
+        return facts is not null && facts.StartTime == target.StartTime;
     }
+
+    /// <summary>
+    /// Amendment 2: true only when no process at all remains for this app. It
+    /// reads the app's cgroups now instead of trusting the PIDs the click
+    /// captured: every known instance's <c>cgroup.procs</c> recursively, then
+    /// every other top-level unit under the user's <c>app.slice</c> whose id is
+    /// this app's. A cgroup that exists but cannot be read is not proof that it
+    /// is empty, so it counts as running and the launch is refused.
+    /// </summary>
+    private bool AllInstancesEmpty(AppEntry app)
+    {
+        string appSlice = AppSlice();
+
+        foreach (AppInstance instance in app.Instances)
+        {
+            // An unusable unit name cannot be resolved to a directory, so it
+            // cannot prove the instance is gone.
+            if (!IsSafeUnit(instance.Unit)
+                || CgroupHasProcesses(Path.Combine(appSlice, instance.Unit)))
+            {
+                return false;
+            }
+        }
+
+        return !OtherInstanceHasProcesses(app, appSlice);
+    }
+
+    /// <summary>
+    /// The ids one app's units may carry. The desktop id is the obvious one;
+    /// the stem of each unit already in the snapshot is added because the same
+    /// desktop entry is launched under more than one spelling
+    /// (<c>app-dolphin@…</c> and <c>app-org.kde.dolphin@…</c>).
+    /// </summary>
+    private static HashSet<string> AppIds(AppEntry app)
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal) { app.Id };
+        foreach (AppInstance instance in app.Instances)
+        {
+            if (AppResolver.ParseUnit(instance.Unit) is { } parsed)
+            {
+                ids.Add(parsed.Id);
+            }
+        }
+        return ids;
+    }
+
+    /// <summary>
+    /// A live top-level unit of the same app that the snapshot did not list.
+    /// Units already checked by <see cref="AllInstancesEmpty"/> are skipped so
+    /// each cgroup is read once.
+    ///
+    /// Amendment 3: the slice is listed with <see cref="ListDirectories"/>, so
+    /// a slice that exists but cannot be read counts as "something may be
+    /// running" instead of "no instance".
+    /// </summary>
+    private bool OtherInstanceHasProcesses(AppEntry app, string appSlice)
+    {
+        HashSet<string> ids = AppIds(app);
+        var known = new HashSet<string>(
+            app.Instances.Select(instance => instance.Unit), StringComparer.Ordinal);
+
+        List<string>? directories = ListDirectories(appSlice);
+        if (directories is null)
+        {
+            return true;
+        }
+
+        foreach (string directory in directories)
+        {
+            string unit = Path.GetFileName(directory);
+            if (known.Contains(unit))
+            {
+                continue;
+            }
+
+            if (AppResolver.ParseUnit(unit) is not { } parsed || !ids.Contains(parsed.Id))
+            {
+                continue;
+            }
+
+            if (CgroupHasProcesses(directory))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// True when <paramref name="directory"/> or any cgroup below it still has a
+    /// process. A missing directory is empty; a directory that is there but
+    /// whose <c>cgroup.procs</c> cannot be read is not, because nothing then
+    /// proves the instance ended.
+    ///
+    /// Amendment 3: a listing that fails anywhere in the walk also counts as
+    /// "has processes", because an unreadable child cgroup could hide one.
+    /// Symbolic links are never followed, and a symlinked instance path cannot
+    /// prove the instance ended, so it counts as running.
+    /// </summary>
+    private static bool CgroupHasProcesses(string directory)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var stack = new Stack<string>();
+        stack.Push(directory);
+
+        while (stack.Count > 0)
+        {
+            string current = stack.Pop();
+            if (!seen.Add(current) || !Directory.Exists(current))
+            {
+                continue;
+            }
+
+            // Never follow a link: a cgroup is a real directory, and a link
+            // could leave the slice or loop. If its status cannot be read, the
+            // walk has failed and the instance is treated as still running.
+            if (IsLink(current) is not bool isLink)
+            {
+                return true;
+            }
+            if (isLink)
+            {
+                return true;
+            }
+
+            string? procs = SysFs.ReadText(Path.Combine(current, "cgroup.procs"));
+            if (procs is null)
+            {
+                return true;
+            }
+
+            foreach (string raw in procs.Split('\n'))
+            {
+                if (int.TryParse(
+                        raw.Trim(),
+                        System.Globalization.NumberStyles.None,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out int pid)
+                    && pid > 0)
+                {
+                    return true;
+                }
+            }
+
+            List<string>? children = ListDirectories(current);
+            if (children is null)
+            {
+                return true;
+            }
+
+            foreach (string child in children)
+            {
+                stack.Push(child);
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Amendment 3: a directory listing that distinguishes "listed, empty" from
+    /// "could not list". <see cref="SysFs.Directories"/> returns an empty list on
+    /// an error, which in the restart check would read as "no instance" and let
+    /// a launch sit beside a live process; this helper is used here only and
+    /// leaves that shared helper unchanged.
+    ///
+    /// A missing directory is an empty list (no unit can be running without its
+    /// slice). A directory that exists but cannot be read returns null. Links
+    /// are skipped so the walk never leaves the slice or loops; a link whose
+    /// status cannot be read also makes the whole listing null, because nothing
+    /// then proves what is underneath it.
+    /// </summary>
+    private static List<string>? ListDirectories(string path)
+    {
+        FileAttributes attributes;
+        try
+        {
+            attributes = File.GetAttributes(path);
+        }
+        catch (FileNotFoundException)
+        {
+            return new List<string>();
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return new List<string>();
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+
+        if ((attributes & FileAttributes.Directory) == 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            var directories = new List<string>();
+            foreach (string directory in Directory.EnumerateDirectories(path))
+            {
+                if (IsLink(directory) is not bool isLink)
+                {
+                    return null;
+                }
+                if (isLink)
+                {
+                    continue;
+                }
+                directories.Add(directory);
+            }
+
+            directories.Sort(StringComparer.Ordinal);
+            return directories;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// True for a symbolic link, false for a real directory. Null means the link
+    /// status could not be read, which the listing and the walk count as a
+    /// failure rather than as proof that nothing is there.
+    /// </summary>
+    private static bool? IsLink(string path)
+    {
+        try
+        {
+            return new DirectoryInfo(path).LinkTarget is not null;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// A unit name is a single directory entry under <c>app.slice</c>. A
+    /// backslash is legal in a systemd escaped unit (<c>\x2d</c>), so it is not
+    /// rejected here; only a path separator or NUL could leave the slice.
+    /// </summary>
+    private static bool IsSafeUnit(string unit) =>
+        unit.Length > 0
+        && unit != "."
+        && unit != ".."
+        && !unit.Contains('/')
+        && !unit.Contains('\0');
+
+    /// <summary>This user's session <c>app.slice</c>, under the injected root.</summary>
+    private string AppSlice() =>
+        Path.Combine(
+            _root,
+            "sys",
+            "fs",
+            "cgroup",
+            "user.slice",
+            $"user-{_ownUid}.slice",
+            $"user@{_ownUid}.service",
+            "app.slice");
 
     private static string FirstLine(string text)
     {

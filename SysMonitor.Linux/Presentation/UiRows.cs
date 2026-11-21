@@ -13,6 +13,7 @@ public enum IconName
     Play,
     ChevronLeft,
     ChevronRight,
+    ChevronUp,
     ChevronDown,
     FullScreen,
     Widget,
@@ -28,6 +29,7 @@ public enum IconName
     Stop,
     Link,
     Power,
+    App,
 }
 
 /// <summary>

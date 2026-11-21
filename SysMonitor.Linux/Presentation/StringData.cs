@@ -372,4 +372,20 @@ internal static class StringData
         ("power_usb", "USB", "USB"),
         ("power_other", "อื่น ๆ", "Other"),
     };
+
+    /// <summary>
+    /// Keys for the Apps page (R-030 phase C). A seventh table, for the same
+    /// reason as the others: the pinned counts in <c>StringDataTests</c> stay
+    /// untouched. Lang reads all seven.
+    /// </summary>
+    internal static readonly (string Key, string Thai, string English)[] AppsPageKeys =
+    {
+        ("apps_count", "ทั้งหมด {0} รายการ", "{0} apps"),
+        ("apps_search", "ค้นหาชื่อแอป", "Search apps"),
+        ("apps_empty", "ไม่พบแอปที่ทำงานอยู่", "No running apps"),
+        ("app_instance", "อินสแตนซ์ {0}", "Instance {0}"),
+        ("app_close_instance", "ปิดอินสแตนซ์นี้", "Close instance"),
+        ("app_restarting", "กำลังรีสตาร์ต {0} …", "Restarting {0}…"),
+        ("app_closing", "กำลังปิด {0} …", "Closing {0}…"),
+    };
 }

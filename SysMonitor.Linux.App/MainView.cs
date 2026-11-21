@@ -15,7 +15,7 @@ namespace SysMonitor.Linux.App;
 /// About actions (R-030 fix 5), the Settings expander (today's Overall sidebar
 /// rows) and one item per module with its value, its device name and a
 /// sparkline. The right frame shows the Overall cards, a module page, the
-/// Processes page or the Apps placeholder.
+/// Processes page or the Apps page.
 ///
 /// The window supplies placement and input; this file draws and wires, and
 /// keeps a control per key so a data tick moves numbers without rebuilding.
@@ -37,11 +37,11 @@ internal sealed class MainView : UserControl
     private readonly Border _splitter;
     private readonly StackPanel _headerButtons;
     private readonly TextBlock _title;
-    private readonly StackPanel _appsPage;
 
     private readonly OverallView _overallPage;
     private readonly ModulePageView _modulePage;
     private readonly ProcessesView _processesPage;
+    private readonly AppsView _appsView;
     private readonly Grid _pageHost;
 
     private readonly Dictionary<string, ModuleItem> _modules = new(StringComparer.Ordinal);
@@ -114,13 +114,13 @@ internal sealed class MainView : UserControl
         _overallPage = new OverallView(shell, dispatch);
         _modulePage = new ModulePageView(shell, dispatch);
         _processesPage = new ProcessesView(shell);
-        _appsPage = new StackPanel();
+        _appsView = new AppsView(shell);
 
         _pageHost = new Grid();
         _pageHost.Children.Add(_overallPage);
         _pageHost.Children.Add(_modulePage);
         _pageHost.Children.Add(_processesPage);
-        _pageHost.Children.Add(_appsPage);
+        _pageHost.Children.Add(_appsView);
 
         var frame = new Grid
         {
@@ -196,7 +196,11 @@ internal sealed class MainView : UserControl
         {
             _processesPage.RenderData();
         }
-        else if (!string.Equals(page, PageKeys.Apps, StringComparison.Ordinal))
+        else if (string.Equals(page, PageKeys.Apps, StringComparison.Ordinal))
+        {
+            _appsView.RenderData();
+        }
+        else
         {
             _modulePage.UpdateData(_shell.Full.Selected);
         }
@@ -431,7 +435,7 @@ internal sealed class MainView : UserControl
         FullTab? tab = overall || apps || processes ? null : _shell.Full.Selected;
 
         _overallPage.IsVisible = overall;
-        _appsPage.IsVisible = apps;
+        _appsView.IsVisible = apps;
         _processesPage.IsVisible = processes;
         _modulePage.IsVisible = !overall && !apps && !processes;
 
@@ -441,7 +445,7 @@ internal sealed class MainView : UserControl
         }
         else if (apps)
         {
-            RenderApps();
+            _appsView.Render();
         }
         else if (processes)
         {
@@ -454,23 +458,6 @@ internal sealed class MainView : UserControl
 
         _renderedPage = page;
         _renderedModuleKey = tab?.Key;
-    }
-
-    private void RenderApps()
-    {
-        Palette palette = _shell.Palette;
-        TypeRamp ramp = _shell.Ramp;
-
-        _appsPage.Children.Clear();
-        _appsPage.Children.Add(Ui.Text(
-            Ui.Thai(_shell.Language["apps"]), ramp.Heading, palette.Text, FontWeight.Bold));
-        TextBlock note = Ui.Text(
-            Ui.Thai(_shell.Language["apps_placeholder"]),
-            ramp.Body,
-            palette.Label,
-            wrap: true);
-        note.Margin = new Thickness(0, 8, 0, 0);
-        _appsPage.Children.Add(note);
     }
 
     /// <summary>True while the sidebar and the page still match the model.</summary>

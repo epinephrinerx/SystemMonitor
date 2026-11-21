@@ -26,10 +26,10 @@ internal static class Probe
         try
         {
             var sampler = new LinuxSampler();
-            first = sampler.Sample(includeProcesses: false);
+            first = sampler.Sample(includeProcesses: false, includeGrid: true);
             Thread.Sleep(700);
             snapshot = sampler.Sample(
-                includeProcesses: true, includeServices: true, keepMemory: false);
+                includeProcesses: true, includeServices: true, keepMemory: false, includeGrid: true);
         }
         catch (Exception exception)
         {
@@ -121,6 +121,7 @@ internal static class Probe
 
         DescribeMain(text, shell);
         DescribeMainView(text, shell);
+        DescribeApps(text, shell);
         DescribeMemory(text, shell, snapshot);
         DescribeIntegrations(text, shell, snapshot);
 
@@ -321,6 +322,59 @@ internal static class Probe
         text.AppendLine();
     }
 
+    /// <summary>
+    /// The Apps page's own report (R-030 phase C part 1): the header the page
+    /// draws, the saved sort, and the top five apps by memory. No command line
+    /// and no desktop file path is printed.
+    /// </summary>
+    private static void DescribeApps(StringBuilder text, ShellModel shell)
+    {
+        IReadOnlyList<AppEntry> apps = shell.Snapshot?.Apps ?? Array.Empty<AppEntry>();
+        GridColumn column = ProcessGrid.ParseColumn(shell.Config.AppsSort, GridColumn.Memory);
+
+        text.AppendLine("Apps page (R-030 phase C part 1)");
+        text.AppendLine($"  heading \"{shell.Language["apps"]}\"  {shell.Language.Get("apps_count", apps.Count)}");
+        text.AppendLine(
+            "  columns " + string.Join(
+                " · ",
+                new[]
+                {
+                    shell.Language["col_name"],
+                    shell.Language["col_instances"],
+                    shell.Language["col_cpu"],
+                    shell.Language["col_memory"],
+                    shell.Language["col_gpu"],
+                    shell.Language["col_gpu_memory"],
+                }));
+        text.AppendLine(
+            $"  search \"{shell.Language["apps_search"]}\"  " +
+            $"empty \"{shell.Language["apps_empty"]}\"  " +
+            $"sort={ProcessGrid.Key(column)} desc={shell.Config.AppsSortDesc}");
+
+        IReadOnlyList<AppEntry> top = ProcessGrid.Sort(apps, GridColumn.Memory, descending: true);
+        int shown = Math.Min(5, top.Count);
+        text.AppendLine($"  top {shown} by memory:");
+        foreach (AppEntry app in top.Take(5))
+        {
+            text.AppendLine(
+                $"    {app.Name}  instances={app.Instances.Count}  " +
+                $"cpu={Percent(app.CpuPercent)}  memory={MemoryBoard.Size(app.MemoryBytes)}  " +
+                $"gpu={Percent(app.GpuPercent)}  " +
+                $"gpu_memory={BytesOrDash(app.GpuMemoryBytes)}");
+        }
+        if (top.Count == 0)
+        {
+            text.AppendLine("    N/A");
+        }
+        text.AppendLine();
+    }
+
+    private static string Percent(double? value) =>
+        value is double percent ? $"{percent:F1} %" : "—";
+
+    private static string BytesOrDash(long? bytes) =>
+        bytes is long value ? MemoryBoard.Size(value) : "—";
+
     /// <summary>The section titles the selected page shows, in page order.</summary>
     private static IReadOnlyList<string> MainSectionTitles(ShellModel shell)
     {
@@ -335,7 +389,7 @@ internal static class Probe
         if (string.Equals(page, PageKeys.Apps, StringComparison.Ordinal))
         {
             titles.Add(shell.Language["apps"]);
-            titles.Add(shell.Language["apps_placeholder"]);
+            titles.Add(shell.Language.Get("apps_count", shell.Snapshot?.Apps.Count ?? 0));
             return titles;
         }
         if (string.Equals(page, PageKeys.Processes, StringComparison.Ordinal))

@@ -14,6 +14,8 @@ public sealed class Snapshot
     private readonly IReadOnlyList<Module> _modules = Array.Empty<Module>();
     private readonly IReadOnlyList<ProcessEntry> _processes = Array.Empty<ProcessEntry>();
     private readonly IReadOnlyList<ServiceEntry> _services = Array.Empty<ServiceEntry>();
+    private readonly IReadOnlyList<ProcessRow> _processRows = Array.Empty<ProcessRow>();
+    private readonly IReadOnlyList<AppEntry> _apps = Array.Empty<AppEntry>();
     private readonly IReadOnlyList<Battery> _batteries = Array.Empty<Battery>();
     private readonly IReadOnlyList<PowerSource> _powerSources = Array.Empty<PowerSource>();
     private readonly IReadOnlyList<PeripheralBattery> _peripherals = Array.Empty<PeripheralBattery>();
@@ -63,6 +65,24 @@ public sealed class Snapshot
     {
         get => _services;
         init => _services = Seal(value);
+    }
+
+    /// <summary>
+    /// The Apps and Processes grids' per-process figures. Empty until the grid
+    /// was asked for; between the 2 s reads the sampler republishes the last
+    /// list, so a tick does not blank the grid.
+    /// </summary>
+    public IReadOnlyList<ProcessRow> ProcessRows
+    {
+        get => _processRows;
+        init => _processRows = Seal(value);
+    }
+
+    /// <summary>The Apps page's entries, resolved from <see cref="ProcessRows"/>.</summary>
+    public IReadOnlyList<AppEntry> Apps
+    {
+        get => _apps;
+        init => _apps = Seal(value);
     }
 
     /// <summary>The machine's own batteries. Empty on a machine without one.</summary>

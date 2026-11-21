@@ -46,6 +46,9 @@ public sealed class ShellModel
     /// Full view opens again.
     /// </summary>
     private readonly KillFlow _kill;
+
+    /// <summary>The Apps page's close and restart actions, on the same flow.</summary>
+    private readonly AppActions _appActions;
     private string _memoryQuery = string.Empty;
     private string? _graphedGroup;
     private string? _memoryStatus;
@@ -99,6 +102,15 @@ public sealed class ShellModel
         // sharing the language object so a language switch still changes the
         // sentences.
         _kill = new KillFlow(_signals, lang: Language, ownPid: _ownPid, ownUid: _ownUid);
+
+        // The Apps page's actions share that one flow, so a force token belongs
+        // to the flow the window is already holding.
+        _appActions = new AppActions(
+            _kill,
+            commands: runner,
+            lang: Language,
+            ownPid: _ownPid,
+            ownUid: _ownUid >= 0 ? _ownUid : null);
 
         _autostart = autostart ?? new NoopAutostart();
         _version = string.IsNullOrWhiteSpace(version) ? "4.3.0" : version!;
@@ -168,6 +180,9 @@ public sealed class ShellModel
     public IReadOnlyList<SidebarItem> MainSidebar => _mainSidebar;
 
     public MemoryTabModel Memory => _memory;
+
+    /// <summary>The Apps page's close and restart actions (shared kill flow).</summary>
+    public AppActions AppActions => _appActions;
     public IReadOnlyList<UiRow> Sidebar => _sidebar;
     public IReadOnlyList<UiRow> Settings => _settings;
     public IReadOnlyList<UiRow> Manual => _manual;
@@ -184,6 +199,14 @@ public sealed class ShellModel
     public bool MainProcessesVisible =>
         View.Mode == ViewMode.Main
         && string.Equals(_main.Page, PageKeys.Processes, StringComparison.Ordinal);
+
+    /// <summary>True only while the Main window is showing the Apps page.</summary>
+    public bool MainAppsVisible =>
+        View.Mode == ViewMode.Main
+        && string.Equals(_main.Page, PageKeys.Apps, StringComparison.Ordinal);
+
+    /// <summary>True while either grid page is showing: the 2 s grid read runs.</summary>
+    public bool MainGridVisible => MainAppsVisible || MainProcessesVisible;
 
     /// <summary>True while Main covers the screen (F11).</summary>
     public bool MainFullScreen => View.MainFullScreen;
@@ -405,6 +428,30 @@ public sealed class ShellModel
         }
         _main.SetSidebarWidth(clamped);
         Config.SidebarWidth = clamped;
+        Save();
+        StructureChanged?.Invoke();
+        return true;
+    }
+
+    /// <summary>
+    /// Sort the Apps grid by one column and remember it. Clicking the current
+    /// column again reverses the direction; a new numeric column starts highest
+    /// first, which is how a "top" list is read.
+    /// </summary>
+    public bool SetAppsSort(GridColumn column)
+    {
+        string key = ProcessGrid.Key(column);
+        bool descending = string.Equals(Config.AppsSort, key, StringComparison.Ordinal)
+            ? !Config.AppsSortDesc
+            : column is not GridColumn.Name;
+        if (string.Equals(Config.AppsSort, key, StringComparison.Ordinal)
+            && Config.AppsSortDesc == descending)
+        {
+            return true;
+        }
+
+        Config.AppsSort = key;
+        Config.AppsSortDesc = descending;
         Save();
         StructureChanged?.Invoke();
         return true;

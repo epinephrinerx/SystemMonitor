@@ -162,6 +162,7 @@ internal static class Ui
         IconName.Play => ("M8,5 L19,12 L8,19 Z", true),
         IconName.ChevronLeft => ("M15,4 L8,12 L15,20", false),
         IconName.ChevronRight => ("M9,4 L16,12 L9,20", false),
+        IconName.ChevronUp => ("M4,15 L12,7 L20,15", false),
         IconName.ChevronDown => ("M4,9 L12,17 L20,9", false),
         IconName.FullScreen => ("M4,9 L4,4 L9,4 M15,4 L20,4 L20,9 M20,15 L20,20 L15,20 M9,20 L4,20 L4,15", false),
         IconName.Widget => ("M4,5 H20 V19 H4 Z M4,9 H20", false),
@@ -177,6 +178,9 @@ internal static class Ui
         IconName.Stop => ("M6,6 H18 V18 H6 Z", true),
         IconName.Link => ("M10,14 L14,10 M8,12 L5,15 A3.5,3.5 0 0 0 10,20 L13,17 M16,12 L19,9 A3.5,3.5 0 0 0 14,4 L11,7", false),
         IconName.Power => ("M13,2 L5,14 H11 L10,22 L19,10 H13 Z", true),
+        // The generic app mark: a rounded window with four panes, used when a
+        // .desktop icon cannot be loaded (there is no image loader here).
+        IconName.App => ("M6,4 H18 A2,2 0 0 1 20,6 V18 A2,2 0 0 1 18,20 H6 A2,2 0 0 1 4,18 V6 A2,2 0 0 1 6,4 Z M8,8 H11 V11 H8 Z M13,8 H16 V11 H13 Z M8,13 H11 V16 H8 Z M13,13 H16 V16 H13 Z", false),
         _ => ("", false),
     };
 

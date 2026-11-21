@@ -68,6 +68,9 @@ internal sealed class ShellWindow : Window
     private double _appliedFontScale;
     private volatile bool _memoryVisible;
     private int _forceMemory;
+    private volatile bool _gridVisible;
+    private int _forceGrid;
+    private string _gridPage = string.Empty;
 
     // Close/quit state (spec section 9): close hiding to the tray is not a
     // quit, and a tray icon exists only while the window is hidden.
@@ -197,6 +200,7 @@ internal sealed class ShellWindow : Window
         shell.MemoryRefreshRequested += () =>
         {
             Interlocked.Exchange(ref _forceMemory, 1);
+            Interlocked.Exchange(ref _forceGrid, 1);
             _wake.Set();
         };
         shell.OpenRequested += OpenPanel;
@@ -476,19 +480,35 @@ internal sealed class ShellWindow : Window
 
     private void SampleLoop()
     {
-        var sampler = new LinuxSampler();
+        var sampler = new LinuxSampler(language: _shell.Language.Code);
         long lastProcess = 0;
         long lastService = 0;
+        long lastGrid = 0;
         while (!_stop.IsCancellationRequested)
         {
             try
             {
+                // App names follow the language table; the resolver is rebuilt
+                // only when the language actually changed.
+                sampler.Language = _shell.Language.Code;
+
                 long now = Environment.TickCount64;
                 bool forced = Interlocked.Exchange(ref _forceMemory, 0) != 0;
+                bool gridForced = Interlocked.Exchange(ref _forceGrid, 0) != 0;
                 MemoryCadence.Plan plan = MemoryCadence.Next(
-                    now, lastProcess, lastService, _memoryVisible, forced);
+                    now,
+                    lastProcess,
+                    lastService,
+                    _memoryVisible,
+                    forced,
+                    _gridVisible,
+                    lastGrid,
+                    gridForced);
                 Snapshot snapshot = sampler.Sample(
-                    plan.Processes, plan.Services, keepMemory: _memoryVisible);
+                    plan.Processes,
+                    plan.Services,
+                    keepMemory: _memoryVisible,
+                    includeGrid: plan.Grid);
                 if (plan.Processes)
                 {
                     lastProcess = now;
@@ -496,6 +516,10 @@ internal sealed class ShellWindow : Window
                 if (plan.Services)
                 {
                     lastService = now;
+                }
+                if (plan.Grid)
+                {
+                    lastGrid = now;
                 }
                 Volatile.Write(ref _latest, snapshot);
                 if (_hiddenToTray)
@@ -518,15 +542,21 @@ internal sealed class ShellWindow : Window
                 _diagnostics.Line("sample failed: " + exception.Message);
             }
 
+            // While an Apps/Processes grid is showing, wake often enough for
+            // its 2 s cadence; the speed setting still governs every other page.
             int interval = Math.Max(250, _shell.Config.MetricsIntervalMs);
+            if (_gridVisible && interval > MemoryCadence.GridMs)
+            {
+                interval = MemoryCadence.GridMs;
+            }
             _wake.WaitOne(interval);
         }
     }
 
     /// <summary>
-    /// Recompute the process read after a switch. The process and service
-    /// lists live on the Processes page now, so that page decides whether the
-    /// sampler reads them.
+    /// Recompute the process, service and grid reads after a switch. The
+    /// process and service lists live on the Processes page, the 2 s grid on
+    /// the Apps and Processes pages, so the pages decide what the sampler reads.
     /// </summary>
     private void UpdateProcessesVisibility()
     {
@@ -536,11 +566,30 @@ internal sealed class ShellWindow : Window
             && !_hiddenToTray
             && IsVisible
             && WindowState != WindowState.Minimized;
+
+        // The Apps and Processes grids share one 2 s read (phase C part 1).
+        string gridPage = _shell.Main.Page;
+        bool pageChanged = !string.Equals(gridPage, _gridPage, StringComparison.Ordinal);
+        _gridPage = gridPage;
+        bool gridVisible = _shell.MainGridVisible
+            && !_hiddenToTray
+            && IsVisible
+            && WindowState != WindowState.Minimized;
+
         bool gained = visible && !_memoryVisible;
+        bool gridGained = gridVisible && !_gridVisible;
         _memoryVisible = visible;
+        _gridVisible = gridVisible;
+
         if (visible && (gained || _shell.Snapshot?.Processes.Count is null or 0))
         {
             Interlocked.Exchange(ref _forceMemory, 1);
+            _wake.Set();
+        }
+        if (gridVisible
+            && (gridGained || pageChanged || _shell.Snapshot?.ProcessRows.Count is null or 0))
+        {
+            Interlocked.Exchange(ref _forceGrid, 1);
             _wake.Set();
         }
     }

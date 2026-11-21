@@ -24,6 +24,9 @@ public sealed class LinuxSampler
     private readonly BatteryReader _battery;
     private readonly UPowerReader _upower;
     private readonly MemoryLayout _memoryLayout;
+    private readonly ProcessStats _processStats;
+    private AppResolver _appResolver;
+    private string _language;
 
     private ProcStatReading? _previousCpu;
     private bool _ready;
@@ -35,11 +38,16 @@ public sealed class LinuxSampler
     private IReadOnlyList<ProcessEntry> _cachedProcesses = Array.Empty<ProcessEntry>();
     private long _cachedMemoryStamp;
 
+    /// <summary>The last grid read, republished between the 2 s reads.</summary>
+    private IReadOnlyList<ProcessRow> _cachedProcessRows = ProcessRow.Empty;
+    private IReadOnlyList<AppEntry> _cachedApps = Array.Empty<AppEntry>();
+
     public LinuxSampler(
         string root = "/",
         ICommandRunner? runner = null,
         Func<long>? clock = null,
-        Diagnostics? diagnostics = null)
+        Diagnostics? diagnostics = null,
+        string language = "en")
     {
         _root = string.IsNullOrEmpty(root) ? "/" : root;
         _clock = clock ?? (() => Environment.TickCount64);
@@ -54,9 +62,38 @@ public sealed class LinuxSampler
         _battery = new BatteryReader(_root);
         _upower = new UPowerReader(commands, diagnostics);
         _memoryLayout = ReadMemoryLayout();
+
+        // One instance of each for the life of the sampler: the CPU and GPU
+        // percentages are deltas, so a fresh reader every tick would report
+        // null forever.
+        _processStats = new ProcessStats(_root, _cpuInfo.Logical);
+        _language = string.Equals(language, "th", StringComparison.OrdinalIgnoreCase) ? "th" : "en";
+        _appResolver = new AppResolver(_root, language: _language);
     }
 
     public string Root => _root;
+
+    /// <summary>
+    /// The language the app names are resolved in. Changing it rebuilds only
+    /// the desktop resolver, so the CPU and GPU deltas and the disk rates are
+    /// not lost with it.
+    /// </summary>
+    public string Language
+    {
+        get => _language;
+        set
+        {
+            string language = string.Equals(value, "th", StringComparison.OrdinalIgnoreCase)
+                ? "th"
+                : "en";
+            if (string.Equals(language, _language, StringComparison.Ordinal))
+            {
+                return;
+            }
+            _language = language;
+            _appResolver = new AppResolver(_root, language: language);
+        }
+    }
 
     /// <summary>
     /// One sample. Processes are read only when asked; services are read when
@@ -65,8 +102,16 @@ public sealed class LinuxSampler
     /// <paramref name="keepMemory"/> the last process list is republished when
     /// this sample does not read a new one, so the RAM tab does not empty
     /// between reads.
+    ///
+    /// With <paramref name="includeGrid"/> the Apps and Processes grids are
+    /// read (their own 2 s cadence); otherwise the last grid lists are
+    /// republished, so the grid does not blank between reads.
     /// </summary>
-    public Snapshot Sample(bool includeProcesses, bool includeServices = false, bool keepMemory = false)
+    public Snapshot Sample(
+        bool includeProcesses,
+        bool includeServices = false,
+        bool keepMemory = false,
+        bool includeGrid = false)
     {
         long stamp = _clock();
         bool wasReady = _ready;
@@ -124,6 +169,22 @@ public sealed class LinuxSampler
                 : Array.Empty<ServiceEntry>();
         }
 
+        // The grid has its own 2 s cadence. A failed read keeps the previous
+        // lists rather than blanking a page that was showing data.
+        if (includeGrid)
+        {
+            try
+            {
+                IReadOnlyDictionary<int, string>? serviceByPid = ServicesByPid(_cachedServices);
+                _cachedProcessRows = _processStats.Read(stamp, serviceByPid);
+                _cachedApps = _appResolver.Read(_cachedProcessRows);
+            }
+            catch (Exception)
+            {
+                // Keep what the grid last showed.
+            }
+        }
+
         var cores = new List<Core>(cpu.Cores.Count);
         for (int i = 0; i < cpu.Cores.Count; i++)
         {
@@ -147,6 +208,8 @@ public sealed class LinuxSampler
             Modules = Array.Empty<Module>(),
             Processes = processes,
             Services = services,
+            ProcessRows = _cachedProcessRows,
+            Apps = _cachedApps,
             Batteries = power.Batteries,
             PowerSources = power.PowerSources,
             Peripherals = peripherals,
@@ -162,6 +225,27 @@ public sealed class LinuxSampler
             Uptime = ReadUptime(),
             Ready = wasReady,
         };
+    }
+
+    /// <summary>
+    /// The service units by the PID that runs them, from the last service read
+    /// (no extra <c>systemctl</c> call). Only per-user units are mapped: those
+    /// are the only ones the app may restart.
+    /// </summary>
+    private static IReadOnlyDictionary<int, string>? ServicesByPid(
+        IReadOnlyList<ServiceEntry> services)
+    {
+        Dictionary<int, string>? map = null;
+        foreach (ServiceEntry service in services)
+        {
+            if (!service.UserUnit || service.Pid <= 0 || service.Name.Length == 0)
+            {
+                continue;
+            }
+            map ??= new Dictionary<int, string>();
+            map[service.Pid] = service.Name;
+        }
+        return map;
     }
 
     private (IReadOnlyList<Core> Cores, int Total) ReadCpu()
