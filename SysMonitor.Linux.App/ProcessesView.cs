@@ -1,9 +1,14 @@
+using System.Collections.ObjectModel;
+using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Presenters;
 using Avalonia.Controls.Primitives;
+using Avalonia.Controls.Templates;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Styling;
 using Avalonia.Threading;
 using SysMonitor.Linux.Presentation;
 using SysMonitor.Model;
@@ -11,15 +16,38 @@ using SysMonitor.Model;
 namespace SysMonitor.Linux.App;
 
 /// <summary>
-/// The Processes page (R-030 §2): two tabs, "Processes" and "Services". The
-/// process groups and service rows are the ones the old Full view's memory tab
-/// drew, moved here unchanged — keyed, updated in place, with the same search,
-/// kill/force/confirm flow and status line. Phase C replaces the process list
-/// with the new grid; this file keeps today's behaviour until then.
+/// The Processes page (R-030 §4, phase C part 2): two tabs, "Processes" and
+/// "Services". The Processes tab is a grid fed by <see cref="Snapshot.ProcessRows"/>
+/// — every user's processes, sorted and searched in place, one Close and one
+/// optional service Restart per row. The Services tab is the one the memory tab
+/// drew, moved here unchanged.
+///
+/// The rows live in a virtualising <see cref="ItemsControl"/>: the item
+/// collection holds one keyed <see cref="RowItem"/> per (PID, start time), so a
+/// 2 s read moves numbers without rebuilding the list, and only the rows in the
+/// viewport exist as controls. The order is held still while the pointer is
+/// over the rows, exactly like the Apps page.
 /// </summary>
 internal sealed class ProcessesView : UserControl
 {
-    private const string GraphBackground = "#223b82f6";
+    /// <summary>The eight columns the header row offers; Command is not sortable.</summary>
+    private static readonly GridColumn[] Sortable =
+    {
+        GridColumn.Name,
+        GridColumn.Pid,
+        GridColumn.User,
+        GridColumn.Cpu,
+        GridColumn.Memory,
+        GridColumn.Gpu,
+        GridColumn.GpuMemory,
+    };
+
+    /// <summary>
+    /// The narrowest the grid may get before it scrolls sideways. The numeric
+    /// columns keep a readable width at 640 px; the window can be widened to
+    /// make the name and command columns grow.
+    /// </summary>
+    private const double MinGridWidth = 700;
 
     private readonly ShellModel _shell;
 
@@ -27,25 +55,53 @@ internal sealed class ProcessesView : UserControl
     private readonly TextBlock _processesTabText;
     private readonly Border _servicesTab;
     private readonly TextBlock _servicesTabText;
-    private readonly ScrollViewer _processesPage;
+    private readonly Control _processesPage;
     private readonly ScrollViewer _servicesPage;
 
     private readonly TextBlock _processHeading;
+    private readonly TextBlock _processCount;
     private readonly TextBox _search;
     private readonly TextBlock _status;
-    private readonly TextBlock _groupNote;
-    private readonly StackPanel _processList;
+    private readonly TextBlock _empty;
+    private readonly Grid _header;
+    private readonly TextBlock _commandHeader;
+    private readonly ScrollViewer _headerScroll;
+    private readonly ScrollViewer _scroll;
+    private readonly ItemsControl _list;
     private readonly TextBlock _serviceHeading;
     private readonly TextBlock _serviceNote;
     private readonly TextBlock _userHeading;
     private readonly StackPanel _userList;
     private readonly TextBlock _systemHeading;
     private readonly StackPanel _systemList;
-    private readonly Dictionary<string, GroupRow> _groupRows = new(StringComparer.OrdinalIgnoreCase);
-    private readonly HashSet<string> _expanded = new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly ObservableCollection<RowItem> _items = new();
+    private readonly Dictionary<string, RowItem> _itemsByKey = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _busy = new(StringComparer.Ordinal);
+    private readonly Dictionary<GridColumn, HeaderCell> _headers = new();
     private readonly Dictionary<string, ServiceRow> _userRows = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ServiceRow> _systemRows = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// The synthetic keys of the rows whose start time is unknown, by PID. The
+    /// key carries the number of the render the PID was first seen in, so a
+    /// reused PID never inherits the earlier process's row (Amendment 1 item 2).
+    /// </summary>
+    private readonly Dictionary<int, string> _unverified = new();
+
+    /// <summary>The row keys in the order the list last showed them.</summary>
+    private readonly List<string> _order = new();
+
+    /// <summary>
+    /// The order held still while the pointer is over the rows, or null when a
+    /// new sample may sort again (the Apps page rule, reused here).
+    /// </summary>
+    private List<string>? _frozenOrder;
+
+    /// <summary>Counts renders, so an unverified key is unique to one sighting.</summary>
+    private int _sample;
+
+    private bool _pointerOverRows;
     private string _searchText = string.Empty;
     private bool _services;
 
@@ -67,10 +123,21 @@ internal sealed class ProcessesView : UserControl
         tabs.Children.Add(_processesTab);
         tabs.Children.Add(_servicesTab);
 
-        // Processes tab.
+        // Processes tab: heading, search, a fixed header row and the grid.
         _processHeading = Ui.Text(
-            string.Empty, shell.Ramp.Heading, shell.Palette.Text, FontWeight.SemiBold, wrap: true);
-        _processHeading.Margin = new Thickness(2, 2, 2, 8);
+            string.Empty, shell.Ramp.Heading, shell.Palette.Text, FontWeight.SemiBold);
+        _processCount = Ui.Text(string.Empty, shell.Ramp.Small, shell.Palette.Label);
+        _processCount.VerticalAlignment = VerticalAlignment.Bottom;
+        _processCount.Margin = new Thickness(0, 0, 0, 2);
+
+        var headingRow = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 10,
+            Margin = new Thickness(2, 2, 2, 8),
+        };
+        headingRow.Children.Add(_processHeading);
+        headingRow.Children.Add(_processCount);
 
         _search = new TextBox
         {
@@ -82,6 +149,7 @@ internal sealed class ProcessesView : UserControl
             PlaceholderForeground = Ui.Brush(shell.Palette.Label),
             FontFamily = Ui.Family,
             FontSize = shell.Ramp.Body,
+            Margin = new Thickness(2, 0, 2, 6),
         };
         _search.TextChanged += (_, _) =>
         {
@@ -89,26 +157,125 @@ internal sealed class ProcessesView : UserControl
             if (!string.Equals(text, _searchText, StringComparison.Ordinal))
             {
                 _searchText = text;
-                _shell.SetMemoryQuery(text);
+                Resort();
             }
         };
 
         _status = Ui.Text(string.Empty, shell.Ramp.Small, shell.Palette.Label, wrap: true);
         _status.Margin = new Thickness(2, 0, 2, 4);
 
-        _groupNote = Ui.Text(string.Empty, shell.Ramp.Small, shell.Palette.Label, wrap: true);
-        _groupNote.Margin = new Thickness(2, 6, 2, 2);
+        // Header row: the same columns as a data row, click to sort. Command and
+        // the two action columns have no header of their own.
+        _header = new Grid
+        {
+            Margin = new Thickness(2, 0, 4, 2),
+            // The row border's own 2 + 4 px padding is outside its inner grid,
+            // so the header's minimum is that much smaller to keep the columns
+            // over the rows when the page is narrower than the grid.
+            MinWidth = MinGridWidth - 6,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        AddColumns(_header);
+        _commandHeader = Ui.Text(
+            string.Empty, shell.Ramp.Tiny, shell.Palette.Label, FontWeight.SemiBold, ellipsis: true);
+        _commandHeader.VerticalAlignment = VerticalAlignment.Center;
+        _commandHeader.Margin = new Thickness(0, 3, 0, 3);
+        BuildHeaders();
 
-        _processList = new StackPanel { Margin = new Thickness(0, 4, 0, 0) };
+        _headerScroll = new ScrollViewer
+        {
+            Content = _header,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            AllowAutoHide = false,
+        };
 
-        var processesBody = new StackPanel();
-        processesBody.Children.Add(_processHeading);
+        _list = new ItemsControl
+        {
+            ItemsSource = _items,
+            ItemsPanel = new FuncTemplate<Panel?>(() => new VirtualizingStackPanel()),
+            ItemTemplate = new FuncDataTemplate<RowItem>(
+                (item, _) => new GridRow(this, item).Control),
+            MinWidth = MinGridWidth,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+
+        // The generated ContentPresenters must fill the row width, or the
+        // columns would shrink to the text instead of lining up with the header.
+        _list.Styles.Add(new Style(x => x.OfType<ContentPresenter>())
+        {
+            Setters =
+            {
+                new Setter(Layoutable.HorizontalAlignmentProperty, HorizontalAlignment.Stretch),
+                new Setter(
+                    ContentPresenter.HorizontalContentAlignmentProperty,
+                    HorizontalAlignment.Stretch),
+                new Setter(ContentPresenter.PaddingProperty, new Thickness(0)),
+            },
+        });
+
+        _scroll = new ScrollViewer
+        {
+            Content = _list,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            AllowAutoHide = false,
+            Margin = new Thickness(0, 2, 0, 0),
+        };
+
+        // The rows freeze under the pointer; sorting resumes when it leaves.
+        _scroll.PointerEntered += (_, _) =>
+        {
+            _pointerOverRows = true;
+            _frozenOrder ??= _order.ToList();
+        };
+        _scroll.PointerExited += (_, _) =>
+        {
+            if (!_pointerOverRows)
+            {
+                return;
+            }
+            _pointerOverRows = false;
+            _frozenOrder = null;
+            RenderData();
+        };
+
+        // A visible vertical scrollbar narrows the rows, so the header reserves
+        // the same width (the Apps page rule). The header also follows the
+        // rows' horizontal offset when the grid is narrower than its columns.
+        _scroll.LayoutUpdated += (_, _) => AlignHeader();
+        _scroll.ScrollChanged += (_, _) =>
+        {
+            Vector offset = _scroll.Offset;
+            if (Math.Abs(_headerScroll.Offset.X - offset.X) > 0.5)
+            {
+                _headerScroll.Offset = new Vector(offset.X, 0);
+            }
+            AlignHeader();
+        };
+
+        _empty = Ui.Text(
+            string.Empty, shell.Ramp.Body, shell.Palette.Label, wrap: true);
+        _empty.Margin = new Thickness(4, 8, 4, 4);
+        _empty.HorizontalAlignment = HorizontalAlignment.Left;
+        _empty.VerticalAlignment = VerticalAlignment.Top;
+        _empty.IsVisible = false;
+
+        var gridBody = new Grid();
+        gridBody.Children.Add(_scroll);
+        gridBody.Children.Add(_empty);
+
+        var processesBody = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,Auto,*") };
+        processesBody.Children.Add(headingRow);
+        Grid.SetRow(_search, 1);
         processesBody.Children.Add(_search);
-        processesBody.Children.Add(_groupNote);
-        processesBody.Children.Add(_processList);
-        _processesPage = Page(processesBody);
+        Grid.SetRow(_headerScroll, 2);
+        processesBody.Children.Add(_headerScroll);
+        Grid.SetRow(gridBody, 3);
+        processesBody.Children.Add(gridBody);
+        _processesPage = processesBody;
 
-        // Services tab.
+        // Services tab, unchanged from the old memory tab.
         _serviceHeading = Ui.Text(
             string.Empty, shell.Ramp.Heading, shell.Palette.Text, FontWeight.SemiBold, wrap: true);
         _serviceHeading.Margin = new Thickness(2, 2, 2, 8);
@@ -164,12 +331,15 @@ internal sealed class ProcessesView : UserControl
         _servicesTabText.Text = Ui.Thai(_shell.Language["mem_services"]);
         UpdateTabs();
 
-        _processHeading.Text = Ui.Thai(_shell.Language["mem_processes"]);
+        _processHeading.Text = Ui.Thai(_shell.Language["processes"]);
         _processHeading.Foreground = Ui.Brush(palette.Text);
         _processHeading.FontSize = ramp.Heading;
 
-        _search.PlaceholderText = _shell.Language["mem_search"];
-        Ui.Tip(_search, _shell.Language["mem_search"]);
+        _processCount.Foreground = Ui.Brush(palette.Label);
+        _processCount.FontSize = ramp.Small;
+
+        _search.PlaceholderText = Ui.Thai(_shell.Language["procs_search"]);
+        Ui.Tip(_search, _shell.Language["procs_search"]);
         _search.Background = Ui.Brush(palette.Control);
         _search.Foreground = Ui.Brush(palette.Text);
         _search.CaretBrush = Ui.Brush(palette.Text);
@@ -181,8 +351,8 @@ internal sealed class ProcessesView : UserControl
         _status.Text = Ui.Thai(_shell.MemoryStatus);
         _status.IsVisible = _status.Text.Length > 0;
 
-        _groupNote.Foreground = Ui.Brush(palette.Label);
-        _groupNote.FontSize = ramp.Small;
+        _empty.Foreground = Ui.Brush(palette.Label);
+        _empty.FontSize = ramp.Body;
 
         _serviceHeading.Text = Ui.Thai(_shell.Language["mem_services"]);
         _serviceHeading.Foreground = Ui.Brush(palette.Text);
@@ -199,11 +369,23 @@ internal sealed class ProcessesView : UserControl
         _systemHeading.Foreground = Ui.Brush(palette.Label);
         _systemHeading.FontSize = ramp.Small;
 
-        RenderMemory();
+        RenderData();
     }
 
-    /// <summary>Update the tables after a new sample or a kill.</summary>
-    public void RenderData() => RenderMemory();
+    /// <summary>
+    /// Update the grid after a new sample or an action. The Services tab is
+    /// refreshed only while it is the visible tab: its rows are not virtualised,
+    /// and keeping a hidden tab's text current would cost every tick for
+    /// nothing. Switching to it reads them once.
+    /// </summary>
+    public void RenderData()
+    {
+        RenderProcesses();
+        if (_services)
+        {
+            RenderServices();
+        }
+    }
 
     private static ScrollViewer Page(Control content) => new()
     {
@@ -254,6 +436,7 @@ internal sealed class ProcessesView : UserControl
         _processesPage.IsVisible = !services;
         _servicesPage.IsVisible = services;
         UpdateTabs();
+        RenderData();
     }
 
     private void UpdateTabs()
@@ -278,165 +461,299 @@ internal sealed class ProcessesView : UserControl
         {
             _status.Text = Ui.Thai(_shell.MemoryStatus);
             _status.IsVisible = _status.Text.Length > 0;
-            RenderMemory();
+            RenderData();
         });
 
-    // ------------------------------------------------------------ tables
+    // ------------------------------------------------------------ processes
 
-    private void RenderMemory()
+    private void RenderProcesses()
     {
-        MemoryTabModel model = _shell.Memory;
-        Palette palette = _shell.Palette;
-        TypeRamp ramp = _shell.Ramp;
+        _sample++;
+        IReadOnlyList<ProcessRow> all = _shell.Snapshot?.ProcessRows ?? ProcessRow.Empty;
+        IReadOnlyList<ProcessRow> filtered = ProcessGrid.Filter(all, _searchText);
+        GridColumn column = ProcessGrid.ParseColumn(_shell.Config.ProcsSort, GridColumn.Memory);
+        bool descending = _shell.Config.ProcsSortDesc;
+        IReadOnlyList<ProcessRow> rows = ProcessGrid.Sort(filtered, column, descending);
 
-        _groupNote.Text = Ui.Thai(model.GroupNote);
-        _groupNote.IsVisible = model.GroupNote.Length > 0;
-        _serviceNote.Text = Ui.Thai(model.ServiceNote);
-        _serviceNote.IsVisible = model.ServiceNote.Length > 0;
-
-        // Process groups are keyed by name and updated in place, so an
-        // expanded group and the control under the pointer survive a read.
-        var live = new HashSet<string>(
-            model.Groups.Select(g => g.Name), StringComparer.OrdinalIgnoreCase);
-        foreach (string name in _groupRows.Keys.Where(n => !live.Contains(n)).ToList())
+        // A synthetic key lives only for the sighting that produced it: when the
+        // PID leaves the snapshot, or turns out to have a start time after all,
+        // its key is dropped so a later sighting cannot inherit it
+        // (Amendment 1 item 2).
+        var present = new HashSet<int>(all.Select(row => row.Pid));
+        var identified = new HashSet<int>(
+            all.Where(row => row.StartTime is not null).Select(row => row.Pid));
+        foreach (int pid in _unverified.Keys.ToList())
         {
-            _processList.Children.Remove(_groupRows[name].Control);
-            _groupRows.Remove(name);
-            _expanded.Remove(name);
-        }
-
-        for (int index = 0; index < model.Groups.Count; index++)
-        {
-            MemProcessGroup group = model.Groups[index];
-            if (!_groupRows.TryGetValue(group.Name, out GroupRow? row))
+            if (!present.Contains(pid) || identified.Contains(pid))
             {
-                row = new GroupRow(this);
-                _groupRows[group.Name] = row;
-            }
-            row.Group = group;
-            row.Update(group, _expanded.Contains(group.Name));
-
-            if (index < _processList.Children.Count
-                && ReferenceEquals(_processList.Children[index], row.Control))
-            {
-                continue;
-            }
-            _processList.Children.Remove(row.Control);
-            if (index >= _processList.Children.Count)
-            {
-                _processList.Children.Add(row.Control);
-            }
-            else
-            {
-                _processList.Children.Insert(index, row.Control);
+                _unverified.Remove(pid);
             }
         }
 
-        _serviceNote.Foreground = Ui.Brush(palette.Label);
-        _serviceNote.FontSize = ramp.Small;
+        // One item per process, keyed by PID and start time, so a recycled PID
+        // never inherits the earlier row's state. Keys are kept for every
+        // process the snapshot knows, not only the filtered ones, so a running
+        // action's busy state survives a search that hides its row.
+        var live = new HashSet<string>(all.Select(KeyOf), StringComparer.Ordinal);
+        foreach (string key in _itemsByKey.Keys.Where(key => !live.Contains(key)).ToList())
+        {
+            // Drop the item and its busy flag together: a row whose identity
+            // cannot be verified must never show another process's action
+            // state (Amendment 1 item 2).
+            _itemsByKey.Remove(key);
+            _busy.Remove(key);
+        }
 
-        SyncServiceRows(_userList, model.UserServices, _userRows);
-        SyncServiceRows(_systemList, model.SystemServices, _systemRows);
-        _userHeading.IsVisible = model.UserServices.Count > 0;
-        _systemHeading.IsVisible = model.SystemServices.Count > 0;
+        var wanted = new List<RowItem>(rows.Count);
+        foreach (ProcessRow row in rows)
+        {
+            string key = KeyOf(row);
+            if (!_itemsByKey.TryGetValue(key, out RowItem? item))
+            {
+                item = new RowItem(key);
+                _itemsByKey[key] = item;
+            }
+            item.Set(row);
+            wanted.Add(item);
+        }
+
+        // While the pointer is over the rows, keep the order frozen; values
+        // still update below. New processes append, gone ones drop out.
+        if (_frozenOrder is { } frozen)
+        {
+            var frozenIndex = new Dictionary<string, int>(StringComparer.Ordinal);
+            for (int index = 0; index < frozen.Count; index++)
+            {
+                frozenIndex[frozen[index]] = index;
+            }
+            wanted = wanted
+                .OrderBy(item => frozenIndex.TryGetValue(item.Key, out int index)
+                    ? index
+                    : int.MaxValue)
+                .ToList();
+
+            // A key that appeared during the freeze joins the frozen order at
+            // the end, so the next sample keeps it there instead of sorting it
+            // again under the pointer (Amendment 1 item 1). Keys that are gone
+            // are pruned, so the list stays the size of the grid.
+            frozen.Clear();
+            foreach (RowItem item in wanted)
+            {
+                frozen.Add(item.Key);
+            }
+        }
+
+        _order.Clear();
+        foreach (RowItem item in wanted)
+        {
+            _order.Add(item.Key);
+        }
+
+        ReconcileItems(wanted);
+
+        _processCount.Text = Ui.Thai(_shell.Language.Get("procs_count", wanted.Count));
+        _empty.Text = Ui.Thai(_shell.Language["procs_empty"]);
+        _empty.IsVisible = wanted.Count == 0;
+        UpdateHeaders(column, descending);
     }
-
-    private void ToggleExpanded(string name)
-    {
-        if (!_expanded.Add(name))
-        {
-            _expanded.Remove(name);
-        }
-        RenderMemory();
-    }
-
-    private void ToggleGraph(string name) => _shell.ToggleProcessGraph(name);
 
     /// <summary>
-    /// Service rows are keyed by unit name and updated in place, exactly like
-    /// process groups. A read every 10 s must not close an open startup menu
-    /// or take the hover away from a button under the pointer.
+    /// Bring the virtualising collection to <paramref name="wanted"/> with the
+    /// fewest changes: move a live row instead of removing and re-adding it, so
+    /// its container, hover and buttons stay put whenever the order is stable.
     /// </summary>
-    private void SyncServiceRows(
-        StackPanel list,
-        IReadOnlyList<MemService> services,
-        Dictionary<string, ServiceRow> rows)
+    private void ReconcileItems(List<RowItem> wanted)
     {
-        var live = new HashSet<string>(services.Select(s => s.Name), StringComparer.Ordinal);
-        foreach (string name in rows.Keys.Where(n => !live.Contains(n)).ToList())
+        var live = new HashSet<RowItem>(wanted);
+        for (int index = _items.Count - 1; index >= 0; index--)
         {
-            list.Children.Remove(rows[name].Control);
-            rows.Remove(name);
+            if (!live.Contains(_items[index]))
+            {
+                _items.RemoveAt(index);
+            }
         }
 
-        for (int index = 0; index < services.Count; index++)
+        for (int index = 0; index < wanted.Count; index++)
         {
-            MemService service = services[index];
-            if (!rows.TryGetValue(service.Name, out ServiceRow? row))
-            {
-                row = new ServiceRow(this);
-                rows[service.Name] = row;
-            }
-            row.Service = service;
-            row.Update();
-
-            if (index < list.Children.Count && ReferenceEquals(list.Children[index], row.Control))
+            RowItem item = wanted[index];
+            if (index < _items.Count && ReferenceEquals(_items[index], item))
             {
                 continue;
             }
-            list.Children.Remove(row.Control);
-            if (index >= list.Children.Count)
+            int at = _items.IndexOf(item);
+            if (at >= 0)
             {
-                list.Children.Add(row.Control);
+                _items.Move(at, index);
             }
             else
             {
-                list.Children.Insert(index, row.Control);
+                _items.Insert(index, item);
             }
         }
+
+        while (_items.Count > wanted.Count)
+        {
+            _items.RemoveAt(_items.Count - 1);
+        }
     }
 
-    // --------------------------------------------------------------- kills
-
-    private async void KillProcess(MemProcess process)
+    /// <summary>Sort again now, even with the pointer over the rows.</summary>
+    private void Resort()
     {
-        string message = _shell.Language.Get("mem_confirm_kill", process.Name, process.Pid)
-                         + HostWarning(new[] { process.Pid });
-        if (!await Confirm(message))
+        _frozenOrder = null;
+        RenderData();
+        if (_pointerOverRows)
         {
-            _shell.SetMemoryStatus(_shell.Language["mem_cancelled"]);
-            return;
+            _frozenOrder = _order.ToList();
         }
-
-        await RunKill(new[] { KillTarget(process) });
     }
 
-    private async void KillGroup(MemProcessGroup group)
+    /// <summary>
+    /// A row's identity. PID plus start time is the verified identity; with no
+    /// start time there is none, so the key also carries the sample the PID was
+    /// first seen in and is dropped when the PID leaves the snapshot. A reused
+    /// PID therefore gets a new key and never inherits the old row, its busy
+    /// flag or its action state (Amendment 1 item 2).
+    /// </summary>
+    private string KeyOf(ProcessRow row)
     {
-        var targets = group.Members
-            .Where(m => m.CanKill)
-            .Select(KillTarget)
-            .ToList();
-        if (targets.Count == 0)
+        string pid = row.Pid.ToString(CultureInfo.InvariantCulture);
+        if (row.StartTime is { } start)
         {
-            return;
+            return pid + ":" + start.ToString(CultureInfo.InvariantCulture);
         }
 
-        string message = _shell.Language.Get(
-            "mem_confirm_kill_group", group.Name, group.KillableCount)
-            + HostWarning(targets.Select(t => t.Pid));
-        if (!await Confirm(message))
+        if (!_unverified.TryGetValue(row.Pid, out string? key))
         {
-            _shell.SetMemoryStatus(_shell.Language["mem_cancelled"]);
-            return;
+            key = pid + ":?:" + _sample.ToString(CultureInfo.InvariantCulture);
+            _unverified[row.Pid] = key;
         }
-
-        await RunKill(targets);
+        return key;
     }
 
-    /// <summary>The row's identity: PID, start time and name, not just the PID.</summary>
-    private static ProcessTarget KillTarget(MemProcess process) =>
-        new(process.Pid, process.StartTime, process.Name);
+    public bool IsBusy(string key) => _busy.Contains(key);
+
+    private void SetBusy(string key, bool busy)
+    {
+        if (busy)
+        {
+            // A row whose start time is unknown has no verified identity, so it
+            // never becomes busy and can never show another process's action
+            // state (Part 2 Amendment 2).
+            if (_itemsByKey.TryGetValue(key, out RowItem? pending)
+                && pending.Row.StartTime is null)
+            {
+                return;
+            }
+            _busy.Add(key);
+        }
+        else
+        {
+            _busy.Remove(key);
+        }
+        if (_itemsByKey.TryGetValue(key, out RowItem? item))
+        {
+            item.Notify();
+        }
+    }
+
+    // ------------------------------------------------------------- actions
+
+    private async void CloseProcess(RowItem item)
+    {
+        string key = item.Key;
+        if (IsBusy(key))
+        {
+            return;
+        }
+
+        // The row as the person saw it. The kill flow re-reads the process and
+        // applies the protection rules again before it signals anything.
+        // A row without a start time has no verified identity, so it has no
+        // actions at all (Part 2 Amendment 2).
+        ProcessRow row = item.Row;
+        if (row.StartTime is null)
+        {
+            return;
+        }
+        try
+        {
+            // Busy goes up before the confirm is awaited, so a second click
+            // while the dialog is open does nothing (the Apps page rule).
+            SetBusy(key, true);
+            string message = _shell.Language.Get("mem_confirm_kill", row.Name, row.Pid)
+                             + HostWarning(new[] { row.Pid });
+            if (!await Confirm(message))
+            {
+                _shell.SetMemoryStatus(_shell.Language["mem_cancelled"]);
+                return;
+            }
+
+            await RunKill(new[] { new ProcessTarget(row.Pid, row.StartTime, row.Name) });
+        }
+        catch (Exception error)
+        {
+            _shell.SetMemoryStatus(_shell.Language.Get("mem_failed", error.Message));
+        }
+        finally
+        {
+            SetBusy(key, false);
+            _shell.RequestMemoryRefresh();
+        }
+    }
+
+    private async void RestartProcess(RowItem item)
+    {
+        string key = item.Key;
+        if (IsBusy(key))
+        {
+            return;
+        }
+
+        ProcessRow row = item.Row;
+        string? unit = row.ServiceUnit;
+        if (unit is null)
+        {
+            return;
+        }
+        if (row.StartTime is null)
+        {
+            // No verified identity, no actions (Part 2 Amendment 2).
+            return;
+        }
+
+        try
+        {
+            SetBusy(key, true);
+            if (!await Confirm(
+                    _shell.Language.Get("proc_restart_confirm", unit, row.Pid)))
+            {
+                _shell.SetMemoryStatus(_shell.Language["mem_cancelled"]);
+                return;
+            }
+
+            _shell.SetMemoryStatus(_shell.Language.Get("proc_restarting", unit));
+            ActionResult result = await Task.Run(() => _shell.AppActions.RestartService(row));
+            if (result.Outcome == ActionOutcome.Failed)
+            {
+                _shell.SetMemoryStatus(
+                    _shell.Language.Get("mem_failed", result.Error ?? string.Empty));
+            }
+            else
+            {
+                _shell.SetMemoryStatus(string.Empty);
+            }
+        }
+        catch (Exception error)
+        {
+            _shell.SetMemoryStatus(_shell.Language.Get("mem_failed", error.Message));
+        }
+        finally
+        {
+            SetBusy(key, false);
+            _shell.RequestMemoryRefresh();
+        }
+    }
 
     /// <summary>The spec's extra paragraph when services run in the target.</summary>
     private string HostWarning(IEnumerable<int> pids)
@@ -448,9 +765,8 @@ internal sealed class ProcessesView : UserControl
     }
 
     /// <summary>
-    /// SIGTERM every target off the UI thread, then ask about the stubborn ones
-    /// with mem_force_kill. Each answer acts on the token its own question was
-    /// opened for (Amendment 4); the flow itself lives in the presentation layer.
+    /// SIGTERM the target off the UI thread, then ask about a survivor with
+    /// mem_force_kill. The flow itself lives in the presentation layer.
     /// </summary>
     private async Task RunKill(IReadOnlyList<ProcessTarget> targets)
     {
@@ -501,7 +817,78 @@ internal sealed class ProcessesView : UserControl
                     : string.Empty);
     }
 
-    // ------------------------------------------------------------ services
+    private async Task<bool> Confirm(string message)
+    {
+        (string yes, string no) = ConfirmWindow.Labels(_shell);
+        var window = new ConfirmWindow(_shell, message, yes, no);
+        if (TopLevel.GetTopLevel(this) is Window owner)
+        {
+            return await window.ShowDialog<bool>(owner);
+        }
+        return false;
+    }
+
+    // ---------------------------------------------------------- services
+
+    private void RenderServices()
+    {
+        MemoryTabModel model = _shell.Memory;
+        Palette palette = _shell.Palette;
+        TypeRamp ramp = _shell.Ramp;
+
+        _serviceNote.Text = Ui.Thai(model.ServiceNote);
+        _serviceNote.IsVisible = model.ServiceNote.Length > 0;
+        _serviceNote.Foreground = Ui.Brush(palette.Label);
+        _serviceNote.FontSize = ramp.Small;
+
+        SyncServiceRows(_userList, model.UserServices, _userRows);
+        SyncServiceRows(_systemList, model.SystemServices, _systemRows);
+        _userHeading.IsVisible = model.UserServices.Count > 0;
+        _systemHeading.IsVisible = model.SystemServices.Count > 0;
+    }
+
+    /// <summary>
+    /// Service rows are keyed by unit name and updated in place; a read every
+    /// 10 s must not close an open startup menu or take the hover away.
+    /// </summary>
+    private void SyncServiceRows(
+        StackPanel list,
+        IReadOnlyList<MemService> services,
+        Dictionary<string, ServiceRow> rows)
+    {
+        var live = new HashSet<string>(services.Select(s => s.Name), StringComparer.Ordinal);
+        foreach (string name in rows.Keys.Where(n => !live.Contains(n)).ToList())
+        {
+            list.Children.Remove(rows[name].Control);
+            rows.Remove(name);
+        }
+
+        for (int index = 0; index < services.Count; index++)
+        {
+            MemService service = services[index];
+            if (!rows.TryGetValue(service.Name, out ServiceRow? row))
+            {
+                row = new ServiceRow(this);
+                rows[service.Name] = row;
+            }
+            row.Service = service;
+            row.Update();
+
+            if (index < list.Children.Count && ReferenceEquals(list.Children[index], row.Control))
+            {
+                continue;
+            }
+            list.Children.Remove(row.Control);
+            if (index >= list.Children.Count)
+            {
+                list.Children.Add(row.Control);
+            }
+            else
+            {
+                list.Children.Insert(index, row.Control);
+            }
+        }
+    }
 
     private async void ServiceAction(MemService service, string action, string confirmKey)
     {
@@ -525,15 +912,474 @@ internal sealed class ProcessesView : UserControl
         await Task.Run(() => _shell.SetServiceStartup(service, automatic));
     }
 
-    private async Task<bool> Confirm(string message)
+    // -------------------------------------------------------------- header
+
+    private void BuildHeaders()
     {
-        (string yes, string no) = ConfirmWindow.Labels(_shell);
-        var window = new ConfirmWindow(_shell, message, yes, no);
-        if (TopLevel.GetTopLevel(this) is Window owner)
+        foreach (GridColumn column in Sortable)
         {
-            return await window.ShowDialog<bool>(owner);
+            var cell = new HeaderCell(
+                string.Empty,
+                _shell.Ramp.Tiny,
+                _shell.Palette.Label,
+                right: column != GridColumn.Name && column != GridColumn.User,
+                () => Ui.Act(() =>
+                {
+                    // A header click always sorts, even while the rows are
+                    // frozen under the pointer.
+                    _frozenOrder = null;
+                    _shell.SetProcsSort(column);
+                    if (_pointerOverRows)
+                    {
+                        _frozenOrder = _order.ToList();
+                    }
+                }));
+            _headers[column] = cell;
+            Grid.SetColumn(cell.Control, ColumnOf(column));
+            _header.Children.Add(cell.Control);
         }
-        return false;
+
+        // Command has no sort key in ProcessGrid, so it is a plain label.
+        Grid.SetColumn(_commandHeader, 7);
+        _header.Children.Add(_commandHeader);
+    }
+
+    private void UpdateHeaders(GridColumn active, bool descending)
+    {
+        Palette palette = _shell.Palette;
+        TypeRamp ramp = _shell.Ramp;
+        foreach ((GridColumn column, HeaderCell cell) in _headers)
+        {
+            cell.Update(
+                _shell.Language[HeaderKey(column)],
+                ramp.Tiny,
+                palette.Label,
+                active: column == active,
+                descending);
+        }
+
+        _commandHeader.Text = Ui.Thai(_shell.Language["col_command"]);
+        _commandHeader.Foreground = Ui.Brush(palette.Label);
+        _commandHeader.FontSize = ramp.Tiny;
+    }
+
+    private static string HeaderKey(GridColumn column) => column switch
+    {
+        GridColumn.Pid => "col_pid",
+        GridColumn.User => "col_user",
+        GridColumn.Cpu => "col_cpu",
+        GridColumn.Memory => "col_memory",
+        GridColumn.Gpu => "col_gpu",
+        GridColumn.GpuMemory => "col_gpu_memory",
+        _ => "col_name",
+    };
+
+    /// <summary>The grid column a sortable header sits in (Name is first).</summary>
+    private static int ColumnOf(GridColumn column) => column switch
+    {
+        GridColumn.Name => 0,
+        GridColumn.Pid => 1,
+        GridColumn.User => 2,
+        GridColumn.Cpu => 3,
+        GridColumn.Memory => 4,
+        GridColumn.Gpu => 5,
+        GridColumn.GpuMemory => 6,
+        _ => 0,
+    };
+
+    /// <summary>
+    /// The shared columns: name, PID, user, CPU, memory, GPU, GPU memory,
+    /// command, then Close and Restart. The two name-like columns are the only
+    /// ones that grow with the window.
+    /// </summary>
+    private static void AddColumns(Grid grid)
+    {
+        grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(1.4, GridUnitType.Star)));
+        grid.ColumnDefinitions.Add(new ColumnDefinition(54, GridUnitType.Pixel));
+        grid.ColumnDefinitions.Add(new ColumnDefinition(82, GridUnitType.Pixel));
+        grid.ColumnDefinitions.Add(new ColumnDefinition(56, GridUnitType.Pixel));
+        grid.ColumnDefinitions.Add(new ColumnDefinition(82, GridUnitType.Pixel));
+        grid.ColumnDefinitions.Add(new ColumnDefinition(56, GridUnitType.Pixel));
+        grid.ColumnDefinitions.Add(new ColumnDefinition(82, GridUnitType.Pixel));
+        grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(1.6, GridUnitType.Star)));
+        grid.ColumnDefinitions.Add(new ColumnDefinition(28, GridUnitType.Pixel));
+        grid.ColumnDefinitions.Add(new ColumnDefinition(28, GridUnitType.Pixel));
+    }
+
+    /// <summary>
+    /// The rows sit inside the ScrollViewer, which is narrower than the page
+    /// while its vertical scrollbar is shown, so the header reserves the same
+    /// width. Its horizontal offset follows the rows in the ScrollChanged hook.
+    /// </summary>
+    private void AlignHeader()
+    {
+        double width = _scroll.Bounds.Width;
+        double viewport = _scroll.Viewport.Width;
+        if (!double.IsFinite(width) || !double.IsFinite(viewport) || viewport <= 0)
+        {
+            // Before the first layout pass there is nothing to measure yet.
+            return;
+        }
+
+        double scrollbar = Math.Max(0, width - viewport);
+
+        // Both the rows and the header get the same explicit width, so their
+        // star columns divide the same space however the ScrollViewer chooses
+        // to arrange its content. The row border's 2 + 4 px padding is the
+        // header's margin instead.
+        double content = Math.Max(MinGridWidth, viewport);
+        double headerWidth = Math.Max(0, content - 6);
+        if (!AreClose(_list.Width, content))
+        {
+            _list.Width = content;
+        }
+        if (!AreClose(_header.Width, headerWidth))
+        {
+            _header.Width = headerWidth;
+        }
+
+        var margin = new Thickness(0, 0, scrollbar, 0);
+        if (_headerScroll.Margin != margin)
+        {
+            _headerScroll.Margin = margin;
+        }
+    }
+
+    private static bool AreClose(double value, double other) =>
+        double.IsFinite(value) && Math.Abs(value - other) < 0.5;
+
+    // ----------------------------------------------------------- formatting
+
+    private static string Percent(double? value) =>
+        value is double percent ? Format.Decimal(percent, 1) + "%" : "—";
+
+    private static string BytesOrDash(long? bytes) =>
+        bytes is long value ? MemoryBoard.Size(value) : "—";
+
+    /// <summary>Assign only when the text changed: a tick touches few glyphs.</summary>
+    private static void Set(TextBlock block, string text)
+    {
+        if (!string.Equals(block.Text, text, StringComparison.Ordinal))
+        {
+            block.Text = text;
+        }
+    }
+
+    private static TextBlock Value(TypeRamp ramp, Palette palette) => Value(
+        Ui.Text(string.Empty, ramp.Body, palette.Text, align: TextAlignment.Right));
+
+    private static TextBlock Value(TextBlock block)
+    {
+        block.VerticalAlignment = VerticalAlignment.Center;
+        block.HorizontalAlignment = HorizontalAlignment.Stretch;
+        return block;
+    }
+
+    // ------------------------------------------------------------- row item
+
+    /// <summary>
+    /// One process row's identity and newest values. It survives a sample, so
+    /// the virtualising list never has to replace the item under the pointer;
+    /// only the realised row control listens to <see cref="Changed"/>.
+    /// </summary>
+    private sealed class RowItem
+    {
+        public RowItem(string key) => Key = key;
+
+        public string Key { get; }
+
+        public ProcessRow Row { get; private set; } = new()
+        {
+            Pid = 0,
+            Name = string.Empty,
+        };
+
+        public event Action? Changed;
+
+        public void Set(ProcessRow row)
+        {
+            Row = row;
+            Changed?.Invoke();
+        }
+
+        /// <summary>Re-read the same values (after a busy flag changed).</summary>
+        public void Notify() => Changed?.Invoke();
+    }
+
+    // ---------------------------------------------------------------- rows
+
+    /// <summary>One process row, filled from its <see cref="RowItem"/>.</summary>
+    private sealed class GridRow
+    {
+        private readonly ProcessesView _view;
+        private readonly RowItem _item;
+        private readonly Border _border;
+        private readonly TextBlock _name;
+        private readonly TextBlock _pid;
+        private readonly TextBlock _user;
+        private readonly TextBlock _cpu;
+        private readonly TextBlock _memory;
+        private readonly TextBlock _gpu;
+        private readonly TextBlock _gpuMemory;
+        private readonly TextBlock _command;
+        private readonly Border _closeSlot;
+        private readonly Border _close;
+        private readonly Border _lock;
+        private readonly Border _restartSlot;
+        private readonly Border _restart;
+
+        public GridRow(ProcessesView view, RowItem item)
+        {
+            _view = view;
+            _item = item;
+            TypeRamp ramp = view._shell.Ramp;
+            Palette palette = view._shell.Palette;
+            Lang lang = view._shell.Language;
+
+            _name = Ui.Text(string.Empty, ramp.Body, palette.Text, FontWeight.SemiBold, ellipsis: true);
+            _pid = Value(ramp, palette);
+            _user = Ui.Text(string.Empty, ramp.Small, palette.Label, ellipsis: true);
+            _user.VerticalAlignment = VerticalAlignment.Center;
+            _cpu = Value(ramp, palette);
+            _memory = Value(ramp, palette);
+            _gpu = Value(ramp, palette);
+            _gpuMemory = Value(ramp, palette);
+            _command = Ui.Text(string.Empty, ramp.Small, palette.Label, ellipsis: true);
+            _command.VerticalAlignment = VerticalAlignment.Center;
+
+            _close = Ui.IconButton(
+                IconName.Stop, 24, ramp.Small, Colour.FromHex("#ef4444"),
+                () => view.CloseProcess(item), lang["mem_kill"]);
+            _close.VerticalAlignment = VerticalAlignment.Center;
+            _closeSlot = new Border
+            {
+                Background = Brushes.Transparent,
+                Child = _close,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            _closeSlot.Classes.Add("nodrag");
+
+            var lockIcon = Ui.Icon(IconName.Lock, ramp.NavIcon, palette.Label);
+            _lock = new Border
+            {
+                Width = 24,
+                Height = 24,
+                Background = Brushes.Transparent,
+                Child = lockIcon,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                IsVisible = false,
+            };
+            Ui.Tip(_lock, lang["proc_protected_tip"]);
+
+            _restart = Ui.IconButton(
+                IconName.Restart, 24, ramp.Small, palette.Label,
+                () => view.RestartProcess(item), lang["proc_restart_service"]);
+            _restart.VerticalAlignment = VerticalAlignment.Center;
+            _restartSlot = new Border
+            {
+                Background = Brushes.Transparent,
+                Child = _restart,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Center,
+                IsVisible = false,
+            };
+            _restartSlot.Classes.Add("nodrag");
+
+            var grid = new Grid();
+            AddColumns(grid);
+            grid.Children.Add(_name);
+            Grid.SetColumn(_pid, 1);
+            grid.Children.Add(_pid);
+            Grid.SetColumn(_user, 2);
+            grid.Children.Add(_user);
+            Grid.SetColumn(_cpu, 3);
+            grid.Children.Add(_cpu);
+            Grid.SetColumn(_memory, 4);
+            grid.Children.Add(_memory);
+            Grid.SetColumn(_gpu, 5);
+            grid.Children.Add(_gpu);
+            Grid.SetColumn(_gpuMemory, 6);
+            grid.Children.Add(_gpuMemory);
+            Grid.SetColumn(_command, 7);
+            grid.Children.Add(_command);
+            Grid.SetColumn(_closeSlot, 8);
+            grid.Children.Add(_closeSlot);
+            Grid.SetColumn(_lock, 8);
+            grid.Children.Add(_lock);
+            Grid.SetColumn(_restartSlot, 9);
+            grid.Children.Add(_restartSlot);
+
+            _border = new Border
+            {
+                Padding = new Thickness(2, 3, 4, 3),
+                BorderBrush = Ui.Brush(Colour.FromHex("#22808080")),
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                Child = grid,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+            };
+            _border.Classes.Add("nodrag");
+
+            // Only realised rows listen: scrolling through 300 processes must
+            // not leave a chain of discarded controls updating every tick.
+            _border.AttachedToVisualTree += (_, _) => _item.Changed += Update;
+            _border.DetachedFromVisualTree += (_, _) => _item.Changed -= Update;
+
+            Control = _border;
+            Update();
+        }
+
+        public Control Control { get; }
+
+        public void Update()
+        {
+            TypeRamp ramp = _view._shell.Ramp;
+            Palette palette = _view._shell.Palette;
+            Lang lang = _view._shell.Language;
+            ProcessRow row = _item.Row;
+            // A row whose start time is unknown has no verified identity, so it
+            // has no actions and never shows a busy state (Part 2 Amendment 2).
+            bool verified = row.StartTime is not null;
+            bool busy = verified && _view.IsBusy(_item.Key);
+            bool protectedRow = !_view._shell.CanEndProcess(row);
+
+            Set(_name, row.Name);
+            Set(_pid, row.Pid.ToString(CultureInfo.InvariantCulture));
+            Set(_user, row.User.Length > 0 ? row.User : "—");
+            Set(_cpu, Percent(row.CpuPercent));
+            Set(_memory, row.Readable ? MemoryBoard.Size(row.MemoryBytes) : "—");
+            Set(_gpu, Percent(row.GpuPercent));
+            Set(_gpuMemory, BytesOrDash(row.GpuMemoryBytes));
+            Set(_command, row.Command.Length > 0 ? row.Command : "—");
+            ToolTip.SetTip(_command, row.Command.Length > 0 ? row.Command : null);
+
+            _name.FontSize = ramp.Body;
+            _name.Foreground = Ui.Brush(palette.Text);
+            _pid.FontSize = ramp.Body;
+            _pid.Foreground = Ui.Brush(palette.Text);
+            _memory.FontSize = ramp.Body;
+            _memory.Foreground = Ui.Brush(palette.Text);
+            _user.FontSize = ramp.Small;
+            _user.Foreground = Ui.Brush(palette.Label);
+            _cpu.FontSize = ramp.Body;
+            _cpu.Foreground = Ui.Brush(palette.Text);
+            _gpu.FontSize = ramp.Body;
+            _gpu.Foreground = Ui.Brush(palette.Text);
+            _gpuMemory.FontSize = ramp.Body;
+            _gpuMemory.Foreground = Ui.Brush(palette.Text);
+            _command.FontSize = ramp.Small;
+            _command.Foreground = Ui.Brush(palette.Label);
+
+            // Existing protection rules: a row that may not be ended shows a
+            // lock with the reason instead of a Close button.
+            _lock.IsVisible = protectedRow;
+            _closeSlot.IsVisible = !protectedRow;
+
+            // Close stays disabled while an action runs, and on a row whose
+            // start time is unknown: with no verified identity there is nothing
+            // safe to signal (Part 2 Amendment 2). The tooltip sits on the slot
+            // so it still shows while the button is disabled.
+            bool canClose = verified && !busy;
+            _close.IsEnabled = canClose;
+            _close.Opacity = canClose ? 1 : 0.45;
+            _close.Cursor = new Cursor(
+                canClose ? StandardCursorType.Hand : StandardCursorType.Arrow);
+            string closeTip = verified ? lang["mem_kill"] : lang["proc_unverified_tip"];
+            ToolTip.SetTip(_close, closeTip);
+            ToolTip.SetTip(_closeSlot, closeTip);
+            ToolTip.SetTip(_lock, lang["proc_protected_tip"]);
+
+            // Restart only for a systemd user unit whose MainPID this row is.
+            // A protected unit still shows the button, disabled with its reason;
+            // the action re-reads the process and refuses it either way. An
+            // unverified row is refused too, with its own reason.
+            bool hasUnit = !string.IsNullOrEmpty(row.ServiceUnit);
+            _restartSlot.IsVisible = hasUnit;
+            if (hasUnit)
+            {
+                bool canRestart = verified && !protectedRow;
+                _restart.IsEnabled = !busy && canRestart;
+                _restart.Opacity = !busy && canRestart ? 1 : 0.45;
+                _restart.Cursor = new Cursor(
+                    !busy && canRestart ? StandardCursorType.Hand : StandardCursorType.Arrow);
+                string restartTip = !verified
+                    ? lang["proc_unverified_tip"]
+                    : canRestart
+                        ? lang["proc_restart_service"]
+                        : lang["proc_protected_tip"];
+                ToolTip.SetTip(_restart, restartTip);
+                ToolTip.SetTip(_restartSlot, restartTip);
+            }
+        }
+    }
+
+    // -------------------------------------------------------------- header
+
+    /// <summary>A sortable column header with a drawn arrow for the active column.</summary>
+    private sealed class HeaderCell
+    {
+        private readonly Border _control;
+        private readonly TextBlock _text;
+        private readonly ContentControl _arrow;
+
+        public HeaderCell(string text, double size, Colour colour, bool right, Action click)
+        {
+            _text = Ui.Text(text, size, colour, FontWeight.SemiBold, ellipsis: true);
+            _arrow = new ContentControl
+            {
+                Width = 12,
+                Height = 12,
+                HorizontalContentAlignment = HorizontalAlignment.Center,
+                VerticalContentAlignment = VerticalAlignment.Center,
+            };
+
+            var row = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 2,
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = right ? HorizontalAlignment.Right : HorizontalAlignment.Left,
+            };
+            row.Children.Add(_text);
+            row.Children.Add(_arrow);
+
+            _control = new Border
+            {
+                Background = Brushes.Transparent,
+                Padding = new Thickness(0, 3, 0, 3),
+                Cursor = new Cursor(StandardCursorType.Hand),
+                Child = row,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+            };
+            _control.Classes.Add("nodrag");
+            _control.PointerEntered += (_, _) => _control.Background = Ui.Brush(Palette.Hover);
+            _control.PointerExited += (_, _) => _control.Background = Brushes.Transparent;
+            _control.PointerPressed += (_, e) =>
+            {
+                if (!e.GetCurrentPoint(_control).Properties.IsLeftButtonPressed)
+                {
+                    return;
+                }
+                e.Handled = true;
+                click();
+            };
+        }
+
+        public Control Control => _control;
+
+        public void Update(string text, double size, Colour colour, bool active, bool descending)
+        {
+            _text.Text = Ui.Thai(text);
+            _text.FontSize = size;
+            _text.Foreground = Ui.Brush(colour);
+            _arrow.Content = active
+                ? Ui.Icon(
+                    descending ? IconName.ChevronDown : IconName.ChevronUp,
+                    10,
+                    colour)
+                : null;
+        }
     }
 
     // ------------------------------------------------------- service rows
@@ -728,236 +1574,6 @@ internal sealed class ProcessesView : UserControl
                 }
             };
             return item;
-        }
-    }
-
-    // ------------------------------------------------------- process rows
-
-    /// <summary>One process group row, updated in place.</summary>
-    private sealed class GroupRow
-    {
-        private readonly ProcessesView _view;
-        private readonly Border _border;
-        private readonly ContentControl _expandGlyph;
-        private readonly TextBlock _name;
-        private readonly TextBlock _count;
-        private readonly TextBlock _size;
-        private readonly Border _killGroup;
-        private readonly StackPanel _members;
-
-        public GroupRow(ProcessesView view)
-        {
-            _view = view;
-
-            _expandGlyph = new ContentControl
-            {
-                Width = 26,
-                Height = 26,
-                HorizontalContentAlignment = HorizontalAlignment.Center,
-                VerticalContentAlignment = VerticalAlignment.Center,
-            };
-
-            _name = Ui.Text(string.Empty, view._shell.Ramp.Body, view._shell.Palette.Text, ellipsis: true);
-            _count = Ui.Text(
-                string.Empty, view._shell.Ramp.Small, view._shell.Palette.Label);
-            _count.Margin = new Thickness(8, 0, 0, 0);
-            _count.VerticalAlignment = VerticalAlignment.Center;
-
-            var nameBody = new StackPanel { Orientation = Orientation.Horizontal };
-            nameBody.Children.Add(_name);
-            nameBody.Children.Add(_count);
-            var nameButton = new Border
-            {
-                Background = Brushes.Transparent,
-                Cursor = new Cursor(StandardCursorType.Hand),
-                Child = nameBody,
-                VerticalAlignment = VerticalAlignment.Center,
-            };
-            nameButton.Classes.Add("nodrag");
-            Ui.Tip(nameButton, view._shell.Language["mem_graph"]);
-            nameButton.PointerEntered += (_, _) => nameButton.Background = Ui.Brush(Palette.Hover);
-            nameButton.PointerExited += (_, _) => nameButton.Background = Brushes.Transparent;
-            nameButton.PointerPressed += (_, e) =>
-            {
-                if (!e.GetCurrentPoint(nameButton).Properties.IsLeftButtonPressed)
-                {
-                    return;
-                }
-                e.Handled = true;
-                view.ToggleGraph(Group.Name);
-            };
-
-            _size = Ui.Text(
-                string.Empty, view._shell.Ramp.Body, view._shell.Palette.Text, FontWeight.SemiBold);
-            _size.Margin = new Thickness(8, 0, 0, 0);
-            _size.VerticalAlignment = VerticalAlignment.Center;
-
-            _killGroup = Ui.IconButton(
-                IconName.Stop, 26, view._shell.Ramp.Body, Colour.FromHex("#ef4444"),
-                () => view.KillGroup(Group),
-                view._shell.Language["mem_kill_group"]);
-            _killGroup.HorizontalAlignment = HorizontalAlignment.Right;
-
-            var top = new Grid
-            {
-                ColumnDefinitions =
-                {
-                    new ColumnDefinition(28, GridUnitType.Pixel),
-                    new ColumnDefinition(new GridLength(1, GridUnitType.Star)),
-                    new ColumnDefinition(GridLength.Auto),
-                    new ColumnDefinition(30, GridUnitType.Pixel),
-                },
-            };
-            var expandButton = new Border
-            {
-                Width = 26,
-                Height = 26,
-                Background = Brushes.Transparent,
-                Cursor = new Cursor(StandardCursorType.Hand),
-                Child = _expandGlyph,
-            };
-            expandButton.Classes.Add("nodrag");
-            expandButton.PointerPressed += (_, e) =>
-            {
-                if (!e.GetCurrentPoint(expandButton).Properties.IsLeftButtonPressed)
-                {
-                    return;
-                }
-                e.Handled = true;
-                view.ToggleExpanded(Group.Name);
-            };
-            top.Children.Add(expandButton);
-
-            Grid.SetColumn(nameButton, 1);
-            top.Children.Add(nameButton);
-            Grid.SetColumn(_size, 2);
-            top.Children.Add(_size);
-            Grid.SetColumn(_killGroup, 3);
-            top.Children.Add(_killGroup);
-
-            _members = new StackPanel { IsVisible = false };
-
-            var body = new StackPanel();
-            body.Children.Add(top);
-            body.Children.Add(_members);
-
-            _border = new Border
-            {
-                CornerRadius = new CornerRadius(6),
-                Padding = new Thickness(2, 2, 4, 2),
-                Background = Brushes.Transparent,
-                Child = body,
-            };
-
-            Control = _border;
-        }
-
-        public MemProcessGroup Group { get; set; } = new()
-        {
-            Name = string.Empty,
-            Members = Array.Empty<MemProcess>(),
-        };
-
-        public Control Control { get; }
-
-        public void Update(MemProcessGroup group, bool expanded)
-        {
-            TypeRamp ramp = _view._shell.Ramp;
-            Palette palette = _view._shell.Palette;
-
-            _name.Text = group.Name;
-            _name.FontSize = ramp.Body;
-            _name.Foreground = Ui.Brush(palette.Text);
-            _count.Text = group.Count > 1
-                ? Ui.Thai(_view._shell.Language.Get("mem_count", group.Count))
-                : string.Empty;
-            _count.FontSize = ramp.Small;
-            _count.Foreground = Ui.Brush(palette.Label);
-            _count.IsVisible = _count.Text.Length > 0;
-            _size.Text = group.SizeText;
-            _size.FontSize = ramp.Body;
-            _size.Foreground = Ui.Brush(palette.Text);
-            _killGroup.IsVisible = group.CanKill;
-            _border.Background = group.Graphed
-                ? Ui.Brush(Colour.FromHex(GraphBackground))
-                : Brushes.Transparent;
-
-            _expandGlyph.Content = Ui.Icon(
-                expanded ? IconName.ChevronDown : IconName.ChevronRight,
-                _view._shell.Ramp.NavIcon,
-                _view._shell.Palette.Label);
-
-            _members.IsVisible = expanded;
-            _members.Children.Clear();
-            if (!expanded)
-            {
-                return;
-            }
-
-            foreach (MemProcess member in group.Members)
-            {
-                _members.Children.Add(MemberRow(member));
-            }
-        }
-
-        private Control MemberRow(MemProcess member)
-        {
-            TextBlock pid = Ui.Text(
-                "PID " + member.Pid, _view._shell.Ramp.Small, _view._shell.Palette.Label);
-            TextBlock privateText = Ui.Text(
-                member.PrivateText(_view._shell.Language),
-                _view._shell.Ramp.Small,
-                _view._shell.Palette.Label);
-            privateText.Margin = new Thickness(8, 0, 14, 0);
-
-            TextBlock size = Ui.Text(
-                member.Readable ? member.SizeText : _view._shell.Language["mem_no_access"],
-                _view._shell.Ramp.Small,
-                _view._shell.Palette.Text);
-
-            Control action;
-            if (member.CanKill)
-            {
-                action = Ui.IconButton(
-                    IconName.Stop, 26, _view._shell.Ramp.Body, Colour.FromHex("#ef4444"),
-                    () => _view.KillProcess(member),
-                    _view._shell.Language["mem_kill"]);
-            }
-            else
-            {
-                var lockIcon = Ui.Icon(
-                    IconName.Lock, _view._shell.Ramp.NavIcon, _view._shell.Palette.Label);
-                var holder = new Border
-                {
-                    Width = 26,
-                    Height = 26,
-                    Child = lockIcon,
-                };
-                Ui.Tip(holder, _view._shell.Language["mem_protected"]);
-                action = holder;
-            }
-            action.HorizontalAlignment = HorizontalAlignment.Right;
-
-            var row = new Grid
-            {
-                Margin = new Thickness(30, 1, 0, 1),
-                ColumnDefinitions =
-                {
-                    new ColumnDefinition(GridLength.Auto),
-                    new ColumnDefinition(GridLength.Auto),
-                    new ColumnDefinition(new GridLength(1, GridUnitType.Star)),
-                    new ColumnDefinition(30, GridUnitType.Pixel),
-                },
-            };
-            row.Children.Add(pid);
-            Grid.SetColumn(privateText, 1);
-            row.Children.Add(privateText);
-            size.HorizontalAlignment = HorizontalAlignment.Right;
-            Grid.SetColumn(size, 2);
-            row.Children.Add(size);
-            Grid.SetColumn(action, 3);
-            row.Children.Add(action);
-            return row;
         }
     }
 }

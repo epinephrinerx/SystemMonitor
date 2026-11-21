@@ -388,4 +388,20 @@ internal static class StringData
         ("app_restarting", "กำลังรีสตาร์ต {0} …", "Restarting {0}…"),
         ("app_closing", "กำลังปิด {0} …", "Closing {0}…"),
     };
+
+    /// <summary>
+    /// Keys for the Processes grid (R-030 phase C part 2). An eighth table so
+    /// the pinned counts in <c>StringDataTests</c> stay untouched. Lang reads
+    /// all eight.
+    /// </summary>
+    internal static readonly (string Key, string Thai, string English)[] ProcessesPageKeys =
+    {
+        ("procs_count", "ทั้งหมด {0} โปรเซส", "{0} processes"),
+        ("procs_search", "ค้นหาชื่อ คำสั่ง ผู้ใช้ หรือ PID", "Search name, command, user or PID"),
+        ("procs_empty", "ไม่พบโปรเซสที่ตรงกับคำค้น", "No processes match the search"),
+        ("proc_protected_tip", "ปิดโปรเซสนี้ไม่ได้: เป็นโปรเซสของระบบ ผู้ใช้คนอื่น โปรเซสสำคัญต่อเซสชัน หรือโปรเซสของโปรแกรมนี้เอง", "Cannot end this process: it is a system process, another user's, session-critical, or this program itself"),
+        ("proc_restart_confirm", "รีสตาร์ตเซอร์วิส {0} (PID {1}) ?\nโปรเซสจะถูกปิดแล้ว systemd เปิดให้ใหม่", "Restart service {0} (PID {1})?\nThe process will be closed and systemd will start it again."),
+        ("proc_restarting", "กำลังรีสตาร์ต {0} …", "Restarting {0}…"),
+        ("proc_unverified_tip", "ยืนยันตัวตนโปรเซสนี้ไม่ได้", "Cannot verify this process"),
+    };
 }

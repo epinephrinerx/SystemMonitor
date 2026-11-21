@@ -234,7 +234,7 @@ internal sealed class AppsView : UserControl
         // order frozen (values still update below); re-sort when it leaves, a
         // header is clicked or the search text changes. New apps append at the
         // end, gone apps simply drop out.
-        if (_frozenOrder is { Count: > 0 } frozen)
+        if (_frozenOrder is { } frozen)
         {
             var frozenIndex = new Dictionary<string, int>(StringComparer.Ordinal);
             for (int index = 0; index < frozen.Count; index++)
@@ -246,6 +246,16 @@ internal sealed class AppsView : UserControl
                     ? index
                     : int.MaxValue)
                 .ToList();
+
+            // A key that appeared during the freeze joins the frozen order at
+            // the end, so the next sample keeps it there instead of sorting it
+            // again under the pointer (Part 2 Amendment 1 item 1). Keys that are
+            // gone are pruned, so the list stays the size of the grid.
+            frozen.Clear();
+            foreach (AppEntry app in apps)
+            {
+                frozen.Add(keyOf[app]);
+            }
         }
 
         _order.Clear();

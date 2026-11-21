@@ -283,6 +283,8 @@ Two tabs: **Processes** and **Services** (the phase 2b list, moved here).
   **user** unit. It runs `systemctl --user restart -- <unit>` after a
   confirm.
 - Sorting, search, 2 s refresh and keyed sync work as on the Apps page.
+  Command is the only column that does not sort: the request was to sort
+  "by name or by resource used" (decided by Coding Owner, 2026-11-21).
 
 ## 5. Per-process measurements (Linux)
 

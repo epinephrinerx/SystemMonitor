@@ -122,6 +122,7 @@ internal static class Probe
         DescribeMain(text, shell);
         DescribeMainView(text, shell);
         DescribeApps(text, shell);
+        DescribeProcesses(text, shell);
         DescribeMemory(text, shell, snapshot);
         DescribeIntegrations(text, shell, snapshot);
 
@@ -361,6 +362,56 @@ internal static class Probe
                 $"cpu={Percent(app.CpuPercent)}  memory={MemoryBoard.Size(app.MemoryBytes)}  " +
                 $"gpu={Percent(app.GpuPercent)}  " +
                 $"gpu_memory={BytesOrDash(app.GpuMemoryBytes)}");
+        }
+        if (top.Count == 0)
+        {
+            text.AppendLine("    N/A");
+        }
+        text.AppendLine();
+    }
+
+    /// <summary>
+    /// The Processes grid's own report (R-030 phase C part 2): the header the
+    /// page draws, the saved sort, and the top five processes by memory. No
+    /// command line is printed.
+    /// </summary>
+    private static void DescribeProcesses(StringBuilder text, ShellModel shell)
+    {
+        IReadOnlyList<ProcessRow> rows = shell.Snapshot?.ProcessRows ?? ProcessRow.Empty;
+        GridColumn column = ProcessGrid.ParseColumn(shell.Config.ProcsSort, GridColumn.Memory);
+
+        text.AppendLine("Processes grid (R-030 phase C part 2)");
+        text.AppendLine(
+            $"  heading \"{shell.Language["processes"]}\"  " +
+            shell.Language.Get("procs_count", rows.Count));
+        text.AppendLine(
+            "  columns " + string.Join(
+                " · ",
+                new[]
+                {
+                    shell.Language["col_name"],
+                    shell.Language["col_pid"],
+                    shell.Language["col_user"],
+                    shell.Language["col_cpu"],
+                    shell.Language["col_memory"],
+                    shell.Language["col_gpu"],
+                    shell.Language["col_gpu_memory"],
+                    shell.Language["col_command"],
+                }));
+        text.AppendLine(
+            $"  search \"{shell.Language["procs_search"]}\"  " +
+            $"empty \"{shell.Language["procs_empty"]}\"  " +
+            $"sort={ProcessGrid.Key(column)} desc={shell.Config.ProcsSortDesc}");
+
+        IReadOnlyList<ProcessRow> top = ProcessGrid.Sort(rows, GridColumn.Memory, descending: true);
+        int shown = Math.Min(5, top.Count);
+        text.AppendLine($"  top {shown} by memory:");
+        foreach (ProcessRow row in top.Take(5))
+        {
+            text.AppendLine(
+                $"    {row.Name}  pid={row.Pid}  " +
+                $"user={(row.User.Length > 0 ? row.User : "—")}  " +
+                $"cpu={Percent(row.CpuPercent)}  memory={MemoryBoard.Size(row.MemoryBytes)}");
         }
         if (top.Count == 0)
         {

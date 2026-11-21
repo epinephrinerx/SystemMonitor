@@ -457,6 +457,50 @@ public sealed class ShellModel
         return true;
     }
 
+    /// <summary>
+    /// Sort the Processes grid by one column and remember it (R-030 phase C
+    /// part 2). The same rules as <see cref="SetAppsSort"/>: clicking the
+    /// current column reverses, a new numeric column starts highest first.
+    /// </summary>
+    public bool SetProcsSort(GridColumn column)
+    {
+        string key = ProcessGrid.Key(column);
+        bool descending = string.Equals(Config.ProcsSort, key, StringComparison.Ordinal)
+            ? !Config.ProcsSortDesc
+            : column is not GridColumn.Name;
+        if (string.Equals(Config.ProcsSort, key, StringComparison.Ordinal)
+            && Config.ProcsSortDesc == descending)
+        {
+            return true;
+        }
+
+        Config.ProcsSort = key;
+        Config.ProcsSortDesc = descending;
+        Save();
+        StructureChanged?.Invoke();
+        return true;
+    }
+
+    /// <summary>
+    /// The Processes grid's Close rule, from the row as it was drawn: another
+    /// user's process, PID 1 or 2, a kernel thread, an entry the kernel would
+    /// not describe, our own process, or a session-critical name. The same
+    /// rules <see cref="KillFlow"/> re-applies to a fresh reading when the
+    /// action actually runs, so this only decides which icon the row shows.
+    /// </summary>
+    public bool CanEndProcess(ProcessRow row) =>
+        !ProcessProtection.IsProtected(
+            new ProcessEntry
+            {
+                Pid = row.Pid,
+                Name = row.Name,
+                Uid = row.Uid,
+                Readable = row.Readable,
+                KernelThread = row.KernelThread,
+            },
+            _ownPid,
+            _ownUid);
+
     /// <summary>Filter the memory tab as the person types; the tables update live.</summary>
     public void SetMemoryQuery(string? query)
     {

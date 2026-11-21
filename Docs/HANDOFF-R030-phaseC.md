@@ -149,3 +149,31 @@ Same rules; no test edits; report tests to add for items 1–2 (model level).
    second click while a confirm is open does nothing.
 
 Same rules; no test edits; report tests to add for item 1.
+
+## Part 2 — Amendment 1 (Reviewer2)
+
+1. **P2 new rows under a frozen pointer** (`ProcessesView.cs` ~493): when a
+   key appears while the order is frozen, append it to `_frozenOrder` too, so
+   later samples keep it in place until the freeze ends. Apply the same check
+   to `AppsView` if it has the same gap.
+2. **P2 unknown start time** (~572): a row whose start time is null has no
+   verified identity. Give it a key that is not reused across samples for a
+   different process — e.g. `pid:?:<first-seen sample number>` cleared when
+   the PID disappears from a sample — and never carry busy state onto a row
+   whose identity cannot be verified (actions on it already go through the
+   kill flow's own identity check).
+3. **Command sorting — not required.** The user asked for sorting "ตามชื่อหรือ
+   resource ที่ใช้งาน" (by name or resource); Command stays unsortable.
+   Coding Owner records this in the plan; no code change.
+
+Same rules; no test edits.
+
+## Part 2 — Amendment 2 (Reviewer2 round 2)
+
+Unknown start time (`ProcessesView.cs` ~482): a reused PID seen in
+consecutive samples can still inherit the old row and its busy flag. Simplest
+safe rule: a row whose `StartTime` is null has **no actions** — Close and
+Restart are disabled with a tooltip (new string, Thai + English: "Cannot
+verify this process" / "ยืนยันตัวตนโปรเซสนี้ไม่ได้"), it can never become busy,
+and it has no busy state to inherit. Keep the key scheme from Amendment 1.
+Same rules; no test edits.
